@@ -3,11 +3,14 @@ package dev.railroadide.railroad.settings.keybinds;
 import dev.railroadide.core.settings.keybinds.Keybind;
 import dev.railroadide.core.settings.keybinds.KeybindCategory;
 import dev.railroadide.core.settings.keybinds.KeybindContexts;
+import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.ide.projectexplorer.PathItem;
 import dev.railroadide.railroad.ide.projectexplorer.ProjectExplorerPane;
+import dev.railroadide.railroad.window.WindowManager;
 import javafx.scene.control.TreeView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCombination;
+import javafx.stage.Stage;
 
 public class Keybinds {
     public static final Keybind COPY = KeybindHandler.registerKeybind(Keybind.builder()
@@ -30,6 +33,13 @@ public class Keybinds {
             TreeView<PathItem> tree = (TreeView<PathItem>) node;
             ProjectExplorerPane.paste(tree.getSelectionModel().getSelectedItem().getValue());
         })
+        .build());
+
+    public static final Keybind FULLSCREEN = KeybindHandler.registerKeybind(Keybind.builder()
+        .id("railroad:fullscreen")
+        .category(new KeybindCategory("railroad:general", "railroad.settings.keybinds.category.general"))
+        .addDefaultKey(KeyCode.F11)
+        .addAction(KeybindContexts.of("railroad:ide"), $ -> WindowManager.toggleFullScreen())
         .build());
 
     public static void initialize() {
