@@ -1,0 +1,31 @@
+initscript {
+    repositories {
+        mavenLocal()
+        maven { url 'https://maven.railroadide.dev/releases' }
+    }
+    dependencies {
+        classpath "dev.railroadide:download-sources-plugin:1.0.1"
+    }
+}
+
+// Apply the plugin to every project and disable Javadoc downloads for this action
+gradle.beforeProject { project ->
+    project.plugins.apply dev.railroadide.downloadsources.RailroadDownloadSourcesPlugin
+    project.extensions.configure(dev.railroadide.downloadsources.RailroadDownloadSourcesExtension) { ext ->
+        ext.downloadSources.set(true)
+        ext.downloadJavadoc.set(false)
+    }
+}
+
+// Aggregate a single root task that triggers downloads for all projects
+gradle.projectsLoaded { gradle ->
+    def root = gradle.rootProject
+    def aggregate = root.tasks.register("railroadDownloadAllSources") { task ->
+        task.group = "Documentation"
+        task.description = "Downloads sources for all projects using Railroad download-sources plugin."
+    }
+
+    root.allprojects { project ->
+        aggregate.configure { dependsOn(project.tasks.named("downloadDependencySources")) }
+    }
+}

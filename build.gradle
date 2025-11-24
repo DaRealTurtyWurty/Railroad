@@ -91,7 +91,7 @@ dependencies {
 
     implementation 'dev.railroadide:java-version-extractor-plugin:1.0.0'
     implementation 'dev.railroadide:fabric-extractor-plugin:1.0.0'
-    implementation 'dev.railroadide:download-sources-plugin:1.0.0'
+    implementation 'dev.railroadide:download-sources-plugin:1.0.1'
 
     implementation 'io.get-coursier:interface:1.0.29-M1'
     implementation 'org.eclipse.jgit:org.eclipse.jgit:7.4.0.202509020913-r'

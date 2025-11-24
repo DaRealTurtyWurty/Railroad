@@ -5,6 +5,7 @@ import dev.railroadide.core.ui.RRHBox;
 import dev.railroadide.core.ui.RRVBox;
 import dev.railroadide.core.ui.localized.LocalizedTab;
 import dev.railroadide.core.ui.localized.LocalizedTooltip;
+import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.GradleSettings;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroad.gradle.model.GradleModelListener;
@@ -47,9 +48,19 @@ public class GradleToolWindowPane extends RRVBox {
             "railroad.gradle.toolwindow.button.downloadsources.tooltip",
             "download-sources-button"
         );
-        // TODO: Enable when implemented
-//        downloadSourcesButton.setOnAction(event ->
-//            project.getGradleManager().getGradleModelService().downloadAllSources());
+        downloadSourcesButton.setOnAction(event -> {
+            Railroad.LOGGER.info("Downloading Gradle sources...");
+            downloadSourcesButton.setDisable(true);
+            gradleManager.downloadAllSources().whenComplete((ignored, throwable) -> {
+                if (throwable != null) {
+                    Railroad.LOGGER.error("Failed to download Gradle sources", throwable);
+                } else {
+                    Railroad.LOGGER.info("Gradle sources downloaded successfully");
+                }
+
+                Platform.runLater(() -> downloadSourcesButton.setDisable(false));
+            });
+        });
 
         var offlineIcon = new StackedFontIcon();
         offlineIcon.setIconCodes(FontAwesomeSolid.WIFI, FontAwesomeSolid.SLASH);
