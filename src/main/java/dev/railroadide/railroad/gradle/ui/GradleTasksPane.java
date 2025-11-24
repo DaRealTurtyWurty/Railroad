@@ -230,7 +230,7 @@ public class GradleTasksPane extends RRVBox {
                 setOnMouseClicked(event -> {
                     if (event.getClickCount() == 2 && !isEmpty()) {
                         if (item instanceof GradleTaskElement taskElement) {
-                            var runConfiguration = GradleTaskContextMenu.createRunConfig(
+                            var runConfiguration = GradleTaskContextMenu.getOrCreateRunConfig(
                                 taskElement.getProject(),
                                 taskElement.getTask()
                             );

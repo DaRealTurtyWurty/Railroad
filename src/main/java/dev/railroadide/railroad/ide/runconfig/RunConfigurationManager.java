@@ -37,6 +37,15 @@ public class RunConfigurationManager {
     }
 
     /**
+     * Set the selected run configuration.
+     *
+     * @param configuration The run configuration to select, or null to clear the selection.
+     */
+    public void setSelectedConfiguration(@Nullable RunConfiguration<?> configuration) {
+        this.selectedConfiguration.set(configuration);
+    }
+
+    /**
      * Remove a run configuration from this project.
      *
      * @param configuration The run configuration to remove.
