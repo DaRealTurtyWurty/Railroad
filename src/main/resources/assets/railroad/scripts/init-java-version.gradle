@@ -1,13 +1,14 @@
 initscript {
     repositories {
         mavenLocal()
+        maven { url 'https://maven.railroadide.dev/releases' }
     }
 
     dependencies {
-        classpath "dev.railroadide.railroad:javaversion:1.0.0"
+        classpath "dev.railroadide:java-version-extractor-plugin:1.0.0"
     }
 }
 
 allprojects {
-    apply plugin: dev.railroadide.railroad.javaversion.JavaVersionModelPlugin
+    apply plugin: dev.railroadide.javaVersionExtractorPlugin.JavaVersionModelPlugin
 }

@@ -58,6 +58,7 @@ public class RunConfigurationEditorPane extends RRVBox {
         this.centerContentContainer = new StackPane();
         this.editorSplitPane = createEditorSplitPane();
         this.selectedConfiguration.bindBidirectional(configurationTreeView.selectedConfigurationProperty());
+        this.selectedConfiguration.bindBidirectional(project.getRunConfigManager().getSelectedConfiguration());
 
         getStyleClass().add("run-configuration-editor-pane");
         initializeUI();

@@ -62,20 +62,12 @@ public class ToolingGradleModelService implements GradleModelService {
         this.executor = Objects.requireNonNull(executor);
     }
 
-    /**
-     * Adds a listener to be notified of model loading events.
-     *
-     * @param listener the listener to add
-     */
+    @Override
     public void addListener(GradleModelListener listener) {
         listeners.add(listener);
     }
 
-    /**
-     * Removes a previously added listener.
-     *
-     * @param listener the listener to remove
-     */
+    @Override
     public void removeListener(GradleModelListener listener) {
         listeners.remove(listener);
     }
@@ -94,7 +86,9 @@ public class ToolingGradleModelService implements GradleModelService {
 
             listeners.forEach(GradleModelListener::modelReloadStarted);
 
-            ongoingRefresh = CompletableFuture.supplyAsync(safely(this::loadModel), executor)
+            ongoingRefresh = CompletableFuture.supplyAsync(
+                    safely(() -> ToolingGradleModelService.loadModel(this.project, this.environment)),
+                    executor)
                 .orTimeout(modelTimeout.toMillis(), TimeUnit.MILLISECONDS)
                 .whenComplete((model, throwable) -> {
                     synchronized (lock) {
@@ -122,7 +116,7 @@ public class ToolingGradleModelService implements GradleModelService {
         return Optional.ofNullable(cachedModel.get());
     }
 
-    private GradleBuildModel loadModel() {
+    public static GradleBuildModel loadModel(Project project, GradleEnvironment environment) {
         GradleConnector connector = GradleConnector.newConnector()
             .forProjectDirectory(project.getPath().toFile());
         configureConnector(connector, environment);
@@ -175,6 +169,9 @@ public class ToolingGradleModelService implements GradleModelService {
      * @param environment the GradleEnvironment containing configuration settings
      */
     public static void configureConnector(GradleConnector connector, GradleEnvironment environment) {
+        if (environment == null || connector == null)
+            return;
+
         if (environment.useWrapper()) {
             connector.useBuildDistribution();
         } else {
@@ -186,13 +183,13 @@ public class ToolingGradleModelService implements GradleModelService {
         // environment.jvm().ifPresent(jvm -> connector.setJavaHome(jvm.javaHome().toFile()));
     }
 
-    private Path writeTaskArgumentsInitScript() throws IOException {
+    private static Path writeTaskArgumentsInitScript() throws IOException {
         Path scriptFile = Files.createTempFile("railroad-task-args-init", ".gradle");
         Files.writeString(scriptFile, loadTaskArgsInitScript(), StandardCharsets.UTF_8);
         return scriptFile;
     }
 
-    private Map<String, List<GradleTaskArgument>> readTaskArguments(Path outputFile) {
+    private static Map<String, List<GradleTaskArgument>> readTaskArguments(Path outputFile) {
         if (outputFile == null || !Files.isReadable(outputFile))
             return Collections.emptyMap();
 
@@ -213,7 +210,7 @@ public class ToolingGradleModelService implements GradleModelService {
                     return;
 
                 List<GradleTaskArgument> arguments = entries.stream()
-                    .map(this::mapArgument)
+                    .map(ToolingGradleModelService::mapArgument)
                     .filter(Objects::nonNull)
                     .toList();
 
@@ -226,7 +223,7 @@ public class ToolingGradleModelService implements GradleModelService {
         }
     }
 
-    private GradleTaskArgument mapArgument(TaskArgumentEntry entry) {
+    private static GradleTaskArgument mapArgument(TaskArgumentEntry entry) {
         if (entry == null || entry.name == null || entry.type == null)
             return null;
 
@@ -239,7 +236,7 @@ public class ToolingGradleModelService implements GradleModelService {
         return new GradleTaskArgument(entry.name, displayName, argType, defaultValue, description, enumValues);
     }
 
-    private GradleTaskArgType parseArgType(String type) {
+    private static GradleTaskArgType parseArgType(String type) {
         try {
             return GradleTaskArgType.valueOf(type);
         } catch (IllegalArgumentException exception) {
@@ -247,7 +244,7 @@ public class ToolingGradleModelService implements GradleModelService {
         }
     }
 
-    private void deleteIfExists(Path path) {
+    private static void deleteIfExists(Path path) {
         if (path == null)
             return;
 
@@ -257,7 +254,7 @@ public class ToolingGradleModelService implements GradleModelService {
         }
     }
 
-    private String loadTaskArgsInitScript() throws IOException {
+    private static String loadTaskArgsInitScript() throws IOException {
         try (var stream = AppResources.getResourceAsStream("scripts/init-task-args.gradle")) {
             if (stream == null)
                 throw new IOException("Missing init-task-args.gradle resource");

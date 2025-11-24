@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.gradle.service;
 
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
+import dev.railroadide.railroad.gradle.model.GradleModelListener;
 import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
 
 import java.util.List;
@@ -59,4 +60,18 @@ public interface GradleModelService {
             .filter(task -> task.path().equals(path))
             .findFirst();
     }
+
+    /**
+     * Adds a listener to be notified of model changes.
+     *
+     * @param listener the listener to add
+     */
+    void addListener(GradleModelListener listener);
+
+    /**
+     * Removes a previously added listener.
+     *
+     * @param listener the listener to remove
+     */
+    void removeListener(GradleModelListener listener);
 }

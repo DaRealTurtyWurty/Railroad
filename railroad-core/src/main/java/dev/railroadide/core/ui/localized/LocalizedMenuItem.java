@@ -4,6 +4,7 @@ import dev.railroadide.core.localization.LocalizationService;
 import dev.railroadide.core.settings.keybinds.KeybindData;
 import dev.railroadide.core.utility.DesktopUtils;
 import dev.railroadide.core.utility.ServiceLocator;
+import javafx.scene.Node;
 import javafx.scene.control.MenuItem;
 
 /**
@@ -22,6 +23,17 @@ public class LocalizedMenuItem extends MenuItem {
         super();
         setKey(key);
         setText(ServiceLocator.getService(LocalizationService.class).get(key));
+    }
+
+    /**
+     * Creates a new LocalizedMenuItem with the specified key and graphic.
+     *
+     * @param key     The localization key
+     * @param graphic The graphic node to display alongside the text
+     */
+    public LocalizedMenuItem(final String key, Node graphic) {
+        this(key);
+        setGraphic(graphic);
     }
 
     /**

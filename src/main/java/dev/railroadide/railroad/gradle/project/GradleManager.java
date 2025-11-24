@@ -41,6 +41,7 @@ public final class GradleManager {
     private GradleModelService modelService;
     private GradleExecutionService executionService;
     private GradleEnvironment environment;
+    private GradleSettings gradleSettings;
 
     /**
      * Creates a new Gradle manager for the given project.
@@ -92,10 +93,7 @@ public final class GradleManager {
 
         synchronized (lock) {
             if (environment == null) {
-                Facet<GradleFacetData> gradleFacet = project.getFacet(FacetManager.GRADLE).orElseThrow();
-                GradleFacetData gradleData = gradleFacet.getData();
-
-                GradleSettings settings = buildGradleSettings(gradleData);
+                GradleSettings settings = getGradleSettings();
                 Path gradleHome = discoverGradleInstallationPath();
 
                 environment = new DefaultGradleEnvironment(
@@ -106,6 +104,20 @@ public final class GradleManager {
             }
 
             return environment;
+        }
+    }
+
+    public GradleSettings getGradleSettings() {
+        ensureIsGradleProject();
+
+        synchronized (lock) {
+            if (gradleSettings == null) {
+                Facet<GradleFacetData> gradleFacet = project.getFacet(FacetManager.GRADLE).orElseThrow();
+                GradleFacetData gradleData = gradleFacet.getData();
+                gradleSettings = buildGradleSettings(gradleData);
+            }
+
+            return gradleSettings;
         }
     }
 
@@ -221,6 +233,28 @@ public final class GradleManager {
     private GradleInvocationPreferences loadGradleInvocationPreferences() {
         return project.getDataStore().readJson("gradle/settings.json", GradleInvocationPreferences.class)
             .orElseGet(GradleInvocationPreferences::defaults);
+    }
+
+    public void saveSettings() {
+        synchronized (lock) {
+            project.getDataStore().writeJson(
+                "gradle/settings.json",
+                new GradleInvocationPreferences(
+                    gradleSettings.isOfflineMode(),
+                    gradleSettings.isEnableBuildCache(),
+                    gradleSettings.isParallelExecution(),
+                    gradleSettings.isDaemonEnabled(),
+                    gradleSettings.getDaemonIdleTimeout() == null ? null : gradleSettings.getDaemonIdleTimeout().toMinutes(),
+                    gradleSettings.getMaxWorkerCount(),
+                    gradleSettings.getCustomGradleHome(),
+                    gradleSettings.getGradleUserHome()
+                )
+            );
+        }
+
+        synchronized (lock) {
+            this.environment = null; // Invalidate cached environment
+        }
     }
 
     // TODO: Support changing JDK at runtime (this would require recreating the execution service)

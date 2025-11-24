@@ -27,7 +27,7 @@ public final class JDK {
     private final String name;
     private final JavaVersion version;
     private final Brand brand;
-    private final JDKCLI cli;
+    private transient final JDKCLI cli;
 
     /**
      * Constructs a new {@code JDK} instance with the specified path, name, version, and brand.

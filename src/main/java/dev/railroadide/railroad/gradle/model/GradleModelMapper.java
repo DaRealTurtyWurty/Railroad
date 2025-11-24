@@ -31,16 +31,19 @@ public class GradleModelMapper {
      */
     public static GradleProjectModel mapProject(GradleProject project, Map<String, List<GradleTaskArgument>> argumentsByPath) {
         List<GradleTaskModel> tasks = new ArrayList<>();
-        for (GradleTask task : project.getTasks()) {
-            tasks.add(mapTask(task, argumentsByPath));
-        }
 
-        return new GradleProjectModel(
+        var gradleProjectModel = new GradleProjectModel(
             project.getPath(),
             project.getName(),
             project.getProjectDirectory().toPath(),
             tasks
         );
+
+        for (GradleTask task : project.getTasks()) {
+            tasks.add(mapTask(task, gradleProjectModel, argumentsByPath));
+        }
+
+        return gradleProjectModel;
     }
 
     /**
@@ -74,8 +77,9 @@ public class GradleModelMapper {
      * @param argumentsByPath a map of task paths to their respective arguments.
      * @return the mapped GradleTaskModel.
      */
-    public static GradleTaskModel mapTask(GradleTask task, Map<String, List<GradleTaskArgument>> argumentsByPath) {
+    public static GradleTaskModel mapTask(GradleTask task, GradleProjectModel project, Map<String, List<GradleTaskArgument>> argumentsByPath) {
         return new GradleTaskModel(
+            project,
             task.getPath(),
             task.getName(),
             task.getGroup(),

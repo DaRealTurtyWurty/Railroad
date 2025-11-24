@@ -8,6 +8,7 @@ import dev.railroadide.core.ui.RRHBox;
 import dev.railroadide.core.ui.RRVBox;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.Services;
+import dev.railroadide.railroad.gradle.ui.GradleToolWindowPane;
 import dev.railroadide.railroad.ide.projectexplorer.ProjectExplorerPane;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.ui.RunConfigurationEditorPane;
@@ -15,9 +16,16 @@ import dev.railroadide.railroad.ide.ui.ConsolePane;
 import dev.railroadide.railroad.ide.ui.IDEWelcomePane;
 import dev.railroadide.railroad.ide.ui.ImageViewerPane;
 import dev.railroadide.railroad.ide.ui.StatusBarPane;
-import dev.railroadide.railroad.ide.ui.setup.*;
+import dev.railroadide.railroad.ide.ui.setup.IDEMenuBarFactory;
+import dev.railroadide.railroad.ide.ui.setup.PaneIconBarFactory;
+import dev.railroadide.railroad.ide.ui.setup.RunControlsPane;
+import dev.railroadide.railroad.ide.ui.setup.TerminalFactory;
+import dev.railroadide.railroad.project.FacetDetectedEvent;
 import dev.railroadide.railroad.project.Project;
+import dev.railroadide.railroad.project.facet.Facet;
+import dev.railroadide.railroad.project.facet.FacetManager;
 import dev.railroadide.railroad.settings.keybinds.KeybindHandler;
+import dev.railroadide.railroad.utility.icon.RailroadBrandsIcon;
 import dev.railroadide.railroad.window.WindowBuilder;
 import dev.railroadide.railroadpluginapi.events.ProjectEvent;
 import javafx.application.Platform;
@@ -60,7 +68,6 @@ public class IDESetup {
         leftPane.addTab("Project", new ProjectExplorerPane(project, root));
 
         var rightPane = new DetachableTabPane();
-        rightPane.addTab("Properties", NotImplementedPaneFactory.create());
 
         var editorPane = new DetachableTabPane();
         editorPane.addTab("Welcome", new IDEWelcomePane());
@@ -78,20 +85,34 @@ public class IDESetup {
         mainSplit.setDividerPositions(0.15, 0.85);
         root.setCenter(mainSplit);
 
+        Railroad.EVENT_BUS.subscribe(FacetDetectedEvent.class, event -> {
+            if (event.project() != project)
+                return;
+
+            Platform.runLater(() -> {
+                Facet<?> facet = event.facet();
+                if (facet.getType() == FacetManager.GRADLE) {
+                    if (rightPane.getTabs().stream().noneMatch(tab -> tab.getContent() instanceof GradleToolWindowPane)) {
+                        rightPane.addTab("Gradle", new GradleToolWindowPane(project));
+
+                        root.setRight(PaneIconBarFactory.create(
+                            rightPane,
+                            mainSplit,
+                            Orientation.VERTICAL,
+                            2,
+                            Map.of("Gradle", RailroadBrandsIcon.GRADLE.getDescription())
+                        ));
+                    }
+                }
+            });
+        });
+
         root.setLeft(PaneIconBarFactory.create(
             leftPane,
             mainSplit,
             Orientation.VERTICAL,
             0,
             Map.of("Project", FontAwesomeSolid.FOLDER.getDescription())
-        ));
-
-        root.setRight(PaneIconBarFactory.create(
-            rightPane,
-            mainSplit,
-            Orientation.VERTICAL,
-            2,
-            Map.of("Properties", FontAwesomeSolid.INFO_CIRCLE.getDescription())
         ));
 
         var bottomBar = new RRVBox();

@@ -1,0 +1,39 @@
+.gradle-tasks-tree-view {
+    -fx-border-width: 0;
+}
+
+.gradle-tasks-project-element {
+    -fx-icon-color: #26c77c !important;
+}
+
+.gradle-tasks-group-element {
+    -fx-icon-color: #ddc03a !important;
+}
+
+.gradle-tasks-task-element {
+    -fx-icon-color: #3a7bdd !important;
+}
+
+.sync-button .ikonli-font-icon {
+    -fx-icon-color: #26c77c !important;
+}
+
+.sync-button:hover .ikonli-font-icon {
+    -fx-icon-color: #1ea66a !important;
+}
+
+.download-sources-button .ikonli-font-icon {
+    -fx-icon-color: #3a7bdd !important;
+}
+
+.download-sources-button:hover .ikonli-font-icon {
+    -fx-icon-color: #2e5fbf !important;
+}
+
+.toggle-offline-mode-button .stacked-ikonli-font-icon {
+    -fx-icon-color: #ddc03a !important;
+}
+
+.toggle-offline-mode-button:hover .stacked-ikonli-font-icon {
+    -fx-icon-color: #bfa831 !important;
+}
