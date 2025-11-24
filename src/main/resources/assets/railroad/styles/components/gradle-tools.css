@@ -1,8 +1,8 @@
-.gradle-tasks-tree-view {
+.gradle-tool-content-pane {
     -fx-border-width: 0;
 }
 
-.gradle-tasks-project-element {
+.gradle-project-element {
     -fx-icon-color: #26c77c !important;
 }
 
@@ -10,7 +10,7 @@
     -fx-icon-color: #ddc03a !important;
 }
 
-.gradle-tasks-task-element {
+.gradle-task-element {
     -fx-icon-color: #3a7bdd !important;
 }
 

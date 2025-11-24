@@ -8,7 +8,7 @@ import dev.railroadide.core.ui.RRHBox;
 import dev.railroadide.core.ui.RRVBox;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.Services;
-import dev.railroadide.railroad.gradle.ui.GradleToolWindowPane;
+import dev.railroadide.railroad.gradle.ui.GradleToolsPane;
 import dev.railroadide.railroad.ide.projectexplorer.ProjectExplorerPane;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.ui.RunConfigurationEditorPane;
@@ -92,8 +92,8 @@ public class IDESetup {
             Platform.runLater(() -> {
                 Facet<?> facet = event.facet();
                 if (facet.getType() == FacetManager.GRADLE) {
-                    if (rightPane.getTabs().stream().noneMatch(tab -> tab.getContent() instanceof GradleToolWindowPane)) {
-                        rightPane.addTab("Gradle", new GradleToolWindowPane(project));
+                    if (rightPane.getTabs().stream().noneMatch(tab -> tab.getContent() instanceof GradleToolsPane)) {
+                        rightPane.addTab("Gradle", new GradleToolsPane(project));
 
                         root.setRight(PaneIconBarFactory.create(
                             rightPane,

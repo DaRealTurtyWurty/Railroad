@@ -3,7 +3,10 @@ package dev.railroadide.railroad.gradle.service.impl;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
+import dev.railroadide.locatedependencies.ConfigurationTree;
+import dev.railroadide.locatedependencies.DependenciesModel;
 import dev.railroadide.railroad.AppResources;
+import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.GradleEnvironment;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroad.gradle.model.GradleModelListener;
@@ -22,9 +25,11 @@ import org.gradle.tooling.model.build.BuildEnvironment;
 import org.gradle.tooling.model.gradle.GradleBuild;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -153,12 +158,42 @@ public class ToolingGradleModelService implements GradleModelService {
                 deleteIfExists(taskArgumentsPath);
             }
 
+            List<ConfigurationTree> dependencies = new ArrayList<>();
+            try {
+                initScriptPath = writeLocateDependenciesInitScript();
+                ModelBuilder<DependenciesModel> dependenciesModelBuilder = connection.model(DependenciesModel.class)
+                    .withArguments(
+                        "--init-script", initScriptPath.toAbsolutePath().toString()
+                    );
+
+                DependenciesModel dependenciesModel = dependenciesModelBuilder.get();
+                if (dependenciesModel != null) {
+                    dependencies.addAll(dependenciesModel.dependencyTrees());
+                }
+            } catch (Exception exception) {
+                Railroad.LOGGER.warn("Failed to load project configurations for dependencies", exception);
+            } finally {
+                deleteIfExists(initScriptPath);
+            }
+
             List<GradleProjectModel> projects = new ArrayList<>();
             if (rootGradleProject != null) {
-                GradleModelMapper.collectProjects(rootGradleProject, projects, taskArguments);
+                GradleModelMapper.collectProjects(rootGradleProject, projects, taskArguments, dependencies);
             }
 
             return new GradleBuildModel(gradleVersion, rootDir, projects);
+        }
+    }
+
+    private static Path writeLocateDependenciesInitScript() throws IOException {
+        try (InputStream inputStream = AppResources.getResourceAsStream("scripts/init-locate-dependencies.gradle")) {
+            if (inputStream == null)
+                throw new IllegalStateException("init script resource missing");
+
+            Path tempFile = Files.createTempFile("init-locate-dependencies", ".gradle");
+            Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            tempFile.toFile().deleteOnExit();
+            return tempFile;
         }
     }
 

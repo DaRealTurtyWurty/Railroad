@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.gradle.service;
 
+import dev.railroadide.locatedependencies.ConfigurationTree;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroad.gradle.model.GradleModelListener;
 import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
@@ -34,6 +35,17 @@ public interface GradleModelService {
             .stream()
             .flatMap(projects -> projects.stream()
                 .flatMap(project -> project.tasks().stream()))
+            .toList();
+    }
+
+    /**
+     * @return every configuration from the most recently cached model, or an empty list if no model is loaded
+     */
+    default List<ConfigurationTree> getAllConfigurations() {
+        return getCachedModel().map(GradleBuildModel::projects)
+            .stream()
+            .flatMap(projects -> projects.stream()
+                .flatMap(project -> project.configurationTrees().stream()))
             .toList();
     }
 

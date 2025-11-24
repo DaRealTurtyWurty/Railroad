@@ -151,15 +151,15 @@ railroad.runconfig.shell_script.configuration.interpreterArgs.prompt=Arguments s
 railroad.runconfig.shell_script.configuration.executeInTerminal.label=Run in terminal
 
 # =============================================================================
-# Gradle Toolwindow
+# Gradle Tools
 # =============================================================================
-railroad.gradle.toolwindow.tasks=Tasks
-railroad.gradle.toolwindow.dependencies=Dependencies
-railroad.gradle.toolwindow.button.sync.tooltip=Sync Gradle Project
-railroad.gradle.toolwindow.button.downloadsources.tooltip=Download Sources
-railroad.gradle.toolwindow.button.toggleoffline.tooltip=Toggle Offline Mode
-railroad.gradle.toolwindow.ctx_menu.open_gradle_config=Open Gradle Configuration
-railroad.gradle.toolwindow.ctx_menu.sync=Sync Gradle Project
+railroad.gradle.tools.tasks=Tasks
+railroad.gradle.tools.dependencies=Dependencies
+railroad.gradle.tools.button.sync.tooltip=Sync Gradle Project
+railroad.gradle.tools.button.downloadsources.tooltip=Download Sources
+railroad.gradle.tools.button.toggleoffline.tooltip=Toggle Offline Mode
+railroad.gradle.tools.ctx_menu.open_gradle_config=Open Gradle Configuration
+railroad.gradle.tools.ctx_menu.sync=Sync Gradle Project
 
 # =============================================================================
 # HOME/WELCOME SCREEN

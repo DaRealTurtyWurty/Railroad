@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.gradle.ui;
+package dev.railroadide.railroad.gradle.ui.task;
 
 import dev.railroadide.core.ui.localized.LocalizedMenuItem;
 import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
@@ -41,7 +41,14 @@ public class GradleTaskContextMenu extends ContextMenu {
         getItems().addAll(runItem, debugItem);
     }
 
-    static @NotNull RunConfiguration<GradleRunConfigurationData> getOrCreateRunConfig(Project project, GradleTaskModel task) {
+    /**
+     * Get an existing run configuration for the given Gradle task, or create a new one if it doesn't exist.
+     *
+     * @param project the current project
+     * @param task    the Gradle task
+     * @return the run configuration
+     */
+    public static @NotNull RunConfiguration<GradleRunConfigurationData> getOrCreateRunConfig(Project project, GradleTaskModel task) {
         RunConfigurationManager runConfigManager = project.getRunConfigManager();
         @SuppressWarnings("unchecked")
         Optional<RunConfiguration<GradleRunConfigurationData>> existingRunConfig = runConfigManager.getConfigurations().stream()
@@ -52,7 +59,14 @@ public class GradleTaskContextMenu extends ContextMenu {
         return existingRunConfig.orElseGet(() -> createRunConfig(task, runConfigManager));
     }
 
-    static @NotNull RunConfiguration<GradleRunConfigurationData> createRunConfig(GradleTaskModel task, RunConfigurationManager runConfigManager) {
+    /**
+     * Create a new run configuration for the given Gradle task.
+     *
+     * @param task             the Gradle task
+     * @param runConfigManager the run configuration manager
+     * @return the newly created run configuration
+     */
+    public static @NotNull RunConfiguration<GradleRunConfigurationData> createRunConfig(GradleTaskModel task, RunConfigurationManager runConfigManager) {
         var configurationData = new GradleRunConfigurationData();
         configurationData.setGradleProjectPath(task.project().projectDir());
         configurationData.setTask(task.name());
@@ -65,8 +79,16 @@ public class GradleTaskContextMenu extends ContextMenu {
         return runConfiguration;
     }
 
-    static boolean hasExistingRunConfig(GradleTaskModel task, RunConfiguration<?> configuration) {
-        if (configuration.type() != RunConfigurationTypes.GRADLE) return false;
+    /**
+     * Check if the given run configuration corresponds to the given Gradle task.
+     *
+     * @param task          the Gradle task
+     * @param configuration the run configuration
+     * @return true if the run configuration corresponds to the Gradle task, false otherwise
+     */
+    public static boolean hasExistingRunConfig(GradleTaskModel task, RunConfiguration<?> configuration) {
+        if (configuration.type() != RunConfigurationTypes.GRADLE)
+            return false;
 
         var data = (GradleRunConfigurationData) configuration.data();
         return data.getGradleProjectPath().equals(task.project().projectDir()) && data.getTask().equals(task.name());

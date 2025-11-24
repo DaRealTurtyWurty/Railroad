@@ -1,0 +1,14 @@
+initscript {
+    repositories {
+        mavenLocal()
+        maven { url 'https://maven.railroadide.dev/releases' }
+    }
+
+    dependencies {
+        classpath "dev.railroadide:dependencies-plugin:1.0.4"
+    }
+}
+
+allprojects {
+    apply plugin: dev.railroadide.locatedependencies.DependenciesPlugin
+}

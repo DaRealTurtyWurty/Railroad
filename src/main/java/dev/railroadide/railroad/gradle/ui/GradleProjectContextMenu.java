@@ -21,7 +21,7 @@ public class GradleProjectContextMenu extends ContextMenu {
     public GradleProjectContextMenu(Project project, GradleProjectModel gradleProject) {
         super();
 
-        var openGradleConfig = new LocalizedMenuItem("railroad.gradle.toolwindow.ctx_menu.open_gradle_config", new FontIcon(RailroadBrandsIcon.GRADLE));
+        var openGradleConfig = new LocalizedMenuItem("railroad.gradle.tools.ctx_menu.open_gradle_config", new FontIcon(RailroadBrandsIcon.GRADLE));
         openGradleConfig.setOnAction(event -> {
             Path buildFile = findBuildScript(gradleProject);
             if (buildFile == null)
@@ -37,7 +37,7 @@ public class GradleProjectContextMenu extends ContextMenu {
             }
         });
 
-        var syncItem = new LocalizedMenuItem("railroad.gradle.toolwindow.ctx_menu.sync", new FontIcon(FontAwesomeSolid.SYNC));
+        var syncItem = new LocalizedMenuItem("railroad.gradle.tools.ctx_menu.sync", new FontIcon(FontAwesomeSolid.SYNC));
         syncItem.setOnAction(event -> project.getGradleManager().getGradleModelService().refreshModel(true));
 
         getItems().addAll(openGradleConfig, syncItem);

@@ -10,6 +10,8 @@ import dev.railroadide.railroad.gradle.GradleSettings;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroad.gradle.model.GradleModelListener;
 import dev.railroadide.railroad.gradle.project.GradleManager;
+import dev.railroadide.railroad.gradle.ui.deps.GradleDependenciesPane;
+import dev.railroadide.railroad.gradle.ui.task.GradleTasksPane;
 import dev.railroadide.railroad.project.Project;
 import javafx.application.Platform;
 import javafx.scene.Node;
@@ -23,21 +25,21 @@ import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 import org.kordamp.ikonli.javafx.StackedFontIcon;
 
 @Getter
-public class GradleToolWindowPane extends RRVBox {
+public class GradleToolsPane extends RRVBox {
     private final TabPane tabPane;
     private final Tab tasksTab;
     private final Tab dependenciesTab;
 
-    public GradleToolWindowPane(Project project) {
+    public GradleToolsPane(Project project) {
         super();
-        getStyleClass().add("gradle-toolwindow-pane");
+        getStyleClass().add("gradle-tools-pane");
 
         GradleManager gradleManager = project.getGradleManager();
         var modelService = gradleManager.getGradleModelService();
 
         var syncButton = createButtonBarButton(
             FontAwesomeSolid.SYNC,
-            "railroad.gradle.toolwindow.button.sync.tooltip",
+            "railroad.gradle.tools.button.sync.tooltip",
             "sync-button"
         );
         syncButton.setOnAction(event ->
@@ -45,7 +47,7 @@ public class GradleToolWindowPane extends RRVBox {
 
         var downloadSourcesButton = createButtonBarButton(
             FontAwesomeSolid.DOWNLOAD,
-            "railroad.gradle.toolwindow.button.downloadsources.tooltip",
+            "railroad.gradle.tools.button.downloadsources.tooltip",
             "download-sources-button"
         );
         downloadSourcesButton.setOnAction(event -> {
@@ -66,7 +68,7 @@ public class GradleToolWindowPane extends RRVBox {
         offlineIcon.setIconCodes(FontAwesomeSolid.WIFI, FontAwesomeSolid.SLASH);
         var toggleOfflineButton = createButtonBarButton(
             offlineIcon,
-            "railroad.gradle.toolwindow.button.toggleoffline.tooltip",
+            "railroad.gradle.tools.button.toggleoffline.tooltip",
             "toggle-offline-button",
             true
         );
@@ -105,15 +107,15 @@ public class GradleToolWindowPane extends RRVBox {
         modelService.addListener(listener);
 
         var buttonBar = new RRHBox(2, syncButton, downloadSourcesButton, toggleOfflineButton);
-        buttonBar.getStyleClass().add("gradle-toolwindow-buttonbar");
+        buttonBar.getStyleClass().add("gradle-tools-buttonbar");
 
         getChildren().add(buttonBar);
 
-        this.tasksTab = new LocalizedTab("railroad.gradle.toolwindow.tasks", new GradleTasksPane(project));
-        this.dependenciesTab = new LocalizedTab("railroad.gradle.toolwindow.dependencies"/*, new GradleDependenciesPane(project)*/);
+        this.tasksTab = new LocalizedTab("railroad.gradle.tools.tasks", new GradleTasksPane(project));
+        this.dependenciesTab = new LocalizedTab("railroad.gradle.tools.dependencies", new GradleDependenciesPane(project));
 
         this.tabPane = new TabPane(tasksTab, dependenciesTab);
-        tabPane.getStyleClass().add("gradle-toolwindow-tabpane");
+        tabPane.getStyleClass().add("gradle-tools-tabpane");
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         getChildren().add(tabPane);
         VBox.setVgrow(tabPane, Priority.ALWAYS);
@@ -125,7 +127,7 @@ public class GradleToolWindowPane extends RRVBox {
         button.setButtonSize(RRButton.ButtonSize.SMALL);
         button.setVariant(RRButton.ButtonVariant.GHOST);
         button.setTooltip(new LocalizedTooltip(tooltipKey));
-        button.getStyleClass().addAll("gradle-toolwindow-buttonbar-button", styleClass);
+        button.getStyleClass().addAll("gradle-tools-buttonbar-button", styleClass);
         return button;
     }
 
@@ -135,7 +137,7 @@ public class GradleToolWindowPane extends RRVBox {
         button.setButtonSize(RRButton.ButtonSize.SMALL);
         button.setVariant(RRButton.ButtonVariant.GHOST);
         button.setTooltip(new LocalizedTooltip(tooltipKey));
-        button.getStyleClass().addAll("gradle-toolwindow-buttonbar-button", styleClass);
+        button.getStyleClass().addAll("gradle-tools-buttonbar-button", styleClass);
         return button;
     }
 

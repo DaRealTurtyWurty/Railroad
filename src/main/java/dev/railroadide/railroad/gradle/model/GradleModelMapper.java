@@ -1,42 +1,37 @@
 package dev.railroadide.railroad.gradle.model;
 
+import dev.railroadide.locatedependencies.ConfigurationTree;
 import dev.railroadide.railroad.gradle.model.task.GradleTaskArgument;
 import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
 import org.gradle.tooling.model.GradleProject;
 import org.gradle.tooling.model.GradleTask;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * Utility class for mapping Gradle project and task models.
  */
 public class GradleModelMapper {
-
-    /**
-     * Maps a Gradle project to a GradleProjectModel without task arguments.
-     *
-     * @param project the Gradle project to map.
-     * @return the mapped GradleProjectModel.
-     */
-    public static GradleProjectModel mapProject(GradleProject project) {
-        return mapProject(project, Collections.emptyMap());
-    }
-
     /**
      * Maps a Gradle project to a GradleProjectModel, including task arguments.
      *
-     * @param project         the Gradle project to map.
-     * @param argumentsByPath a map of task paths to their respective arguments.
+     * @param project            the Gradle project to map.
+     * @param argumentsByPath    a map of task paths to their respective arguments.
+     * @param configurationTrees a list of configuration trees for dependencies.
      * @return the mapped GradleProjectModel.
      */
-    public static GradleProjectModel mapProject(GradleProject project, Map<String, List<GradleTaskArgument>> argumentsByPath) {
+    public static GradleProjectModel mapProject(GradleProject project, Map<String, List<GradleTaskArgument>> argumentsByPath, List<ConfigurationTree> configurationTrees) {
         List<GradleTaskModel> tasks = new ArrayList<>();
 
         var gradleProjectModel = new GradleProjectModel(
             project.getPath(),
             project.getName(),
             project.getProjectDirectory().toPath(),
-            tasks
+            tasks,
+            configurationTrees
         );
 
         for (GradleTask task : project.getTasks()) {
@@ -47,26 +42,17 @@ public class GradleModelMapper {
     }
 
     /**
-     * Collects Gradle projects into a list of GradleProjectModel without task arguments.
-     *
-     * @param project   the root Gradle project.
-     * @param collected the list to collect the mapped GradleProjectModel instances.
-     */
-    public static void collectProjects(GradleProject project, List<GradleProjectModel> collected) {
-        collectProjects(project, collected, Collections.emptyMap());
-    }
-
-    /**
      * Collects Gradle projects into a list of GradleProjectModel, including task arguments.
      *
-     * @param project         the root Gradle project.
-     * @param collected       the list to collect the mapped GradleProjectModel instances.
-     * @param argumentsByPath a map of task paths to their respective arguments.
+     * @param project            the root Gradle project.
+     * @param collected          the list to collect the mapped GradleProjectModel instances.
+     * @param argumentsByPath    a map of task paths to their respective arguments.
+     * @param configurationTrees a list of configuration trees for dependencies.
      */
-    public static void collectProjects(GradleProject project, List<GradleProjectModel> collected, Map<String, List<GradleTaskArgument>> argumentsByPath) {
-        collected.add(mapProject(project, argumentsByPath));
+    public static void collectProjects(GradleProject project, List<GradleProjectModel> collected, Map<String, List<GradleTaskArgument>> argumentsByPath, List<ConfigurationTree> configurationTrees) {
+        collected.add(mapProject(project, argumentsByPath, configurationTrees));
         for (GradleProject child : project.getChildren()) {
-            collectProjects(child, collected, argumentsByPath);
+            collectProjects(child, collected, argumentsByPath, configurationTrees);
         }
     }
 
