@@ -1,14 +1,14 @@
 package dev.railroadide.railroad.gradle.ui.task;
 
-import dev.railroadide.railroad.gradle.model.GradleProjectModel;
-import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
-import dev.railroadide.railroad.gradle.ui.*;
+import dev.railroadide.railroad.gradle.ui.GradleTreeBuilder;
 import dev.railroadide.railroad.gradle.ui.tree.GradleProjectElement;
 import dev.railroadide.railroad.gradle.ui.tree.GradleTaskElement;
 import dev.railroadide.railroad.gradle.ui.tree.GradleTaskGroupElement;
 import dev.railroadide.railroad.gradle.ui.tree.GradleTreeElement;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.utility.StringUtils;
+import dev.railroadide.railroadplugin.dto.RailroadGradleTask;
+import dev.railroadide.railroadplugin.dto.RailroadModule;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.scene.control.TreeItem;
@@ -17,28 +17,29 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-public class GradleTaskTreeBuilder implements GradleTreeBuilder<GradleTaskModel> {
+public class GradleTaskTreeBuilder implements GradleTreeBuilder<RailroadGradleTask> {
     @Override
-    public TreeItem<GradleTreeElement> buildTree(Project project, ObservableList<GradleTaskModel> elements) {
+    public TreeItem<GradleTreeElement> buildTree(Project project, ObservableList<RailroadGradleTask> elements) {
         TreeItem<GradleTreeElement> root = new TreeItem<>();
 
-        Map<GradleProjectModel, List<GradleTaskModel>> tasksByProject = elements.stream()
-            .collect(Collectors.groupingBy(GradleTaskModel::project));
+        Map<RailroadModule, List<RailroadGradleTask>> tasksByProject = elements.stream()
+            .collect(Collectors.groupingBy(RailroadGradleTask::module));
 
-        Map<String, GradleProjectModel> projectsByPath = tasksByProject.keySet().stream()
-            .collect(Collectors.toMap(GradleProjectModel::path, Function.identity()));
+        Map<String, RailroadModule> projectsByPath = tasksByProject.keySet().stream()
+            .collect(Collectors.toMap(RailroadModule::getPath, Function.identity()));
 
-        Map<String, TreeItem<GradleTreeElement>> projectNodes = new HashMap<>();
+        Map<String, TreeItem<GradleTreeElement>> projectNodes = new ConcurrentHashMap<>();
 
-        for (GradleProjectModel gradleProjectModel : tasksByProject.keySet()) {
-            ensureProjectNode(project, gradleProjectModel, projectsByPath, projectNodes, root);
+        for (RailroadModule module : tasksByProject.keySet()) {
+            ensureProjectNode(project, module, projectsByPath, projectNodes, root);
         }
 
-        for (Map.Entry<GradleProjectModel, List<GradleTaskModel>> entry : tasksByProject.entrySet()) {
-            TreeItem<GradleTreeElement> projectNode = projectNodes.get(entry.getKey().path());
+        for (Map.Entry<RailroadModule, List<RailroadGradleTask>> entry : tasksByProject.entrySet()) {
+            TreeItem<GradleTreeElement> projectNode = projectNodes.get(entry.getKey().getPath());
             if (projectNode == null)
                 continue;
 
@@ -51,45 +52,45 @@ public class GradleTaskTreeBuilder implements GradleTreeBuilder<GradleTaskModel>
 
     private TreeItem<GradleTreeElement> ensureProjectNode(
         Project project,
-        GradleProjectModel gradleProject,
-        Map<String, GradleProjectModel> projectsByPath,
+        RailroadModule module,
+        Map<String, RailroadModule> projectsByPath,
         Map<String, TreeItem<GradleTreeElement>> projectNodes,
         TreeItem<GradleTreeElement> root
     ) {
-        return projectNodes.computeIfAbsent(gradleProject.path(), path -> {
+        return projectNodes.computeIfAbsent(module.getPath(), path -> {
             TreeItem<GradleTreeElement> parentNode = root;
             String parentPath = getParentProjectPath(path);
             if (parentPath != null) {
-                GradleProjectModel parentProject = projectsByPath.get(parentPath);
+                RailroadModule parentProject = projectsByPath.get(parentPath);
                 if (parentProject != null) {
                     parentNode = ensureProjectNode(project, parentProject, projectsByPath, projectNodes, root);
                 }
             }
 
             TreeItem<GradleTreeElement> node =
-                new TreeItem<>(new GradleProjectElement(project, gradleProject));
+                new TreeItem<>(new GradleProjectElement(project, module));
             parentNode.getChildren().add(node);
             return node;
         });
     }
 
     private void addTasksToProjectNode(Project project, TreeItem<GradleTreeElement> projectNode,
-                                       List<GradleTaskModel> projectTasks) {
-        Map<String, List<GradleTaskModel>> tasksByGroup = projectTasks.stream()
+                                       List<RailroadGradleTask> projectTasks) {
+        Map<String, List<RailroadGradleTask>> tasksByGroup = projectTasks.stream()
             .collect(Collectors.groupingBy(task -> {
-                String group = task.group();
+                String group = task.getGroup();
                 return group == null ? "<no-group>" : StringUtils.capitalizeFirstLetterOfEachWord(group);
             }, HashMap::new, Collectors.toList()));
 
-        for (Map.Entry<String, List<GradleTaskModel>> groupEntry : tasksByGroup.entrySet()) {
+        for (Map.Entry<String, List<RailroadGradleTask>> groupEntry : tasksByGroup.entrySet()) {
             String groupName = groupEntry.getKey();
-            List<GradleTaskModel> groupTasks = groupEntry.getValue();
+            List<RailroadGradleTask> groupTasks = groupEntry.getValue();
 
             TreeItem<GradleTreeElement> groupNode = new TreeItem<>(
                 new GradleTaskGroupElement(groupName));
             projectNode.getChildren().add(groupNode);
 
-            for (GradleTaskModel task : groupTasks) {
+            for (RailroadGradleTask task : groupTasks) {
                 TreeItem<GradleTreeElement> taskNode =
                     new TreeItem<>(new GradleTaskElement(project, task));
                 groupNode.getChildren().add(taskNode);

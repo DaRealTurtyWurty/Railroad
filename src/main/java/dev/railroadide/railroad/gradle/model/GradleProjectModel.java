@@ -1,7 +1,7 @@
 package dev.railroadide.railroad.gradle.model;
 
-import dev.railroadide.locatedependencies.ConfigurationTree;
-import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
+import dev.railroadide.railroadplugin.dto.RailroadConfiguration;
+import dev.railroadide.railroadplugin.dto.RailroadGradleTask;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -16,5 +16,5 @@ import java.util.List;
  * @param configurationTrees the configuration trees for dependencies in this project
  */
 public record GradleProjectModel(String path, String name, Path projectDir,
-                                 List<GradleTaskModel> tasks, List<ConfigurationTree> configurationTrees) {
+                                 List<? extends RailroadGradleTask> tasks, List<? extends RailroadConfiguration> configurationTrees) {
 }

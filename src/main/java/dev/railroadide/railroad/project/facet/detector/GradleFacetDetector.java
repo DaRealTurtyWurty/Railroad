@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.project.facet.detector;
 
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.project.facet.Facet;
 import dev.railroadide.railroad.project.facet.FacetDetector;
 import dev.railroadide.railroad.project.facet.FacetManager;
@@ -16,25 +17,26 @@ import java.util.Optional;
  * Detects the presence of Gradle build system support in a project directory by searching for build.gradle or build.gradle.kts files.
  * This detector is used by the facet system to identify Gradle projects and extract relevant configuration data.
  */
+// TODO: Rewrite this to use the gradle manager
 public class GradleFacetDetector implements FacetDetector<GradleFacetData> {
     public static final List<String> BUILD_FILES = List.of("build.gradle", "build.gradle.kts");
 
     /**
      * Detects a Gradle facet in the given path by searching for build.gradle or build.gradle.kts files and reading Gradle version info.
      *
-     * @param path the project directory to analyze
+     * @param project the project to inspect
      * @return an Optional containing the Gradle facet if detected, or empty if not found
      */
     @Override
-    public Optional<Facet<GradleFacetData>> detect(@NotNull Path path) {
+    public Optional<Facet<GradleFacetData>> detect(Project project) {
         for (String buildFile : BUILD_FILES) {
-            Path buildFilePath = path.resolve(buildFile);
+            Path buildFilePath = project.getPath().resolve(buildFile);
             if (Files.exists(buildFilePath)) {
                 var data = new GradleFacetData();
                 String buildFilePathStr = buildFilePath.toString();
                 boolean isKts = buildFile.endsWith(".kts");
                 String gradleVersion;
-                Optional<Path> wrapperProperties = findWrapperProperties(path);
+                Optional<Path> wrapperProperties = findWrapperProperties(project.getPath());
                 if (wrapperProperties.isPresent()) {
                     try {
                         List<String> lines = Files.readAllLines(wrapperProperties.get());

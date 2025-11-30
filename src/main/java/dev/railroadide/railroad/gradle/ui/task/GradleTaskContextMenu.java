@@ -1,13 +1,13 @@
 package dev.railroadide.railroad.gradle.ui.task;
 
 import dev.railroadide.core.ui.localized.LocalizedMenuItem;
-import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationManager;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationTypes;
 import dev.railroadide.railroad.ide.runconfig.defaults.data.GradleRunConfigurationData;
 import dev.railroadide.railroad.java.JDKManager;
 import dev.railroadide.railroad.project.Project;
+import dev.railroadide.railroadplugin.dto.RailroadGradleTask;
 import javafx.scene.control.ContextMenu;
 import org.jetbrains.annotations.NotNull;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
@@ -16,7 +16,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
 import java.util.Optional;
 
 public class GradleTaskContextMenu extends ContextMenu {
-    public GradleTaskContextMenu(Project project, GradleTaskModel task) {
+    public GradleTaskContextMenu(Project project, RailroadGradleTask task) {
         super();
 
         var runIcon = new FontIcon(FontAwesomeSolid.PLAY);
@@ -48,7 +48,7 @@ public class GradleTaskContextMenu extends ContextMenu {
      * @param task    the Gradle task
      * @return the run configuration
      */
-    public static @NotNull RunConfiguration<GradleRunConfigurationData> getOrCreateRunConfig(Project project, GradleTaskModel task) {
+    public static @NotNull RunConfiguration<GradleRunConfigurationData> getOrCreateRunConfig(Project project, RailroadGradleTask task) {
         RunConfigurationManager runConfigManager = project.getRunConfigManager();
         @SuppressWarnings("unchecked")
         Optional<RunConfiguration<GradleRunConfigurationData>> existingRunConfig = runConfigManager.getConfigurations().stream()
@@ -66,12 +66,12 @@ public class GradleTaskContextMenu extends ContextMenu {
      * @param runConfigManager the run configuration manager
      * @return the newly created run configuration
      */
-    public static @NotNull RunConfiguration<GradleRunConfigurationData> createRunConfig(GradleTaskModel task, RunConfigurationManager runConfigManager) {
+    public static @NotNull RunConfiguration<GradleRunConfigurationData> createRunConfig(RailroadGradleTask task, RunConfigurationManager runConfigManager) {
         var configurationData = new GradleRunConfigurationData();
-        configurationData.setGradleProjectPath(task.project().projectDir());
-        configurationData.setTask(task.name());
+        configurationData.setGradleProjectPath(task.module().getGradleProject().getProjectDirectory().toPath());
+        configurationData.setTask(task.getName());
         configurationData.setJavaHome(JDKManager.getDefaultJDK());
-        configurationData.setName(task.project().name() + " [" + task.name() + "]");
+        configurationData.setName(task.module().getName() + " [" + task.getName() + "]");
 
         var runConfiguration = new RunConfiguration<>(RunConfigurationTypes.GRADLE, configurationData);
         runConfigManager.addConfiguration(runConfiguration);
@@ -86,11 +86,12 @@ public class GradleTaskContextMenu extends ContextMenu {
      * @param configuration the run configuration
      * @return true if the run configuration corresponds to the Gradle task, false otherwise
      */
-    public static boolean hasExistingRunConfig(GradleTaskModel task, RunConfiguration<?> configuration) {
+    public static boolean hasExistingRunConfig(RailroadGradleTask task, RunConfiguration<?> configuration) {
         if (configuration.type() != RunConfigurationTypes.GRADLE)
             return false;
 
         var data = (GradleRunConfigurationData) configuration.data();
-        return data.getGradleProjectPath().equals(task.project().projectDir()) && data.getTask().equals(task.name());
+        return data.getGradleProjectPath().equals(task.module().getGradleProject().getProjectDirectory().toPath())
+            && data.getTask().equals(task.getName());
     }
 }

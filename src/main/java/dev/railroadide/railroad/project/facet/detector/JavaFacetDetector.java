@@ -1,8 +1,7 @@
 package dev.railroadide.railroad.project.facet.detector;
 
-import dev.railroadide.javaVersionExtractorPlugin.model.JavaVersionModel;
-import dev.railroadide.railroad.AppResources;
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.project.facet.Facet;
 import dev.railroadide.railroad.project.facet.FacetDetector;
 import dev.railroadide.railroad.project.facet.FacetManager;
@@ -14,19 +13,12 @@ import org.apache.maven.model.Plugin;
 import org.apache.maven.model.building.*;
 import org.codehaus.plexus.configuration.PlexusConfigurationException;
 import org.codehaus.plexus.configuration.xml.XmlPlexusConfiguration;
-import org.gradle.api.GradleException;
-import org.gradle.tooling.BuildException;
-import org.gradle.tooling.GradleConnector;
-import org.gradle.tooling.ProjectConnection;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -41,11 +33,12 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
      * Attempts to determine the most reliable Java version for the given project path.
      * Checks Gradle, Maven, compiled class files, and system properties in order.
      *
-     * @param path the project directory
+     * @param project the project
+     * @param path    the project directory
      * @return the detected JavaVersion, or an invalid version if not found
      */
-    private static JavaVersion findMostReliableJavaVersion(@NotNull Path path) {
-        JavaVersion gradleVersion = getJavaVersionFromGradle(path);
+    private static JavaVersion findMostReliableJavaVersion(@NotNull Project project, @NotNull Path path) {
+        JavaVersion gradleVersion = getJavaVersionFromGradle(project);
         if (gradleVersion.major() != -1)
             return gradleVersion;
 
@@ -124,57 +117,14 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
     /**
      * Attempts to extract the Java version from a Gradle project by connecting to the build and reading configuration.
      *
-     * @param path the project directory
+     * @param project the project
      * @return the JavaVersion specified in the Gradle build, or an invalid version if not found
      */
-    private static JavaVersion getJavaVersionFromGradle(@NotNull Path path) {
-        boolean hasBuildFile = false;
-        for (String buildFile : GradleFacetDetector.BUILD_FILES) {
-            Path tryBuildFilePath = path.resolve(buildFile);
-            if (Files.exists(tryBuildFilePath) && Files.isRegularFile(tryBuildFilePath) && Files.isReadable(tryBuildFilePath)) {
-                hasBuildFile = true;
-                break;
-            }
-        }
-
-        if (!hasBuildFile)
-            return JavaVersion.fromMajor(-1); // No Gradle build file found
-
-        try (ProjectConnection connection = GradleConnector.newConnector()
-            .forProjectDirectory(path.toFile())
-            .connect()) {
-            if (connection == null)
-                return JavaVersion.fromMajor(-1); // No Gradle connection
-
-            Path initScriptPath = extractInitScript();
-
-            OutputStream outputStream = OutputStream.nullOutputStream();
-            JavaVersionModel model = connection.model(JavaVersionModel.class)
-                .withArguments("--init-script", initScriptPath.toAbsolutePath().toString())
-                .setStandardOutput(outputStream)
-                .setStandardError(outputStream)
-                .get();
-            if (model == null) {
-                Railroad.LOGGER.warn("No Java version model found in Gradle project at path: {}", path);
-                return JavaVersion.fromMajor(-1);
-            }
-
-            JavaVersion sourceVersion = JavaVersion.fromReleaseString(model.sourceCompatibility());
-            JavaVersion targetVersion = JavaVersion.fromReleaseString(model.targetCompatibility());
-            System.out.println("Source compatibility: " + sourceVersion);
-            System.out.println("Target compatibility: " + targetVersion);
-
-            return sourceVersion.compareTo(targetVersion) >= 0 ?
-                sourceVersion :
-                targetVersion;
-        } catch (IOException exception) {
-            Railroad.LOGGER.error("IO exception while detecting Java version in path: {}", path, exception);
-        } catch (GradleException | BuildException ignored) {
-        } catch (Exception exception) {
-            Railroad.LOGGER.error("Unexpected error while detecting Java version in path: {}", path, exception);
-        }
-
-        return JavaVersion.fromMajor(-1);
+    private static JavaVersion getJavaVersionFromGradle(@NotNull Project project) {
+        return project.getGradleManager().getGradleModelService().getCachedModel()
+            .map(gradleBuildModel ->
+                JavaVersion.fromMajor(Integer.parseInt(gradleBuildModel.project().getJavaLanguageSettings().getJdk().getJavaVersion().getMajorVersion())))
+            .orElse(JavaVersion.fromMajor(-1));
     }
 
     /**
@@ -239,49 +189,27 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
     }
 
     /**
-     * Extracts the Gradle init script for Java version detection to a temporary file.
-     *
-     * @return the path to the extracted init script
-     * @throws IOException if the script cannot be extracted
-     */
-    private static Path extractInitScript() throws IOException {
-        try (InputStream inputStream = AppResources.getResourceAsStream("scripts/init-java-version.gradle")) {
-            if (inputStream == null)
-                throw new IllegalStateException("init script resource missing");
-
-            Path tempFile = Files.createTempFile("init-java-version", ".gradle");
-            Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
-            tempFile.toFile().deleteOnExit();
-            return tempFile;
-        }
-    }
-
-    /**
      * Detects a Java facet in the given path by searching for .java files and determining the Java version.
      *
-     * @param path the project directory or file to analyze
+     * @param project
      * @return an Optional containing the Java facet if detected, or empty if not found
      */
     @Override
-    public Optional<Facet<JavaFacetData>> detect(@NotNull Path path) {
+    public Optional<Facet<JavaFacetData>> detect(Project project) {
         long javaFileCount = 0;
         try {
-            if (Files.isDirectory(path)) {
-                try (Stream<Path> javaFiles = Files.find(path, 10,
-                    (p, attrs) -> p.toString().endsWith(".java"))) {
-                    javaFileCount = javaFiles.count();
-                }
-            } else if (path.toString().endsWith(".java")) {
-                javaFileCount = 1;
+            try (Stream<Path> javaFiles = Files.find(project.getPath(), 10,
+                (p, attrs) -> p.toString().endsWith(".java"))) {
+                javaFileCount = javaFiles.count();
             }
         } catch (IOException exception) {
-            Railroad.LOGGER.error("Error while detecting Java files in path: {}", path, exception);
+            Railroad.LOGGER.error("Error while detecting Java files in path: {}", project.getPath(), exception);
         }
 
         JavaFacetData data = null;
         if (javaFileCount > 0) {
             data = new JavaFacetData();
-            JavaVersion highestJavaVersion = findMostReliableJavaVersion(path);
+            JavaVersion highestJavaVersion = findMostReliableJavaVersion(project, project.getPath());
             data.setVersion(highestJavaVersion);
         }
 

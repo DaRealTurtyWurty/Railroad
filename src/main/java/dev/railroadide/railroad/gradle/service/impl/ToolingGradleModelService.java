@@ -1,37 +1,23 @@
 package dev.railroadide.railroad.gradle.service.impl;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
-import com.google.gson.reflect.TypeToken;
-import dev.railroadide.locatedependencies.ConfigurationTree;
-import dev.railroadide.locatedependencies.DependenciesModel;
-import dev.railroadide.railroad.AppResources;
-import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.GradleEnvironment;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroad.gradle.model.GradleModelListener;
-import dev.railroadide.railroad.gradle.model.GradleModelMapper;
-import dev.railroadide.railroad.gradle.model.GradleProjectModel;
-import dev.railroadide.railroad.gradle.model.task.GradleTaskArgType;
-import dev.railroadide.railroad.gradle.model.task.GradleTaskArgument;
 import dev.railroadide.railroad.gradle.service.GradleModelService;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.utility.function.ThrowingSupplier;
+import dev.railroadide.railroadplugin.dto.FabricDataModel;
+import dev.railroadide.railroadplugin.dto.RailroadProject;
 import org.gradle.tooling.GradleConnector;
-import org.gradle.tooling.ModelBuilder;
 import org.gradle.tooling.ProjectConnection;
-import org.gradle.tooling.model.GradleProject;
 import org.gradle.tooling.model.build.BuildEnvironment;
 import org.gradle.tooling.model.gradle.GradleBuild;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Duration;
-import java.util.*;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -41,7 +27,6 @@ import java.util.function.Supplier;
  * the Gradle build model.
  */
 public class ToolingGradleModelService implements GradleModelService {
-    private static final String TASK_ARGS_PROPERTY = "railroad.taskArgs.output";
     private final Project project;
     private final GradleEnvironment environment;
     private final Executor executor;
@@ -126,74 +111,16 @@ public class ToolingGradleModelService implements GradleModelService {
             .forProjectDirectory(project.getPath().toFile());
         configureConnector(connector, environment);
 
-        Path initScriptPath = null;
-        Path taskArgumentsPath = null;
-
         try (ProjectConnection connection = connector.connect()) {
             BuildEnvironment buildEnvironment = connection.getModel(BuildEnvironment.class);
             GradleBuild gradleBuild = connection.getModel(GradleBuild.class);
+            RailroadProject railroadProject = connection.getModel(RailroadProject.class);
+            FabricDataModel fabricDataModel = connection.getModel(FabricDataModel.class);
 
             String gradleVersion = buildEnvironment.getGradle().getGradleVersion();
             Path rootDir = gradleBuild.getRootProject().getProjectDirectory().toPath();
 
-            GradleProject rootGradleProject;
-            Map<String, List<GradleTaskArgument>> taskArguments = Collections.emptyMap();
-
-            try {
-                taskArgumentsPath = Files.createTempFile("railroad-task-args", ".json");
-                initScriptPath = writeTaskArgumentsInitScript();
-
-                ModelBuilder<GradleProject> projectModelBuilder = connection.model(GradleProject.class)
-                    .withArguments(
-                        "--init-script", initScriptPath.toAbsolutePath().toString(),
-                        ("-D" + TASK_ARGS_PROPERTY + "=" + taskArgumentsPath.toAbsolutePath())
-                    );
-
-                rootGradleProject = projectModelBuilder.get();
-                taskArguments = readTaskArguments(taskArgumentsPath);
-            } catch (Exception exception) {
-                rootGradleProject = connection.getModel(GradleProject.class);
-            } finally {
-                deleteIfExists(initScriptPath);
-                deleteIfExists(taskArgumentsPath);
-            }
-
-            List<ConfigurationTree> dependencies = new ArrayList<>();
-            try {
-                initScriptPath = writeLocateDependenciesInitScript();
-                ModelBuilder<DependenciesModel> dependenciesModelBuilder = connection.model(DependenciesModel.class)
-                    .withArguments(
-                        "--init-script", initScriptPath.toAbsolutePath().toString()
-                    );
-
-                DependenciesModel dependenciesModel = dependenciesModelBuilder.get();
-                if (dependenciesModel != null) {
-                    dependencies.addAll(dependenciesModel.dependencyTrees());
-                }
-            } catch (Exception exception) {
-                Railroad.LOGGER.warn("Failed to load project configurations for dependencies", exception);
-            } finally {
-                deleteIfExists(initScriptPath);
-            }
-
-            List<GradleProjectModel> projects = new ArrayList<>();
-            if (rootGradleProject != null) {
-                GradleModelMapper.collectProjects(rootGradleProject, projects, taskArguments, dependencies);
-            }
-
-            return new GradleBuildModel(gradleVersion, rootDir, projects);
-        }
-    }
-
-    private static Path writeLocateDependenciesInitScript() throws IOException {
-        try (InputStream inputStream = AppResources.getResourceAsStream("scripts/init-locate-dependencies.gradle")) {
-            if (inputStream == null)
-                throw new IllegalStateException("init script resource missing");
-
-            Path tempFile = Files.createTempFile("init-locate-dependencies", ".gradle");
-            Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
-            tempFile.toFile().deleteOnExit();
-            return tempFile;
+            return new GradleBuildModel(gradleVersion, rootDir, fabricDataModel, railroadProject);
         }
     }
 
@@ -218,87 +145,6 @@ public class ToolingGradleModelService implements GradleModelService {
         // environment.jvm().ifPresent(jvm -> connector.setJavaHome(jvm.javaHome().toFile()));
     }
 
-    private static Path writeTaskArgumentsInitScript() throws IOException {
-        Path scriptFile = Files.createTempFile("railroad-task-args-init", ".gradle");
-        Files.writeString(scriptFile, loadTaskArgsInitScript(), StandardCharsets.UTF_8);
-        return scriptFile;
-    }
-
-    private static Map<String, List<GradleTaskArgument>> readTaskArguments(Path outputFile) {
-        if (outputFile == null || !Files.isReadable(outputFile))
-            return Collections.emptyMap();
-
-        try {
-            String json = Files.readString(outputFile, StandardCharsets.UTF_8);
-            if (json.isBlank())
-                return Collections.emptyMap();
-
-            var typeToken = new TypeToken<Map<String, List<TaskArgumentEntry>>>() {
-            }.getType();
-            Map<String, List<TaskArgumentEntry>> parsed = new Gson().fromJson(json, typeToken);
-            if (parsed == null || parsed.isEmpty())
-                return Collections.emptyMap();
-
-            Map<String, List<GradleTaskArgument>> mapped = new HashMap<>();
-            parsed.forEach((taskPath, entries) -> {
-                if (entries == null)
-                    return;
-
-                List<GradleTaskArgument> arguments = entries.stream()
-                    .map(ToolingGradleModelService::mapArgument)
-                    .filter(Objects::nonNull)
-                    .toList();
-
-                mapped.put(taskPath, arguments);
-            });
-
-            return mapped;
-        } catch (IOException | JsonParseException exception) {
-            return Collections.emptyMap();
-        }
-    }
-
-    private static GradleTaskArgument mapArgument(TaskArgumentEntry entry) {
-        if (entry == null || entry.name == null || entry.type == null)
-            return null;
-
-        GradleTaskArgType argType = parseArgType(entry.type);
-        List<String> enumValues = entry.enumValues != null ? entry.enumValues : List.of();
-        String defaultValue = entry.defaultValue != null ? entry.defaultValue : "";
-        String displayName = entry.displayName != null ? entry.displayName : entry.name;
-        String description = entry.description != null ? entry.description : "";
-
-        return new GradleTaskArgument(entry.name, displayName, argType, defaultValue, description, enumValues);
-    }
-
-    private static GradleTaskArgType parseArgType(String type) {
-        try {
-            return GradleTaskArgType.valueOf(type);
-        } catch (IllegalArgumentException exception) {
-            return GradleTaskArgType.STRING;
-        }
-    }
-
-    private static void deleteIfExists(Path path) {
-        if (path == null)
-            return;
-
-        try {
-            Files.deleteIfExists(path);
-        } catch (IOException ignored) {
-        }
-    }
-
-    private static String loadTaskArgsInitScript() throws IOException {
-        try (var stream = AppResources.getResourceAsStream("scripts/init-task-args.gradle")) {
-            if (stream == null)
-                throw new IOException("Missing init-task-args.gradle resource");
-
-            String content = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-            return content.replace("__TASK_ARGS_PROPERTY__", TASK_ARGS_PROPERTY);
-        }
-    }
-
     private static <T> Supplier<T> safely(ThrowingSupplier<T> supplier) {
         return () -> {
             try {
@@ -309,14 +155,5 @@ public class ToolingGradleModelService implements GradleModelService {
                 throw new CompletionException(exception);
             }
         };
-    }
-
-    private static final class TaskArgumentEntry {
-        String name;
-        String displayName;
-        String type;
-        String defaultValue;
-        String description;
-        List<String> enumValues;
     }
 }

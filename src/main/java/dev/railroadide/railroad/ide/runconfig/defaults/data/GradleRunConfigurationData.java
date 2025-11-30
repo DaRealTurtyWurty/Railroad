@@ -3,9 +3,6 @@ package dev.railroadide.railroad.ide.runconfig.defaults.data;
 import dev.railroadide.core.form.*;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
-import dev.railroadide.railroad.gradle.model.GradleProjectModel;
-import dev.railroadide.railroad.gradle.model.task.GradleTaskArgument;
-import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
 import dev.railroadide.railroad.gradle.service.GradleModelService;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationData;
@@ -17,6 +14,9 @@ import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.project.onboarding.ProjectValidators;
 import dev.railroadide.railroad.settings.ui.DetectedJdkListPane;
 import dev.railroadide.railroad.utility.StringUtils;
+import dev.railroadide.railroadplugin.dto.RailroadGradleTask;
+import dev.railroadide.railroadplugin.dto.RailroadGradleTaskArgument;
+import dev.railroadide.railroadplugin.dto.RailroadModule;
 import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
@@ -28,6 +28,7 @@ import javafx.scene.control.ListView;
 import javafx.util.Callback;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import org.gradle.tooling.model.DomainObjectSet;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Files;
@@ -60,7 +61,7 @@ public class GradleRunConfigurationData extends RunConfigurationData {
             }
         });
 
-        ObservableMap<Path, List<GradleTaskModel>> gradleTasksCache = FXCollections.observableHashMap();
+        ObservableMap<Path, List<? extends RailroadGradleTask>> gradleTasksCache = FXCollections.observableHashMap();
         ObjectProperty<Path> gradleProjectPathProperty = new SimpleObjectProperty<>(this.gradleProjectPath);
         gradleProjectPathProperty.addListener((observable, oldValue, newValue) ->
             loadGradleTasksAsync(project, newValue, gradleTasksCache));
@@ -139,29 +140,29 @@ public class GradleRunConfigurationData extends RunConfigurationData {
             ).build();
     }
 
-    private List<String> buildGradleTaskSuggestions(Path gradleProjectPath, ObservableMap<Path, List<GradleTaskModel>> gradleTasksCache) {
+    private List<String> buildGradleTaskSuggestions(Path gradleProjectPath, ObservableMap<Path, List<? extends RailroadGradleTask>> gradleTasksCache) {
         if (gradleProjectPath == null)
             return List.of();
 
-        List<GradleTaskModel> cachedTasks = gradleTasksCache.get(gradleProjectPath);
+        List<? extends RailroadGradleTask> cachedTasks = gradleTasksCache.get(gradleProjectPath);
         if (cachedTasks == null || cachedTasks.isEmpty()) {
             Railroad.LOGGER.debug("No cached Gradle tasks for {} yet", gradleProjectPath);
             return List.of();
         }
 
         LinkedHashSet<String> suggestions = new LinkedHashSet<>();
-        for (GradleTaskModel task : cachedTasks) {
+        for (RailroadGradleTask task : cachedTasks) {
             if (task == null)
                 continue;
 
-            String taskName = task.name();
+            String taskName = task.getName();
             if (taskName != null && !taskName.isBlank())
                 suggestions.add(taskName);
 
-            List<GradleTaskArgument> options = task.arguments();
+            DomainObjectSet<? extends RailroadGradleTaskArgument> options = task.getArguments();
             if (options != null && !options.isEmpty()) {
                 options.stream()
-                    .map(GradleTaskArgument::name)
+                    .map(RailroadGradleTaskArgument::getName)
                     .filter(name -> name != null && !name.isBlank())
                     .forEach(suggestions::add);
             }
@@ -173,7 +174,7 @@ public class GradleRunConfigurationData extends RunConfigurationData {
     }
 
     private Collection<String> filterGradleTaskSuggestions(String query, Path gradleProjectPath,
-                                                           ObservableMap<Path, List<GradleTaskModel>> gradleTasksCache) {
+                                                           ObservableMap<Path, List<? extends RailroadGradleTask>> gradleTasksCache) {
         List<String> suggestions = buildGradleTaskSuggestions(gradleProjectPath, gradleTasksCache);
         String token = currentToken(query);
         if (token.isBlank()) {
@@ -203,7 +204,7 @@ public class GradleRunConfigurationData extends RunConfigurationData {
 
     private Callback<ListView<String>, ListCell<String>> createGradleTaskSuggestionCellFactory(
         ObjectProperty<Path> gradleProjectPathProperty,
-        ObservableMap<Path, List<GradleTaskModel>> gradleTasksCache) {
+        ObservableMap<Path, List<? extends RailroadGradleTask>> gradleTasksCache) {
         return listView -> new ListCell<>() {
             @Override
             protected void updateItem(String item, boolean empty) {
@@ -224,31 +225,31 @@ public class GradleRunConfigurationData extends RunConfigurationData {
     }
 
     private @Nullable String findGradleTaskDescription(String taskOrOptionName, Path gradleProjectPath,
-                                                       ObservableMap<Path, List<GradleTaskModel>> gradleTasksCache) {
+                                                       ObservableMap<Path, List<? extends RailroadGradleTask>> gradleTasksCache) {
         if (taskOrOptionName == null || gradleProjectPath == null)
             return null;
 
-        List<GradleTaskModel> tasks = gradleTasksCache.get(gradleProjectPath);
+        List<? extends RailroadGradleTask> tasks = gradleTasksCache.get(gradleProjectPath);
         if (tasks == null || tasks.isEmpty())
             return null;
 
-        for (GradleTaskModel task : tasks) {
+        for (RailroadGradleTask task : tasks) {
             if (task == null)
                 continue;
 
-            if (taskOrOptionName.equals(task.name())) {
-                String description = task.description();
+            if (taskOrOptionName.equals(task.getName())) {
+                String description = task.getDescription();
                 return description == null || description.isBlank() ? null : description;
             }
 
-            List<GradleTaskArgument> arguments = task.arguments();
+            DomainObjectSet<? extends RailroadGradleTaskArgument> arguments = task.getArguments();
             if (arguments != null && !arguments.isEmpty()) {
-                for (GradleTaskArgument argument : arguments) {
+                for (RailroadGradleTaskArgument argument : arguments) {
                     if (argument == null)
                         continue;
 
-                    if (taskOrOptionName.equals(argument.name())) {
-                        String description = argument.description();
+                    if (taskOrOptionName.equals(argument.getName())) {
+                        String description = argument.getDescription();
                         if (description != null && !description.isBlank())
                             return description;
                     }
@@ -259,7 +260,7 @@ public class GradleRunConfigurationData extends RunConfigurationData {
         return null;
     }
 
-    private void loadGradleTasksAsync(Project project, Path gradleProjectPath, ObservableMap<Path, List<GradleTaskModel>> gradleTasksCache) {
+    private void loadGradleTasksAsync(Project project, Path gradleProjectPath, ObservableMap<Path, List<? extends RailroadGradleTask>> gradleTasksCache) {
         if (gradleProjectPath == null) {
             if (Platform.isFxApplicationThread()) {
                 gradleTasksCache.clear();
@@ -297,25 +298,28 @@ public class GradleRunConfigurationData extends RunConfigurationData {
         }
     }
 
-    private List<GradleTaskModel> fetchTasksForProject(Project project, Path gradleProjectPath) {
+    private List<? extends RailroadGradleTask> fetchTasksForProject(Project project, Path gradleProjectPath) {
         try {
             GradleModelService modelService = project.getGradleManager().getGradleModelService();
             GradleBuildModel model = modelService.refreshModel(false).get();
-            if (model == null || model.projects() == null)
+            if (model == null)
                 return List.of();
 
-            for (GradleProjectModel projectModel : model.projects()) {
-                if (projectModel == null)
+            for (RailroadModule module : model.project().getModules()) {
+                if (module == null)
                     continue;
 
-                if (gradleProjectPath.equals(projectModel.projectDir()))
-                    return projectModel.tasks() != null ? projectModel.tasks() : List.of();
+                if (gradleProjectPath.equals(module.getGradleProject().getProjectDirectory().toPath())) {
+                    DomainObjectSet<? extends RailroadGradleTask> tasks = module.getTasks();
+                    return tasks != null ? tasks.stream().toList() : List.of();
+                }
             }
 
-            return model.projects().stream()
-                .map(GradleProjectModel::tasks)
+            return model.project().getModules().stream()
+                .flatMap(module -> module.getTasks().stream())
                 .filter(Objects::nonNull)
                 .findFirst()
+                .map(List::of)
                 .orElse(List.of());
         } catch (Exception exception) {
             Railroad.LOGGER.warn("Failed to fetch Gradle tasks for {}", gradleProjectPath, exception);

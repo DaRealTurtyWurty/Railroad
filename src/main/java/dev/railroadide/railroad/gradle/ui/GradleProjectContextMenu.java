@@ -2,28 +2,26 @@ package dev.railroadide.railroad.gradle.ui;
 
 import dev.railroadide.core.ui.RRBorderPane;
 import dev.railroadide.core.ui.localized.LocalizedMenuItem;
-import dev.railroadide.railroad.gradle.model.GradleProjectModel;
 import dev.railroadide.railroad.ide.projectexplorer.PathItem;
 import dev.railroadide.railroad.ide.projectexplorer.ProjectExplorerPane;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.utility.FileUtils;
 import dev.railroadide.railroad.utility.icon.RailroadBrandsIcon;
+import dev.railroadide.railroadplugin.dto.RailroadModule;
 import javafx.scene.control.ContextMenu;
 import javafx.stage.Window;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 import org.kordamp.ikonli.javafx.FontIcon;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
 public class GradleProjectContextMenu extends ContextMenu {
-    public GradleProjectContextMenu(Project project, GradleProjectModel gradleProject) {
+    public GradleProjectContextMenu(Project project, RailroadModule module) {
         super();
 
         var openGradleConfig = new LocalizedMenuItem("railroad.gradle.tools.ctx_menu.open_gradle_config", new FontIcon(RailroadBrandsIcon.GRADLE));
         openGradleConfig.setOnAction(event -> {
-            Path buildFile = findBuildScript(gradleProject);
+            Path buildFile = findBuildScript(module);
             if (buildFile == null)
                 return;
 
@@ -43,23 +41,10 @@ public class GradleProjectContextMenu extends ContextMenu {
         getItems().addAll(openGradleConfig, syncItem);
     }
 
-    private Path findBuildScript(GradleProjectModel gradleProject) {
-        if (gradleProject == null || gradleProject.projectDir() == null)
+    private Path findBuildScript(RailroadModule module) {
+        if (module == null || module.getProjectDir() == null)
             return null;
 
-        List<String> candidates = List.of(
-            "build.gradle.kts",
-            "build.gradle",
-            "settings.gradle.kts",
-            "settings.gradle"
-        );
-
-        for (String candidate : candidates) {
-            Path buildFile = gradleProject.projectDir().resolve(candidate);
-            if (Files.isRegularFile(buildFile))
-                return buildFile;
-        }
-
-        return null;
+        return module.getGradleProject().getBuildScript().getSourceFile().toPath();
     }
 }

@@ -1,8 +1,8 @@
 package dev.railroadide.railroad.gradle.ui.tree;
 
-import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
 import dev.railroadide.railroad.gradle.ui.task.GradleTaskContextMenu;
 import dev.railroadide.railroad.project.Project;
+import dev.railroadide.railroadplugin.dto.RailroadGradleTask;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Tooltip;
 import lombok.Getter;
@@ -12,10 +12,10 @@ import org.kordamp.ikonli.devicons.Devicons;
 @Getter
 public class GradleTaskElement extends GradleTreeElement {
     private final Project project;
-    private final GradleTaskModel task;
+    private final RailroadGradleTask task;
 
-    public GradleTaskElement(Project project, GradleTaskModel task) {
-        super(task.name());
+    public GradleTaskElement(Project project, RailroadGradleTask task) {
+        super(task.getName());
 
         this.project = project;
         this.task = task;
@@ -33,7 +33,7 @@ public class GradleTaskElement extends GradleTreeElement {
 
     @Override
     public Tooltip getTooltip() {
-        return new Tooltip(this.task.description());
+        return new Tooltip(this.task.getDescription());
     }
 
     @Override

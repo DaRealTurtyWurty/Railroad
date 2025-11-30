@@ -1,51 +1,54 @@
 package dev.railroadide.railroad.gradle.ui.deps;
 
-import dev.railroadide.locatedependencies.ConfigurationTree;
-import dev.railroadide.locatedependencies.DependencyNode;
 import dev.railroadide.railroad.gradle.ui.GradleTreeBuilder;
 import dev.railroadide.railroad.gradle.ui.tree.GradleConfigurationElement;
 import dev.railroadide.railroad.gradle.ui.tree.GradleDependencyElement;
 import dev.railroadide.railroad.gradle.ui.tree.GradleTreeElement;
 import dev.railroadide.railroad.project.Project;
+import dev.railroadide.railroadplugin.dto.RailroadConfiguration;
+import dev.railroadide.railroadplugin.dto.RailroadDependency;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.scene.control.TreeItem;
+import org.gradle.tooling.model.DomainObjectSet;
 
+import java.util.Collection;
 import java.util.Comparator;
-import java.util.List;
 
-// TODO: Do not display duplicate dependencies in the tree
-// TODO: Don't show empty configurations
 // TODO: Include the projects in the tree
-public class GradleDependencyTreeBuilder implements GradleTreeBuilder<ConfigurationTree> {
+public class GradleDependencyTreeBuilder implements GradleTreeBuilder<RailroadConfiguration> {
     @Override
-    public TreeItem<GradleTreeElement> buildTree(Project project, ObservableList<ConfigurationTree> elements) {
+    public TreeItem<GradleTreeElement> buildTree(Project project, ObservableList<RailroadConfiguration> elements) {
         TreeItem<GradleTreeElement> root = new TreeItem<>();
 
-        for (ConfigurationTree configurationTree : elements) {
+        for (RailroadConfiguration configurationTree : elements) {
             if (configurationTree == null)
                 continue;
 
+            DomainObjectSet<? extends RailroadDependency> dependencies = configurationTree.getDependencies();
+            if (dependencies == null || dependencies.isEmpty())
+                continue;
+
             TreeItem<GradleTreeElement> configurationNode = new TreeItem<>(
-                new GradleConfigurationElement(configurationTree.configuration()));
+                new GradleConfigurationElement(configurationTree.getName()));
             root.getChildren().add(configurationNode);
 
-            addDependencies(configurationNode, configurationTree.dependencies());
+            addDependencies(configurationNode, dependencies);
         }
 
         sortTree(root);
         return root;
     }
 
-    private void addDependencies(TreeItem<GradleTreeElement> parent, List<DependencyNode> dependencies) {
+    private void addDependencies(TreeItem<GradleTreeElement> parent, Collection<? extends RailroadDependency> dependencies) {
         if (dependencies == null)
             return;
 
-        for (DependencyNode dependency : dependencies) {
+        for (RailroadDependency dependency : dependencies) {
             TreeItem<GradleTreeElement> dependencyNode = new TreeItem<>(new GradleDependencyElement(dependency));
             parent.getChildren().add(dependencyNode);
 
-            addDependencies(dependencyNode, dependency.dependencies());
+            addDependencies(dependencyNode, dependency.getChildren());
         }
     }
 

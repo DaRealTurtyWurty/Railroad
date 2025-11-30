@@ -1,16 +1,16 @@
 package dev.railroadide.railroad.gradle.ui.tree;
 
-import dev.railroadide.locatedependencies.DependencyNode;
+import dev.railroadide.railroadplugin.dto.RailroadDependency;
 import lombok.Getter;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 
 @Getter
 public class GradleDependencyElement extends GradleTreeElement {
-    private final DependencyNode dependencyNode;
+    private final RailroadDependency dependencyNode;
 
-    public GradleDependencyElement(DependencyNode dependencyNode) {
-        super(dependencyNode.group() + ":" + dependencyNode.name() + ":" + dependencyNode.version());
+    public GradleDependencyElement(RailroadDependency dependencyNode) {
+        super(dependencyNode.getGroup() + ":" + dependencyNode.getName() + ":" + dependencyNode.getVersion());
         this.dependencyNode = dependencyNode;
     }
 
