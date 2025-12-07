@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.gradle.ui;
 
 import dev.railroadide.core.ui.RRVBox;
+import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroad.gradle.model.GradleModelListener;
 import dev.railroadide.railroad.gradle.service.GradleModelService;
@@ -68,6 +69,7 @@ public abstract class GradleTreeViewPane<T> extends RRVBox {
 
             @Override
             public void modelReloadFailed(Throwable error) {
+                Railroad.LOGGER.error("Failed to reload Gradle model", error);
                 isLoading.set(false);
                 updateLoadingState();
             }

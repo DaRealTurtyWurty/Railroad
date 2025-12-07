@@ -56,7 +56,7 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
             return systemVersion;
 
         Railroad.LOGGER.warn("No reliable Java version found for path: {}", path);
-        return JavaVersion.fromMajor(-1); // Fallback to an invalid version
+        return JavaVersion.fromMajor(-1);
     }
 
     /**
@@ -121,6 +121,9 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
      * @return the JavaVersion specified in the Gradle build, or an invalid version if not found
      */
     private static JavaVersion getJavaVersionFromGradle(@NotNull Project project) {
+        if(!project.getGradleManager().isGradleProject())
+            return JavaVersion.fromMajor(-1);
+
         return project.getGradleManager().getGradleModelService().getCachedModel()
             .map(gradleBuildModel ->
                 JavaVersion.fromMajor(Integer.parseInt(gradleBuildModel.project().getJavaLanguageSettings().getJdk().getJavaVersion().getMajorVersion())))

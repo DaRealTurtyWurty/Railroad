@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.gradle.service.impl;
 
+import dev.railroadide.railroad.AppResources;
 import dev.railroadide.railroad.gradle.GradleEnvironment;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroad.gradle.model.GradleModelListener;
@@ -13,7 +14,9 @@ import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.build.BuildEnvironment;
 import org.gradle.tooling.model.gradle.GradleBuild;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -112,15 +115,40 @@ public class ToolingGradleModelService implements GradleModelService {
         configureConnector(connector, environment);
 
         try (ProjectConnection connection = connector.connect()) {
-            BuildEnvironment buildEnvironment = connection.getModel(BuildEnvironment.class);
-            GradleBuild gradleBuild = connection.getModel(GradleBuild.class);
-            RailroadProject railroadProject = connection.getModel(RailroadProject.class);
-            FabricDataModel fabricDataModel = connection.getModel(FabricDataModel.class);
+            Path initScriptPath = writeInitScript();
+            String[] initScriptArgs = {"--init-script", initScriptPath.toAbsolutePath().toString()};
+            connection.newBuild().withArguments(initScriptArgs).run();
+
+            BuildEnvironment buildEnvironment = connection.model(BuildEnvironment.class)
+                .withArguments(initScriptArgs)
+                .get();
+            GradleBuild gradleBuild = connection.model(GradleBuild.class)
+                .withArguments(initScriptArgs)
+                .get();
+            RailroadProject railroadProject = connection.model(RailroadProject.class)
+                .withArguments(initScriptArgs)
+                .get();
+            FabricDataModel fabricDataModel = connection.model(FabricDataModel.class)
+                .withArguments(initScriptArgs)
+                .get();
 
             String gradleVersion = buildEnvironment.getGradle().getGradleVersion();
             Path rootDir = gradleBuild.getRootProject().getProjectDirectory().toPath();
 
             return new GradleBuildModel(gradleVersion, rootDir, fabricDataModel, railroadProject);
+        } catch (Exception exception) {
+            throw new RuntimeException("Failed to load Gradle model", exception);
+        }
+    }
+
+    private static Path writeInitScript() {
+        try {
+            Path path = Files.createTempFile("gradle-init-script", ".gradle");
+            path.toFile().deleteOnExit();
+            Files.copy(AppResources.getResourceAsStream("scripts/init-gradle-plugin.gradle"), path, StandardCopyOption.REPLACE_EXISTING);
+            return path;
+        } catch (Exception exception) {
+            throw new RuntimeException("Failed to write Gradle init script", exception);
         }
     }
 

@@ -2,6 +2,7 @@ package dev.railroadide.railroad.gradle.project;
 
 import dev.railroadide.railroad.AppResources;
 import dev.railroadide.railroad.DefaultGradleEnvironment;
+import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.GradleEnvironment;
 import dev.railroadide.railroad.gradle.GradleSettings;
 import dev.railroadide.railroad.gradle.service.GradleConsoleMode;
@@ -16,9 +17,6 @@ import dev.railroadide.railroad.ide.runconfig.RunConfigurationTypes;
 import dev.railroadide.railroad.java.JDK;
 import dev.railroadide.railroad.java.JDKManager;
 import dev.railroadide.railroad.project.Project;
-import dev.railroadide.railroad.project.facet.Facet;
-import dev.railroadide.railroad.project.facet.FacetManager;
-import dev.railroadide.railroad.project.facet.data.GradleFacetData;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,6 +29,8 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Encapsulates all Gradle-related state for a {@link Project}, including cached environments and models.
@@ -118,9 +118,7 @@ public final class GradleManager {
 
         synchronized (lock) {
             if (gradleSettings == null) {
-                Facet<GradleFacetData> gradleFacet = project.getFacet(FacetManager.GRADLE).orElseThrow();
-                GradleFacetData gradleData = gradleFacet.getData();
-                gradleSettings = buildGradleSettings(gradleData);
+                gradleSettings = buildGradleSettings();
             }
 
             return gradleSettings;
@@ -231,15 +229,21 @@ public final class GradleManager {
     }
 
     private void ensureIsGradleProject() {
-        if (!project.hasFacet(FacetManager.GRADLE))
-            throw new IllegalStateException("Project does not have a Gradle facet.");
+        Path path = project.getPath();
+        if (!isGradleProject())
+            throw new IllegalStateException("Project at " + path + " is not a Gradle project.");
     }
 
-    private GradleSettings buildGradleSettings(GradleFacetData gradleData) {
+    public boolean isGradleProject() {
+        Path path = project.getPath();
+        return hasGradleWrapper() || Files.isRegularFile(path.resolve("build.gradle")) || Files.isRegularFile(path.resolve("build.gradle.kts"));
+    }
+
+    private GradleSettings buildGradleSettings() {
         GradleInvocationPreferences prefs = loadGradleInvocationPreferences();
 
         boolean useWrapper = hasGradleWrapper();
-        String wrapperVersion = gradleData != null ? gradleData.getGradleVersion() : null;
+        String wrapperVersion = getGradleVersion();
         Path gradleUserHome = getEnvPath("GRADLE_USER_HOME").orElse(prefs.gradleUserHome());
         JDK gradleJvm = JDKManager.getDefaultJDK();
 
@@ -281,6 +285,53 @@ public final class GradleManager {
     private boolean hasGradleWrapper() {
         Path wrapperProps = project.getPath().resolve("gradle").resolve("wrapper").resolve("gradle-wrapper.properties");
         return Files.isRegularFile(wrapperProps);
+    }
+
+    private String getGradleVersion() {
+        Path wrapperProps = project.getPath().resolve("gradle").resolve("wrapper").resolve("gradle-wrapper.properties");
+        if (!Files.isRegularFile(wrapperProps))
+            return null;
+
+        try {
+            for (String rawLine : Files.readAllLines(wrapperProps)) {
+                String line = rawLine.trim();
+                if (line.startsWith("distributionUrl=")) {
+                    String url = line.substring("distributionUrl=".length()).trim();
+
+                    if ((url.startsWith("\"") && url.endsWith("\"")) || (url.startsWith("'") && url.endsWith("'"))) {
+                        url = url.substring(1, url.length() - 1);
+                    }
+
+                    int lastSlash = url.lastIndexOf('/');
+                    String filename = lastSlash != -1 ? url.substring(lastSlash + 1) : url;
+
+                    Matcher m = Pattern.compile("gradle-([0-9][0-9A-Za-z.-]*)", Pattern.CASE_INSENSITIVE)
+                        .matcher(filename);
+                    if (m.find())
+                        return m.group(1);
+
+                    // Fallback: take substring after the last '-' and strip extension
+                    int dash = filename.lastIndexOf('-');
+                    if (dash != -1 && dash + 1 < filename.length()) {
+                        String afterDash = filename.substring(dash + 1);
+                        int dot = afterDash.indexOf('.');
+                        if (dot != -1) {
+                            afterDash = afterDash.substring(0, dot);
+                        }
+
+                        if (!afterDash.isBlank())
+                            return afterDash;
+                    }
+
+                    return url;
+                }
+            }
+
+            return null;
+        } catch (IOException exception) {
+            Railroad.LOGGER.error("Error reading gradle-wrapper.properties", exception);
+            return null;
+        }
     }
 
     private Optional<Path> getEnvPath(String envKey) {

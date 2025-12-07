@@ -85,26 +85,15 @@ public class IDESetup {
         mainSplit.setDividerPositions(0.15, 0.85);
         root.setCenter(mainSplit);
 
+        if (project.hasFacet(FacetManager.GRADLE)) {
+            openGradleTab(project, project.getFacet(FacetManager.GRADLE).orElseThrow(), rightPane, root, mainSplit);
+        }
+
         Railroad.EVENT_BUS.subscribe(FacetDetectedEvent.class, event -> {
             if (event.project() != project)
                 return;
 
-            Platform.runLater(() -> {
-                Facet<?> facet = event.facet();
-                if (facet.getType() == FacetManager.GRADLE) {
-                    if (rightPane.getTabs().stream().noneMatch(tab -> tab.getContent() instanceof GradleToolsPane)) {
-                        rightPane.addTab("Gradle", new GradleToolsPane(project));
-
-                        root.setRight(PaneIconBarFactory.create(
-                            rightPane,
-                            mainSplit,
-                            Orientation.VERTICAL,
-                            2,
-                            Map.of("Gradle", RailroadBrandsIcon.GRADLE.getDescription())
-                        ));
-                    }
-                }
-            });
+            openGradleTab(project, event.facet(), rightPane, root, mainSplit);
         });
 
         root.setLeft(PaneIconBarFactory.create(
@@ -134,6 +123,24 @@ public class IDESetup {
 
         KeybindHandler.registerCapture(KeybindContexts.of("railroad:ide"), root);
         return new Scene(root);
+    }
+
+    private static void openGradleTab(Project project, Facet<?> facet, DetachableTabPane rightPane, RRBorderPane root, SplitPane mainSplit) {
+        Platform.runLater(() -> {
+            if (facet.getType() == FacetManager.GRADLE) {
+                if (rightPane.getTabs().stream().noneMatch(tab -> tab.getContent() instanceof GradleToolsPane)) {
+                    rightPane.addTab("Gradle", new GradleToolsPane(project));
+
+                    root.setRight(PaneIconBarFactory.create(
+                        rightPane,
+                        mainSplit,
+                        Orientation.VERTICAL,
+                        2,
+                        Map.of("Gradle", RailroadBrandsIcon.GRADLE.getDescription())
+                    ));
+                }
+            }
+        });
     }
 
     public static void showEditRunConfigurationsWindow(@NotNull Project project, @Nullable RunConfiguration<?> runConfiguration) {

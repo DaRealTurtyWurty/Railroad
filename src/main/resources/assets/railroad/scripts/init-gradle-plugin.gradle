@@ -1,0 +1,30 @@
+initscript {
+    repositories {
+        maven { url "https://maven.railroadide.dev/releases" }
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath("dev.railroadide:railroad-gradle-plugin:1.2.1")
+    }
+}
+
+def settingsPluginClass = Class.forName(
+        "dev.railroadide.railroadplugin.RailroadSettingsPlugin",
+        true,
+        this.class.classLoader
+)
+def projectPluginClass = Class.forName(
+        "dev.railroadide.railroadplugin.RailroadProjectPlugin",
+        true,
+        this.class.classLoader
+)
+
+// Apply to Settings (uses the class directly, no marker)
+settingsEvaluated { settings ->
+    settings.pluginManager.apply(settingsPluginClass)
+}
+
+// Apply the project plugin to all projects
+allprojects {
+    pluginManager.apply(projectPluginClass)
+}
