@@ -20,7 +20,7 @@ import java.util.Properties;
  * Java version, and brand (e.g., Oracle, Adoptium). It also provides utility methods
  * for interacting with the JDK's command-line interface tools.
  */
-@ToString
+@ToString(exclude = "cli")
 @EqualsAndHashCode
 public final class JDK {
     private final Path path;

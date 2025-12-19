@@ -126,7 +126,7 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
 
         return project.getGradleManager().getGradleModelService().getCachedModel()
             .map(gradleBuildModel ->
-                JavaVersion.fromMajor(Integer.parseInt(gradleBuildModel.project().getJavaLanguageSettings().getJdk().getJavaVersion().getMajorVersion())))
+                JavaVersion.fromMajor(Integer.parseInt(gradleBuildModel.project().javaLanguageSettings().getJdk().getJavaVersion().getMajorVersion())))
             .orElse(JavaVersion.fromMajor(-1));
     }
 

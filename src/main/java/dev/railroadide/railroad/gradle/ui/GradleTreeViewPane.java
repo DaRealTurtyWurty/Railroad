@@ -42,12 +42,10 @@ public abstract class GradleTreeViewPane<T> extends RRVBox {
         treeView.setShowRoot(false);
         treeView.setCellFactory(param -> new GradleTreeCell());
         treeView.prefHeightProperty().bind(heightProperty());
-        elements.addListener((ListChangeListener<? super T>) change -> {
-            Platform.runLater(() -> {
-                GradleTreeBuilder<T> treeBuilder = createTreeBuilder();
-                treeView.setRoot(treeBuilder.buildTree(project, elements));
-            });
-        });
+        elements.addListener((ListChangeListener<? super T>) change -> Platform.runLater(() -> {
+            GradleTreeBuilder<T> treeBuilder = createTreeBuilder();
+            treeView.setRoot(treeBuilder.buildTree(project, elements));
+        }));
 
         updateLoadingState();
 

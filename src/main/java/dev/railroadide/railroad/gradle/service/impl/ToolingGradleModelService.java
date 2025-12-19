@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.gradle.service.impl;
 
 import dev.railroadide.railroad.AppResources;
+import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.GradleEnvironment;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroad.gradle.model.GradleModelListener;
@@ -11,6 +12,7 @@ import dev.railroadide.railroadplugin.dto.FabricDataModel;
 import dev.railroadide.railroadplugin.dto.RailroadProject;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
+import org.gradle.tooling.UnknownModelException;
 import org.gradle.tooling.model.build.BuildEnvironment;
 import org.gradle.tooling.model.gradle.GradleBuild;
 
@@ -125,12 +127,8 @@ public class ToolingGradleModelService implements GradleModelService {
             GradleBuild gradleBuild = connection.model(GradleBuild.class)
                 .withArguments(initScriptArgs)
                 .get();
-            RailroadProject railroadProject = connection.model(RailroadProject.class)
-                .withArguments(initScriptArgs)
-                .get();
-            FabricDataModel fabricDataModel = connection.model(FabricDataModel.class)
-                .withArguments(initScriptArgs)
-                .get();
+            RailroadProject railroadProject = requestOptionalModel(connection, RailroadProject.class, initScriptArgs);
+            FabricDataModel fabricDataModel = requestOptionalModel(connection, FabricDataModel.class, initScriptArgs);
 
             String gradleVersion = buildEnvironment.getGradle().getGradleVersion();
             Path rootDir = gradleBuild.getRootProject().getProjectDirectory().toPath();
@@ -149,6 +147,17 @@ public class ToolingGradleModelService implements GradleModelService {
             return path;
         } catch (Exception exception) {
             throw new RuntimeException("Failed to write Gradle init script", exception);
+        }
+    }
+
+    private static <T> T requestOptionalModel(ProjectConnection connection, Class<T> modelClass, String[] initScriptArgs) {
+        try {
+            return connection.model(modelClass)
+                .withArguments(initScriptArgs)
+                .get();
+        } catch (UnknownModelException exception) {
+            Railroad.LOGGER.warn("Gradle model {} is not available; continuing without it", modelClass.getSimpleName());
+            return null;
         }
     }
 
