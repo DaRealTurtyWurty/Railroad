@@ -5,7 +5,6 @@ import dev.railroadide.railroad.java.JDK;
 import dev.railroadide.railroad.project.Project;
 
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.Optional;
 
 /**
@@ -67,7 +66,7 @@ public interface GradleEnvironment {
     /**
      * Retrieves the idle timeout duration for the Gradle daemon, if specified.
      *
-     * @return an Optional containing the idle timeout duration, or an empty Optional if not set.
+     * @return an Optional containing the idle timeout in minutes, or an empty Optional if not set.
      */
-    Optional<Duration> daemonIdleTimeout();
+    Optional<Long> daemonIdleTimeout();
 }

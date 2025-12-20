@@ -10,9 +10,12 @@ import dev.railroadide.railroad.utility.icon.RailroadBrandsIcon;
 import dev.railroadide.railroadplugin.dto.RailroadModule;
 import javafx.scene.control.ContextMenu;
 import javafx.stage.Window;
+import org.gradle.tooling.model.GradleProject;
+import org.gradle.tooling.model.gradle.GradleScript;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 import org.kordamp.ikonli.javafx.FontIcon;
 
+import java.io.File;
 import java.nio.file.Path;
 
 public class GradleProjectContextMenu extends ContextMenu {
@@ -45,6 +48,18 @@ public class GradleProjectContextMenu extends ContextMenu {
         if (module == null || module.getProjectDir() == null)
             return null;
 
-        return module.getGradleProject().getBuildScript().getSourceFile().toPath();
+        GradleProject gradleProject = module.getGradleProject();
+        if (gradleProject == null)
+            return null;
+
+        GradleScript buildScript = gradleProject.getBuildScript();
+        if (buildScript == null)
+            return null;
+
+        File sourceFile = buildScript.getSourceFile();
+        if (sourceFile == null)
+            return null;
+
+        return sourceFile.toPath();
     }
 }

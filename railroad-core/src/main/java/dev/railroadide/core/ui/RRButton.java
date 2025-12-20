@@ -13,7 +13,6 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonBase;
 import javafx.util.Duration;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
@@ -24,8 +23,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
  * Supports different sizes, styles, and icon integration.
  */
 public class RRButton extends Button {
-
-    public static final String[] DEFAULT_STYLE_CLASSES = { "rr-button", "button" };
+    public static final String[] DEFAULT_STYLE_CLASSES = {"rr-button", "button"};
 
     private FontIcon icon;
 
@@ -33,10 +31,11 @@ public class RRButton extends Button {
     private FontIcon loadingSpinner;
 
     private final BooleanProperty isLoading = new SimpleBooleanProperty(this, "isLoading", false);
+
     public boolean getIsLoading() {
         return isLoading.get();
     }
-    
+
     private final LocalizedTextProperty localizedText = new LocalizedTextProperty(this, "localizedText", null);
 
     private final BooleanProperty isSquare = new SimpleBooleanProperty(this, "isSquare", false);
@@ -125,7 +124,7 @@ public class RRButton extends Button {
 
     protected void initialize(String localizationKey, Object... args) {
         getStyleClass().setAll(RRButton.DEFAULT_STYLE_CLASSES);
-        
+
         setAlignment(Pos.CENTER);
         setPadding(new Insets(8, 16, 8, 16));
 
@@ -294,7 +293,11 @@ public class RRButton extends Button {
      * Set the button as rounded
      */
     public void setRounded(boolean rounded) {
-        support.setRounded(rounded);
+        if (rounded) {
+            getStyleClass().add("rounded");
+        } else {
+            getStyleClass().remove("rounded");
+        }
     }
 
     /**
@@ -322,74 +325,20 @@ public class RRButton extends Button {
         if (getIsLoading())
             return; // Don't update content while loading
 
-            control.setAlignment(Pos.CENTER);
-            control.setPadding(new Insets(8, 16, 8, 16));
+        if (icon != null) {
+            var content = new RRHBox(8);
+            content.setAlignment(Pos.CENTER);
+            content.getChildren().add(icon);
 
-            control.setOnMousePressed($ -> {
-                if (!isLoading) {
-                    var scale = new ScaleTransition(Duration.millis(100), control);
-                    scale.setToX(0.95);
-                    scale.setToY(0.95);
-                    scale.play();
-                }
-            });
-
-            control.setOnMouseReleased($ -> {
-                if (!isLoading) {
-                    var scale = new ScaleTransition(Duration.millis(100), control);
-                    scale.setToX(1.0);
-                    scale.setToY(1.0);
-                    scale.play();
-                }
-            });
-
-            updateStyle();
-            updateContent();
-        }
-
-        private void trackLocalization(String localizationKey, Object... args) {
-            if (localizationKey != null && !localizationKey.isBlank()) {
-                setLocalizedText(localizationKey, args);
-            }
-        }
-
-        private void addLocalizationListener() {
-            if (localizationKey != null) {
-                ServiceLocator.getService(LocalizationService.class).currentLanguageProperty().addListener((observable, oldValue, newValue) -> {
-                    if (!isLoading) {
-                        control.setText(ServiceLocator.getService(LocalizationService.class).get(localizationKey, localizationArgs));
-                    }
-                });
-            }
-        }
-
-        public void setLocalizedText(String localizationKey, Object... args) {
-            this.localizationKey = localizationKey;
-            this.localizationArgs = args;
-            if (!isLoading) {
-                control.setText(ServiceLocator.getService(LocalizationService.class).get(localizationKey, args));
-            }
-
-            addLocalizationListener();
-        }
-
-        public void setIcon(Ikon iconCode) {
-            if (icon != null && control.getGraphic() == icon) {
-                control.setGraphic(null);
-            }
-
-            if (iconCode != null) {
-                icon = new FontIcon(iconCode);
-                icon.setIconSize(16);
-                icon.getStyleClass().add("button-icon");
+            if (getText() != null && !getText().isEmpty()) {
+                setGraphic(content);
             } else {
-                icon = null;
+                setGraphic(icon);
             }
-
-            if (!isLoading) {
-                updateContent();
-            }
+        } else {
+            setGraphic(null);
         }
+    }
 
     private void updateStyle() {
         ObservableList<String> styleClass = getStyleClass();

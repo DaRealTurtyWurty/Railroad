@@ -85,6 +85,9 @@ public class GradleDependencyTreeBuilder implements GradleTreeBuilder<RailroadCo
             return;
 
         for (RailroadDependency dependency : dependencies) {
+            if (dependency == null)
+                continue;
+
             TreeItem<GradleTreeElement> dependencyNode = new TreeItem<>(new GradleDependencyElement(dependency));
             parent.getChildren().add(dependencyNode);
 

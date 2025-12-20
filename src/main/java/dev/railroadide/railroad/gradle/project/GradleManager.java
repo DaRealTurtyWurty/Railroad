@@ -236,7 +236,11 @@ public final class GradleManager {
 
     public boolean isGradleProject() {
         Path path = project.getPath();
-        return hasGradleWrapper() || Files.isRegularFile(path.resolve("build.gradle")) || Files.isRegularFile(path.resolve("build.gradle.kts"));
+        Path groovyBuildFile = path.resolve("build.gradle");
+        Path kotlinBuildFile = path.resolve("build.gradle.kts");
+        boolean hasGroovyBuild = Files.isRegularFile(groovyBuildFile) && Files.isReadable(groovyBuildFile);
+        boolean hasKotlinBuild = Files.isRegularFile(kotlinBuildFile) && Files.isReadable(kotlinBuildFile);
+        return hasGradleWrapper() || hasGroovyBuild || hasKotlinBuild;
     }
 
     private GradleSettings buildGradleSettings() {
@@ -310,20 +314,8 @@ public final class GradleManager {
                     if (m.find())
                         return m.group(1);
 
-                    // Fallback: take substring after the last '-' and strip extension
-                    int dash = filename.lastIndexOf('-');
-                    if (dash != -1 && dash + 1 < filename.length()) {
-                        String afterDash = filename.substring(dash + 1);
-                        int dot = afterDash.indexOf('.');
-                        if (dot != -1) {
-                            afterDash = afterDash.substring(0, dot);
-                        }
-
-                        if (!afterDash.isBlank())
-                            return afterDash;
-                    }
-
-                    return url;
+                    // Couldn't extract version from filename
+                    return null;
                 }
             }
 
@@ -383,15 +375,13 @@ public final class GradleManager {
                     gradleSettings.isEnableBuildCache(),
                     gradleSettings.isParallelExecution(),
                     gradleSettings.isDaemonEnabled(),
-                    gradleSettings.getDaemonIdleTimeout() == null ? null : gradleSettings.getDaemonIdleTimeout().toMinutes(),
+                    gradleSettings.getDaemonIdleTimeout(),
                     gradleSettings.getMaxWorkerCount(),
                     gradleSettings.getCustomGradleHome(),
                     gradleSettings.getGradleUserHome()
                 )
             );
-        }
 
-        synchronized (lock) {
             this.environment = null; // Invalidate cached environment
         }
     }

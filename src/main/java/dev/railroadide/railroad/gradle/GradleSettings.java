@@ -2,14 +2,12 @@ package dev.railroadide.railroad.gradle;
 
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.java.JDK;
-import dev.railroadide.railroad.project.Project;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 
 /**
@@ -31,12 +29,12 @@ public class GradleSettings {
     private int maxWorkerCount;
     private List<RunConfiguration<?>> configurations;
     private boolean daemonEnabled;
-    private Duration daemonIdleTimeout;
+    private Long daemonIdleTimeout;
 
     public GradleSettings(boolean useWrapper, String wrapperVersion, Path customGradleHome, Path gradleUserHome,
                           JDK gradleJvm, boolean offlineMode, boolean enableBuildCache, boolean parallelExecution,
                           int maxWorkerCount, List<RunConfiguration<?>> configurations,
-                          boolean isDaemonEnabled, Duration daemonIdleTimeout) {
+                          boolean daemonEnabled, Long daemonIdleTimeout) {
         this.useWrapper = useWrapper;
         this.wrapperVersion = wrapperVersion;
         this.customGradleHome = customGradleHome;
@@ -47,7 +45,7 @@ public class GradleSettings {
         this.parallelExecution = parallelExecution;
         this.maxWorkerCount = maxWorkerCount;
         this.configurations = configurations;
-        this.daemonEnabled = isDaemonEnabled;
+        this.daemonEnabled = daemonEnabled;
         this.daemonIdleTimeout = daemonIdleTimeout;
     }
 }

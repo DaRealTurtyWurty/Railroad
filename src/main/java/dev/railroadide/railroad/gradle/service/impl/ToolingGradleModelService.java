@@ -38,11 +38,9 @@ public class ToolingGradleModelService implements GradleModelService {
 
     private final Object lock = new Object();
     private final AtomicReference<GradleBuildModel> cachedModel = new AtomicReference<>();
-    private volatile CompletableFuture<GradleBuildModel> ongoingRefresh = null;
-
     private final Duration modelTimeout = Duration.ofMinutes(3);
-
     private final List<GradleModelListener> listeners = new CopyOnWriteArrayList<>();
+    private volatile CompletableFuture<GradleBuildModel> ongoingRefresh = null;
 
     /**
      * Creates a new ToolingGradleModelService.
@@ -57,67 +55,14 @@ public class ToolingGradleModelService implements GradleModelService {
         this.executor = Objects.requireNonNull(executor);
     }
 
-    @Override
-    public void addListener(GradleModelListener listener) {
-        listeners.add(listener);
-    }
-
-    @Override
-    public void removeListener(GradleModelListener listener) {
-        listeners.remove(listener);
-    }
-
-    @Override
-    public CompletableFuture<GradleBuildModel> refreshModel(boolean force) {
-        synchronized (lock) {
-            if (!force) {
-                GradleBuildModel existingModel = cachedModel.get();
-                if (existingModel != null)
-                    return CompletableFuture.completedFuture(existingModel);
-            }
-
-            if (ongoingRefresh != null && !ongoingRefresh.isDone())
-                return ongoingRefresh;
-
-            listeners.forEach(GradleModelListener::modelReloadStarted);
-
-            ongoingRefresh = CompletableFuture.supplyAsync(
-                    safely(() -> ToolingGradleModelService.loadModel(this.project, this.environment)),
-                    executor)
-                .orTimeout(modelTimeout.toMillis(), TimeUnit.MILLISECONDS)
-                .whenComplete((model, throwable) -> {
-                    synchronized (lock) {
-                        if (throwable == null && model != null) {
-                            cachedModel.set(model);
-                            listeners.forEach(listener -> listener.modelReloadSucceeded(model));
-                        } else {
-                            listeners.forEach(listener ->
-                                listener.modelReloadFailed(throwable != null ?
-                                    throwable :
-                                    new IllegalStateException("Failed to load model"))
-                            );
-                        }
-
-                        ongoingRefresh = null;
-                    }
-                });
-
-            return ongoingRefresh;
-        }
-    }
-
-    @Override
-    public Optional<GradleBuildModel> getCachedModel() {
-        return Optional.ofNullable(cachedModel.get());
-    }
-
     public static GradleBuildModel loadModel(Project project, GradleEnvironment environment) {
         GradleConnector connector = GradleConnector.newConnector()
             .forProjectDirectory(project.getPath().toFile());
         configureConnector(connector, environment);
 
+        Path initScriptPath = null;
         try (ProjectConnection connection = connector.connect()) {
-            Path initScriptPath = writeInitScript();
+            initScriptPath = writeInitScript();
             String[] initScriptArgs = {"--init-script", initScriptPath.toAbsolutePath().toString()};
             connection.newBuild().withArguments(initScriptArgs).run();
 
@@ -136,6 +81,13 @@ public class ToolingGradleModelService implements GradleModelService {
             return new GradleBuildModel(gradleVersion, rootDir, fabricDataModel, railroadProject);
         } catch (Exception exception) {
             throw new RuntimeException("Failed to load Gradle model", exception);
+        } finally {
+            if (initScriptPath != null) {
+                try {
+                    Files.deleteIfExists(initScriptPath);
+                } catch (Exception ignored) {
+                }
+            }
         }
     }
 
@@ -192,5 +144,59 @@ public class ToolingGradleModelService implements GradleModelService {
                 throw new CompletionException(exception);
             }
         };
+    }
+
+    @Override
+    public void addListener(GradleModelListener listener) {
+        listeners.add(listener);
+    }
+
+    @Override
+    public void removeListener(GradleModelListener listener) {
+        listeners.remove(listener);
+    }
+
+    @Override
+    public CompletableFuture<GradleBuildModel> refreshModel(boolean force) {
+        synchronized (lock) {
+            if (!force) {
+                GradleBuildModel existingModel = cachedModel.get();
+                if (existingModel != null)
+                    return CompletableFuture.completedFuture(existingModel);
+            }
+
+            if (ongoingRefresh != null && !ongoingRefresh.isDone())
+                return ongoingRefresh;
+
+            listeners.forEach(GradleModelListener::modelReloadStarted);
+
+            ongoingRefresh = CompletableFuture.supplyAsync(
+                    safely(() -> ToolingGradleModelService.loadModel(this.project, this.environment)),
+                    executor)
+                .orTimeout(modelTimeout.toMillis(), TimeUnit.MILLISECONDS)
+                .whenComplete((model, throwable) -> {
+                    synchronized (lock) {
+                        if (throwable == null && model != null) {
+                            cachedModel.set(model);
+                            listeners.forEach(listener -> listener.modelReloadSucceeded(model));
+                        } else {
+                            listeners.forEach(listener ->
+                                listener.modelReloadFailed(throwable != null ?
+                                    throwable :
+                                    new IllegalStateException("Failed to load model"))
+                            );
+                        }
+
+                        ongoingRefresh = null;
+                    }
+                });
+
+            return ongoingRefresh;
+        }
+    }
+
+    @Override
+    public Optional<GradleBuildModel> getCachedModel() {
+        return Optional.ofNullable(cachedModel.get());
     }
 }

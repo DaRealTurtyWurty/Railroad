@@ -6,7 +6,6 @@ import dev.railroadide.railroad.java.JDK;
 import dev.railroadide.railroad.project.Project;
 
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.Optional;
 
 /**
@@ -52,7 +51,7 @@ record JdkOverridingEnvironment(GradleEnvironment delegate, JDK overrideJvm) imp
     }
 
     @Override
-    public Optional<Duration> daemonIdleTimeout() {
+    public Optional<Long> daemonIdleTimeout() {
         return delegate.daemonIdleTimeout();
     }
 }

@@ -7,15 +7,19 @@ import dev.railroadide.railroadplugin.dto.RailroadModule;
 import javafx.scene.control.ContextMenu;
 import org.kordamp.ikonli.Ikon;
 
+import java.util.Objects;
+
 public class GradleProjectElement extends GradleTreeElement {
     private final Project project;
     private final RailroadModule module;
 
     public GradleProjectElement(Project project, RailroadModule module) {
-        super(module.getName() == null ? "Unnamed Project" : module.getName());
+        super(Objects.requireNonNull(module, "module must not be null").getName() == null
+            ? "Unnamed Project"
+            : Objects.requireNonNull(module, "module must not be null").getName());
 
         this.project = project;
-        this.module = module;
+        this.module = Objects.requireNonNull(module, "module must not be null");
     }
 
     @Override

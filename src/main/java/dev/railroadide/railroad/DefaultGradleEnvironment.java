@@ -9,7 +9,6 @@ import dev.railroadide.railroad.java.JDK;
 import dev.railroadide.railroad.project.Project;
 
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -63,7 +62,7 @@ public record DefaultGradleEnvironment(Project project, Path gradleInstallationP
     }
 
     @Override
-    public Optional<Duration> daemonIdleTimeout() {
+    public Optional<Long> daemonIdleTimeout() {
         return Optional.ofNullable(settings.getDaemonIdleTimeout());
     }
 

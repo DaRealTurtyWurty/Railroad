@@ -13,6 +13,7 @@ import org.apache.maven.model.Plugin;
 import org.apache.maven.model.building.*;
 import org.codehaus.plexus.configuration.PlexusConfigurationException;
 import org.codehaus.plexus.configuration.xml.XmlPlexusConfiguration;
+import org.gradle.tooling.model.java.InstalledJdk;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInputStream;
@@ -34,13 +35,18 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
      * Checks Gradle, Maven, compiled class files, and system properties in order.
      *
      * @param project the project
-     * @param path    the project directory
      * @return the detected JavaVersion, or an invalid version if not found
      */
-    private static JavaVersion findMostReliableJavaVersion(@NotNull Project project, @NotNull Path path) {
+    private static JavaVersion findMostReliableJavaVersion(@NotNull Project project) {
         JavaVersion gradleVersion = getJavaVersionFromGradle(project);
         if (gradleVersion.major() != -1)
             return gradleVersion;
+
+        Path path = project.getPath();
+        if (path == null) {
+            Railroad.LOGGER.warn("Project path is null for project: {}", project.getAlias());
+            return JavaVersion.fromMajor(-1);
+        }
 
         JavaVersion mavenVersion = getJavaVersionFromMaven(path);
         if (mavenVersion.major() != -1)
@@ -121,12 +127,19 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
      * @return the JavaVersion specified in the Gradle build, or an invalid version if not found
      */
     private static JavaVersion getJavaVersionFromGradle(@NotNull Project project) {
-        if(!project.getGradleManager().isGradleProject())
+        if (!project.getGradleManager().isGradleProject())
             return JavaVersion.fromMajor(-1);
 
         return project.getGradleManager().getGradleModelService().getCachedModel()
-            .map(gradleBuildModel ->
-                JavaVersion.fromMajor(Integer.parseInt(gradleBuildModel.project().javaLanguageSettings().getJdk().getJavaVersion().getMajorVersion())))
+            .map(gradleBuildModel -> {
+                try {
+                    InstalledJdk jdk = gradleBuildModel.project().javaLanguageSettings().getJdk();
+                    return JavaVersion.fromMajor(Integer.parseInt(jdk.getJavaVersion().getMajorVersion()));
+                } catch (NumberFormatException exception) {
+                    Railroad.LOGGER.error("Error parsing Java version from Gradle model for project: {}", project.getAlias(), exception);
+                    return JavaVersion.fromMajor(-1);
+                }
+            })
             .orElse(JavaVersion.fromMajor(-1));
     }
 
@@ -194,7 +207,7 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
     /**
      * Detects a Java facet in the given path by searching for .java files and determining the Java version.
      *
-     * @param project
+     * @param project the project
      * @return an Optional containing the Java facet if detected, or empty if not found
      */
     @Override
@@ -212,7 +225,7 @@ public class JavaFacetDetector implements FacetDetector<JavaFacetData> {
         JavaFacetData data = null;
         if (javaFileCount > 0) {
             data = new JavaFacetData();
-            JavaVersion highestJavaVersion = findMostReliableJavaVersion(project, project.getPath());
+            JavaVersion highestJavaVersion = findMostReliableJavaVersion(project);
             data.setVersion(highestJavaVersion);
         }
 

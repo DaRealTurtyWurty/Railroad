@@ -2,6 +2,7 @@ package dev.railroadide.railroad.gradle.ui.tree;
 
 import dev.railroadide.railroadplugin.dto.RailroadDependency;
 import lombok.Getter;
+import org.jetbrains.annotations.NotNull;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 
@@ -9,7 +10,7 @@ import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 public class GradleDependencyElement extends GradleTreeElement {
     private final RailroadDependency dependencyNode;
 
-    public GradleDependencyElement(RailroadDependency dependencyNode) {
+    public GradleDependencyElement(@NotNull RailroadDependency dependencyNode) {
         super(dependencyNode.getGroup() + ":" + dependencyNode.getName() + ":" + dependencyNode.getVersion());
         this.dependencyNode = dependencyNode;
     }

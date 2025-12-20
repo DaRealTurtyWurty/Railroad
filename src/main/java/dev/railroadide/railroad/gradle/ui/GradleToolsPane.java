@@ -2,9 +2,12 @@ package dev.railroadide.railroad.gradle.ui;
 
 import dev.railroadide.core.ui.RRButton;
 import dev.railroadide.core.ui.RRHBox;
+import dev.railroadide.core.ui.RRToggleButton;
 import dev.railroadide.core.ui.RRVBox;
 import dev.railroadide.core.ui.localized.LocalizedTab;
 import dev.railroadide.core.ui.localized.LocalizedTooltip;
+import dev.railroadide.core.ui.styling.ButtonSize;
+import dev.railroadide.core.ui.styling.ButtonVariant;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.GradleSettings;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
@@ -15,6 +18,7 @@ import dev.railroadide.railroad.gradle.ui.task.GradleTasksPane;
 import dev.railroadide.railroad.project.Project;
 import javafx.application.Platform;
 import javafx.scene.Node;
+import javafx.scene.control.ButtonBase;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.layout.Priority;
@@ -40,7 +44,8 @@ public class GradleToolsPane extends RRVBox {
         var syncButton = createButtonBarButton(
             FontAwesomeSolid.SYNC,
             "railroad.gradle.tools.button.sync.tooltip",
-            "sync-button"
+            "sync-button",
+            false
         );
         syncButton.setOnAction(event ->
             gradleManager.getGradleModelService().refreshModel(true));
@@ -48,7 +53,8 @@ public class GradleToolsPane extends RRVBox {
         var downloadSourcesButton = createButtonBarButton(
             FontAwesomeSolid.DOWNLOAD,
             "railroad.gradle.tools.button.downloadsources.tooltip",
-            "download-sources-button"
+            "download-sources-button",
+            false
         );
         downloadSourcesButton.setOnAction(event -> {
             Railroad.LOGGER.info("Downloading Gradle sources...");
@@ -77,7 +83,7 @@ public class GradleToolsPane extends RRVBox {
             boolean newOfflineMode = !gradleSettings.isOfflineMode();
             gradleSettings.setOfflineMode(newOfflineMode);
             gradleManager.saveSettings();
-            ((RRButton.Toggle) toggleOfflineButton).setSelected(newOfflineMode);
+            ((RRToggleButton) toggleOfflineButton).setSelected(newOfflineMode);
         });
 
         var listener = new GradleModelListener() {
@@ -121,28 +127,56 @@ public class GradleToolsPane extends RRVBox {
         VBox.setVgrow(tabPane, Priority.ALWAYS);
     }
 
-    private static RRButton createButtonBarButton(Ikon ikon, String tooltipKey, String styleClass, boolean toggle) {
-        var button = toggle ? new RRButton.Toggle("", ikon) : new RRButton("", ikon);
+    private static ButtonBase createButtonBarButton(Ikon ikon, String tooltipKey, String styleClass, boolean toggle) {
+        return toggle
+            ? createToggleButtonBarButton(ikon, tooltipKey, styleClass)
+            : createButtonBarButton(ikon, tooltipKey, styleClass);
+    }
+
+    private static ButtonBase createButtonBarButton(Node ikon, String tooltipKey, String styleClass, boolean toggle) {
+        return toggle
+            ? createToggleButtonBarButton(ikon, tooltipKey, styleClass)
+            : createButtonBarButton(ikon, tooltipKey, styleClass);
+    }
+
+    private static RRToggleButton createToggleButtonBarButton(Node graphic, String tooltipKey, String styleClass) {
+        var button = new RRToggleButton("", graphic);
         button.setSquare(true);
-        button.setButtonSize(RRButton.ButtonSize.SMALL);
-        button.setVariant(RRButton.ButtonVariant.GHOST);
+        button.setButtonSize(ButtonSize.SMALL);
+        button.setVariant(ButtonVariant.GHOST);
         button.setTooltip(new LocalizedTooltip(tooltipKey));
         button.getStyleClass().addAll("gradle-tools-buttonbar-button", styleClass);
         return button;
     }
 
-    private static RRButton createButtonBarButton(Node graphic, String tooltipKey, String styleClass, boolean toggle) {
-        var button = toggle ? new RRButton.Toggle("", graphic) : new RRButton("", graphic);
+    private static RRToggleButton createToggleButtonBarButton(Ikon graphic, String tooltipKey, String styleClass) {
+        var button = new RRToggleButton("", graphic);
         button.setSquare(true);
-        button.setButtonSize(RRButton.ButtonSize.SMALL);
-        button.setVariant(RRButton.ButtonVariant.GHOST);
+        button.setButtonSize(ButtonSize.SMALL);
+        button.setVariant(ButtonVariant.GHOST);
         button.setTooltip(new LocalizedTooltip(tooltipKey));
         button.getStyleClass().addAll("gradle-tools-buttonbar-button", styleClass);
         return button;
     }
 
-    private static RRButton createButtonBarButton(Ikon ikon, String tooltipKey, String styleClass) {
-        return createButtonBarButton(ikon, tooltipKey, styleClass, false);
+    private static RRButton createButtonBarButton(Node graphic, String tooltipKey, String styleClass) {
+        var button = new RRButton("", graphic);
+        button.setSquare(true);
+        button.setButtonSize(ButtonSize.SMALL);
+        button.setVariant(ButtonVariant.GHOST);
+        button.setTooltip(new LocalizedTooltip(tooltipKey));
+        button.getStyleClass().addAll("gradle-tools-buttonbar-button", styleClass);
+        return button;
+    }
+
+    private static RRButton createButtonBarButton(Ikon graphic, String tooltipKey, String styleClass) {
+        var button = new RRButton("", graphic);
+        button.setSquare(true);
+        button.setButtonSize(ButtonSize.SMALL);
+        button.setVariant(ButtonVariant.GHOST);
+        button.setTooltip(new LocalizedTooltip(tooltipKey));
+        button.getStyleClass().addAll("gradle-tools-buttonbar-button", styleClass);
+        return button;
     }
 
     public boolean isTasksTabSelected() {

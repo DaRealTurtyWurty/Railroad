@@ -15,7 +15,11 @@ public class GradleTaskElement extends GradleTreeElement {
     private final RailroadGradleTask task;
 
     public GradleTaskElement(Project project, RailroadGradleTask task) {
-        super(task.getName());
+        super(task != null ? task.getName() : "Unknown Task");
+        if (project == null)
+            throw new IllegalArgumentException("Project cannot be null");
+        if (task == null)
+            throw new IllegalArgumentException("Task cannot be null");
 
         this.project = project;
         this.task = task;
@@ -33,7 +37,11 @@ public class GradleTaskElement extends GradleTreeElement {
 
     @Override
     public Tooltip getTooltip() {
-        return new Tooltip(this.task.getDescription());
+        String description = this.task.getDescription();
+        if (description == null || description.isEmpty())
+            return null;
+
+        return new Tooltip(description);
     }
 
     @Override

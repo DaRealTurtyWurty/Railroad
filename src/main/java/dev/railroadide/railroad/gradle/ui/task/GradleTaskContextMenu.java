@@ -8,6 +8,7 @@ import dev.railroadide.railroad.ide.runconfig.defaults.data.GradleRunConfigurati
 import dev.railroadide.railroad.java.JDKManager;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroadplugin.dto.RailroadGradleTask;
+import dev.railroadide.railroadplugin.dto.RailroadModule;
 import javafx.scene.control.ContextMenu;
 import org.jetbrains.annotations.NotNull;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
@@ -68,10 +69,14 @@ public class GradleTaskContextMenu extends ContextMenu {
      */
     public static @NotNull RunConfiguration<GradleRunConfigurationData> createRunConfig(RailroadGradleTask task, RunConfigurationManager runConfigManager) {
         var configurationData = new GradleRunConfigurationData();
-        configurationData.setGradleProjectPath(task.module().getGradleProject().getProjectDirectory().toPath());
+        RailroadModule module = task.module();
+        if (module == null || module.getGradleProject() == null)
+            throw new IllegalStateException("Cannot create run configuration: module or Gradle project is null");
+
+        configurationData.setGradleProjectPath(module.getGradleProject().getProjectDirectory().toPath());
         configurationData.setTask(task.getName());
         configurationData.setJavaHome(JDKManager.getDefaultJDK());
-        configurationData.setName(task.module().getName() + " [" + task.getName() + "]");
+        configurationData.setName(module.getName() + " [" + task.getName() + "]");
 
         var runConfiguration = new RunConfiguration<>(RunConfigurationTypes.GRADLE, configurationData);
         runConfigManager.addConfiguration(runConfiguration);
@@ -91,7 +96,11 @@ public class GradleTaskContextMenu extends ContextMenu {
             return false;
 
         var data = (GradleRunConfigurationData) configuration.data();
-        return data.getGradleProjectPath().equals(task.module().getGradleProject().getProjectDirectory().toPath())
+        RailroadModule module = task.module();
+        if (module == null || module.getGradleProject() == null)
+            return false;
+
+        return data.getGradleProjectPath().equals(module.getGradleProject().getProjectDirectory().toPath())
             && data.getTask().equals(task.getName());
     }
 }

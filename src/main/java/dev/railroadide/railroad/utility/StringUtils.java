@@ -218,11 +218,15 @@ public final class StringUtils {
     public static String capitalizeFirstLetterOfEachWord(String input) {
         String[] words = input.split(" ");
         var capitalized = new StringBuilder();
-        for (String word : words) {
+        for (int i = 0; i < words.length; i++) {
+            String word = words[i];
             if (!word.isEmpty()) {
                 capitalized.append(Character.toUpperCase(word.charAt(0)))
-                    .append(word.substring(1).toLowerCase())
-                    .append(" ");
+                    .append(word.substring(1).toLowerCase());
+
+                if (i < words.length - 1) {
+                    capitalized.append(" ");
+                }
             }
         }
 
