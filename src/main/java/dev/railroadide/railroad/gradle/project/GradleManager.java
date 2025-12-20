@@ -1,6 +1,8 @@
 package dev.railroadide.railroad.gradle.project;
 
+import dev.railroadide.railroad.AppResources;
 import dev.railroadide.railroad.DefaultGradleEnvironment;
+import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.GradleEnvironment;
 import dev.railroadide.railroad.gradle.GradleSettings;
 import dev.railroadide.railroad.gradle.service.GradleConsoleMode;
@@ -15,12 +17,11 @@ import dev.railroadide.railroad.ide.runconfig.RunConfigurationTypes;
 import dev.railroadide.railroad.java.JDK;
 import dev.railroadide.railroad.java.JDKManager;
 import dev.railroadide.railroad.project.Project;
-import dev.railroadide.railroad.project.facet.Facet;
-import dev.railroadide.railroad.project.facet.FacetManager;
-import dev.railroadide.railroad.project.facet.data.GradleFacetData;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -28,11 +29,16 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Encapsulates all Gradle-related state for a {@link Project}, including cached environments and models.
  */
 public final class GradleManager {
+    private static final String DOWNLOAD_SOURCES_TASK = "railroadDownloadAllSources";
+    private static final String DOWNLOAD_SOURCES_INIT_RESOURCE = "scripts/init-download-sources.gradle";
+
     private final Project project;
     private final Object lock = new Object();
 
@@ -41,6 +47,7 @@ public final class GradleManager {
     private GradleModelService modelService;
     private GradleExecutionService executionService;
     private GradleEnvironment environment;
+    private GradleSettings gradleSettings;
 
     /**
      * Creates a new Gradle manager for the given project.
@@ -92,10 +99,7 @@ public final class GradleManager {
 
         synchronized (lock) {
             if (environment == null) {
-                Facet<GradleFacetData> gradleFacet = project.getFacet(FacetManager.GRADLE).orElseThrow();
-                GradleFacetData gradleData = gradleFacet.getData();
-
-                GradleSettings settings = buildGradleSettings(gradleData);
+                GradleSettings settings = getGradleSettings();
                 Path gradleHome = discoverGradleInstallationPath();
 
                 environment = new DefaultGradleEnvironment(
@@ -106,6 +110,18 @@ public final class GradleManager {
             }
 
             return environment;
+        }
+    }
+
+    public GradleSettings getGradleSettings() {
+        ensureIsGradleProject();
+
+        synchronized (lock) {
+            if (gradleSettings == null) {
+                gradleSettings = buildGradleSettings();
+            }
+
+            return gradleSettings;
         }
     }
 
@@ -152,16 +168,86 @@ public final class GradleManager {
         });
     }
 
-    private void ensureIsGradleProject() {
-        if (!project.hasFacet(FacetManager.GRADLE))
-            throw new IllegalStateException("Project does not have a Gradle facet.");
+    /**
+     * Downloads sources for all Gradle projects using the bundled download-sources plugin.
+     *
+     * @return a future that completes when the download task finishes
+     */
+    public CompletableFuture<Void> downloadAllSources() {
+        var completion = new CompletableFuture<Void>();
+
+        try {
+            ensureIsGradleProject();
+        } catch (IllegalStateException exception) {
+            completion.completeExceptionally(exception);
+            return completion;
+        }
+
+        Path initScriptPath;
+        try {
+            initScriptPath = extractInitScript(DOWNLOAD_SOURCES_INIT_RESOURCE, "railroad-download-sources");
+        } catch (IOException exception) {
+            completion.completeExceptionally(exception);
+            return completion;
+        }
+
+        GradleSettings settings = getGradleSettings();
+        JDK jdk = settings.getGradleJvm() != null ? settings.getGradleJvm() : JDKManager.getDefaultJDK();
+        GradleExecutionService execService = getExecutionService(jdk);
+
+        boolean offline = settings.isOfflineMode();
+        var request = new GradleTaskExecutionRequest(
+            DOWNLOAD_SOURCES_TASK,
+            List.of("--init-script", initScriptPath.toAbsolutePath().toString()),
+            Map.of(),
+            Map.of(),
+            offline,
+            !offline,
+            false,
+            GradleConsoleMode.RICH
+        );
+
+        GradleTaskExecutionHandle handle;
+        try {
+            handle = execService.runTask(request);
+        } catch (Exception exception) {
+            deleteIfExists(initScriptPath);
+            completion.completeExceptionally(exception);
+            return completion;
+        }
+
+        handle.completionFuture().whenComplete((result, throwable) -> {
+            deleteIfExists(initScriptPath);
+            if (throwable != null) {
+                completion.completeExceptionally(throwable);
+            } else {
+                completion.complete(null);
+            }
+        });
+
+        return completion;
     }
 
-    private GradleSettings buildGradleSettings(GradleFacetData gradleData) {
+    private void ensureIsGradleProject() {
+        Path path = project.getPath();
+        if (!isGradleProject())
+            throw new IllegalStateException("Project at " + path + " is not a Gradle project.");
+    }
+
+    public boolean isGradleProject() {
+        Path path = project.getPath();
+        Path groovyBuildFile = path.resolve("build.gradle");
+        Path kotlinBuildFile = path.resolve("build.gradle.kts");
+        boolean hasGroovyBuild = Files.isRegularFile(groovyBuildFile) && Files.isReadable(groovyBuildFile);
+        boolean hasKotlinBuild = Files.isRegularFile(kotlinBuildFile) && Files.isReadable(kotlinBuildFile);
+        return hasGradleWrapper() || hasGroovyBuild || hasKotlinBuild;
+    }
+
+    private GradleSettings buildGradleSettings() {
         GradleInvocationPreferences prefs = loadGradleInvocationPreferences();
 
         boolean useWrapper = hasGradleWrapper();
-        String wrapperVersion = gradleData != null ? gradleData.getGradleVersion() : null;
+        String wrapperVersion = getGradleVersion();
         Path gradleUserHome = getEnvPath("GRADLE_USER_HOME").orElse(prefs.gradleUserHome());
         JDK gradleJvm = JDKManager.getDefaultJDK();
 
@@ -205,6 +291,41 @@ public final class GradleManager {
         return Files.isRegularFile(wrapperProps);
     }
 
+    private String getGradleVersion() {
+        Path wrapperProps = project.getPath().resolve("gradle").resolve("wrapper").resolve("gradle-wrapper.properties");
+        if (!Files.isRegularFile(wrapperProps))
+            return null;
+
+        try {
+            for (String rawLine : Files.readAllLines(wrapperProps)) {
+                String line = rawLine.trim();
+                if (line.startsWith("distributionUrl=")) {
+                    String url = line.substring("distributionUrl=".length()).trim();
+
+                    if ((url.startsWith("\"") && url.endsWith("\"")) || (url.startsWith("'") && url.endsWith("'"))) {
+                        url = url.substring(1, url.length() - 1);
+                    }
+
+                    int lastSlash = url.lastIndexOf('/');
+                    String filename = lastSlash != -1 ? url.substring(lastSlash + 1) : url;
+
+                    Matcher m = Pattern.compile("gradle-([0-9][0-9A-Za-z.-]*)", Pattern.CASE_INSENSITIVE)
+                        .matcher(filename);
+                    if (m.find())
+                        return m.group(1);
+
+                    // Couldn't extract version from filename
+                    return null;
+                }
+            }
+
+            return null;
+        } catch (IOException exception) {
+            Railroad.LOGGER.error("Error reading gradle-wrapper.properties", exception);
+            return null;
+        }
+    }
+
     private Optional<Path> getEnvPath(String envKey) {
         String value = System.getenv(envKey);
         if (value == null || value.isBlank())
@@ -221,6 +342,48 @@ public final class GradleManager {
     private GradleInvocationPreferences loadGradleInvocationPreferences() {
         return project.getDataStore().readJson("gradle/settings.json", GradleInvocationPreferences.class)
             .orElseGet(GradleInvocationPreferences::defaults);
+    }
+
+    private Path extractInitScript(String resourcePath, String prefix) throws IOException {
+        try (var stream = AppResources.getResourceAsStream(resourcePath)) {
+            if (stream == null)
+                throw new IOException("Missing init script resource: " + resourcePath);
+
+            Path tempFile = Files.createTempFile(prefix, ".gradle");
+            Files.copy(stream, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            tempFile.toFile().deleteOnExit();
+            return tempFile;
+        }
+    }
+
+    private void deleteIfExists(Path path) {
+        if (path == null)
+            return;
+
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+        }
+    }
+
+    public void saveSettings() {
+        synchronized (lock) {
+            project.getDataStore().writeJson(
+                "gradle/settings.json",
+                new GradleInvocationPreferences(
+                    gradleSettings.isOfflineMode(),
+                    gradleSettings.isEnableBuildCache(),
+                    gradleSettings.isParallelExecution(),
+                    gradleSettings.isDaemonEnabled(),
+                    gradleSettings.getDaemonIdleTimeout(),
+                    gradleSettings.getMaxWorkerCount(),
+                    gradleSettings.getCustomGradleHome(),
+                    gradleSettings.getGradleUserHome()
+                )
+            );
+
+            this.environment = null; // Invalidate cached environment
+        }
     }
 
     // TODO: Support changing JDK at runtime (this would require recreating the execution service)

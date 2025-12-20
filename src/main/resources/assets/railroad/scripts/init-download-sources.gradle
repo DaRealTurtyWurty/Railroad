@@ -1,0 +1,32 @@
+initscript {
+    repositories {
+        mavenLocal()
+        maven { url "https://maven.railroadide.dev/releases" }
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath "dev.railroadide:RailroadGradlePlugin:1.0.0"
+    }
+}
+
+beforeSettings { settings ->
+    // Apply to the actual Settings object so the plugin receives the expected target type.
+    settings.pluginManager.apply(dev.railroadide.railroadplugin.RailroadSettingsPlugin)
+}
+
+allprojects {
+    apply plugin: dev.railroadide.railroadplugin.RailroadProjectPlugin
+}
+
+// Aggregate a single root task that triggers downloads for all projects
+gradle.projectsLoaded { gradle ->
+    def root = gradle.rootProject
+    def aggregate = root.tasks.register("railroadDownloadAllSources") { task ->
+        task.group = "Documentation"
+        task.description = "Downloads sources for all projects using Railroad download-sources plugin."
+    }
+
+    root.allprojects { project ->
+        aggregate.configure { dependsOn(project.tasks.named("downloadDependencySources")) }
+    }
+}

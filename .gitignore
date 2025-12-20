@@ -29,6 +29,9 @@ bin/
 !**/src/main/**/bin/
 !**/src/test/**/bin/
 
+### Railroad ###
+.railroad/
+
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/

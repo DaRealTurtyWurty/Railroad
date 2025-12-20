@@ -40,6 +40,23 @@ public class ToolingGradleExecutionService implements GradleExecutionService {
         this.executor = Objects.requireNonNull(executor);
     }
 
+    private static int findFreePort() {
+        try (var socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (IOException exception) {
+            throw new RuntimeException("Failed to find a free port for debugging", exception);
+        }
+    }
+
+    private static String bufferToString(Queue<String> buffer) {
+        var stringBuilder = new StringBuilder();
+        for (String line : buffer) {
+            stringBuilder.append(line).append(System.lineSeparator());
+        }
+
+        return stringBuilder.toString();
+    }
+
     @Override
     public GradleTaskExecutionHandle runTask(GradleTaskExecutionRequest request) {
         var handle = new ToolingGradleTaskExecutionHandle(request);
@@ -181,22 +198,5 @@ public class ToolingGradleExecutionService implements GradleExecutionService {
             "railroad.gradle.execution.debug_started",
             debugPort
         );
-    }
-
-    private static int findFreePort() {
-        try (var socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        } catch (IOException exception) {
-            throw new RuntimeException("Failed to find a free port for debugging", exception);
-        }
-    }
-
-    private static String bufferToString(Queue<String> buffer) {
-        var stringBuilder = new StringBuilder();
-        for (String line : buffer) {
-            stringBuilder.append(line).append(System.lineSeparator());
-        }
-
-        return stringBuilder.toString();
     }
 }

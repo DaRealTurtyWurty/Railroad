@@ -3,8 +3,6 @@ package dev.railroadide.railroad.gradle;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
 import java.util.function.Consumer;
 
 /**

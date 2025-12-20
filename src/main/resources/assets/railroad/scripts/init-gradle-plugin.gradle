@@ -1,0 +1,19 @@
+initscript {
+    repositories {
+        mavenLocal()
+        maven { url "https://maven.railroadide.dev/releases" }
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath "dev.railroadide:RailroadGradlePlugin:1.0.0"
+    }
+}
+
+beforeSettings { settings ->
+    // Apply to the actual Settings object so the plugin receives the expected target type.
+    settings.pluginManager.apply(dev.railroadide.railroadplugin.RailroadSettingsPlugin)
+}
+
+allprojects {
+    apply plugin: dev.railroadide.railroadplugin.RailroadProjectPlugin
+}

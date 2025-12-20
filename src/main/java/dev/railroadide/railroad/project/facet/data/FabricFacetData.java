@@ -26,4 +26,8 @@ public class FabricFacetData extends MinecraftModFacetData {
      * The version of Loom used by the project.
      */
     private String loomVersion;
+    /**
+     * Whether the project is using Architectury Loom.
+     */
+    private boolean isArchitecturyLoom;
 }

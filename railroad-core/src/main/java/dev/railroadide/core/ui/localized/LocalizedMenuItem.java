@@ -2,6 +2,7 @@ package dev.railroadide.core.ui.localized;
 
 import dev.railroadide.core.settings.keybinds.KeybindData;
 import dev.railroadide.core.utility.DesktopUtils;
+import javafx.scene.Node;
 import javafx.scene.control.MenuItem;
 
 /**
@@ -9,7 +10,7 @@ import javafx.scene.control.MenuItem;
  * It also supports setting a url to open when the item is clicked, additionally allows for a keybind to be set to trigger the items action.
  */
 public class LocalizedMenuItem extends MenuItem {
-    
+
     private final LocalizedTextProperty localizedText = new LocalizedTextProperty(this, "localizedText", null);
 
     /**
@@ -21,6 +22,17 @@ public class LocalizedMenuItem extends MenuItem {
         super();
         textProperty().bindBidirectional(localizedText);
         setKey(key);
+    }
+
+    /**
+     * Creates a new LocalizedMenuItem with the specified key and graphic.
+     *
+     * @param key     The localization key
+     * @param graphic The graphic node to display alongside the text
+     */
+    public LocalizedMenuItem(final String key, Node graphic) {
+        this(key);
+        setGraphic(graphic);
     }
 
     /**

@@ -9,7 +9,6 @@ import dev.railroadide.railroad.java.JDK;
 import dev.railroadide.railroad.project.Project;
 
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -18,7 +17,7 @@ public record DefaultGradleEnvironment(Project project, Path gradleInstallationP
                                        GradleSettings settings) implements GradleEnvironment {
     @Override
     public boolean useWrapper() {
-        return settings.useWrapper();
+        return settings.isUseWrapper();
     }
 
     @Override
@@ -28,17 +27,17 @@ public record DefaultGradleEnvironment(Project project, Path gradleInstallationP
 
     @Override
     public Optional<Path> userHomePath() {
-        return Optional.ofNullable(settings.gradleUserHome());
+        return Optional.ofNullable(settings.getGradleUserHome());
     }
 
     @Override
     public Optional<JDK> jvm() {
-        return Optional.ofNullable(settings.gradleJvm());
+        return Optional.ofNullable(settings.getGradleJvm());
     }
 
     @Override
     public String jvmArgumentsFor(GradleTaskExecutionRequest request, JDK jvm) {
-        List<RunConfiguration<?>> configurations = settings.configurations();
+        List<RunConfiguration<?>> configurations = settings.getConfigurations();
         if (configurations == null || configurations.isEmpty())
             return "";
 
@@ -63,8 +62,8 @@ public record DefaultGradleEnvironment(Project project, Path gradleInstallationP
     }
 
     @Override
-    public Optional<Duration> daemonIdleTimeout() {
-        return Optional.ofNullable(settings.daemonIdleTimeout());
+    public Optional<Long> daemonIdleTimeout() {
+        return Optional.ofNullable(settings.getDaemonIdleTimeout());
     }
 
     private boolean matchesConfiguration(GradleTaskExecutionRequest request,
