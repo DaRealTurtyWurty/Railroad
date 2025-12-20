@@ -20,14 +20,14 @@ import java.util.Properties;
  * Java version, and brand (e.g., Oracle, Adoptium). It also provides utility methods
  * for interacting with the JDK's command-line interface tools.
  */
-@ToString
+@ToString(exclude = "cli")
 @EqualsAndHashCode
 public final class JDK {
     private final Path path;
     private final String name;
     private final JavaVersion version;
     private final Brand brand;
-    private final JDKCLI cli;
+    private transient final JDKCLI cli;
 
     /**
      * Constructs a new {@code JDK} instance with the specified path, name, version, and brand.

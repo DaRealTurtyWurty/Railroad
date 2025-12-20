@@ -5,6 +5,8 @@ import com.google.gson.JsonElement;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.project.data.ProjectDataStore;
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleObjectProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
@@ -21,6 +23,9 @@ public class RunConfigurationManager {
 
     @Getter
     private final ObservableList<RunConfiguration<?>> configurations = FXCollections.observableArrayList();
+    @Getter
+    private final ObjectProperty<RunConfiguration<?>> selectedConfiguration = new SimpleObjectProperty<>();
+
     private final Project project;
 
     public RunConfigurationManager(Project project) {
@@ -29,6 +34,15 @@ public class RunConfigurationManager {
 
         this.configurations.addListener(
             (ListChangeListener<? super RunConfiguration<?>>) change -> writeRunConfigurations());
+    }
+
+    /**
+     * Set the selected run configuration.
+     *
+     * @param configuration The run configuration to select, or null to clear the selection.
+     */
+    public void setSelectedConfiguration(@Nullable RunConfiguration<?> configuration) {
+        this.selectedConfiguration.set(configuration);
     }
 
     /**

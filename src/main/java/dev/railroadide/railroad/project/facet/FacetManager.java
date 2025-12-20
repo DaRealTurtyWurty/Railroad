@@ -12,8 +12,6 @@ import dev.railroadide.railroad.project.facet.detector.JavaFacetDetector;
 import dev.railroadide.railroad.project.facet.detector.MavenFacetDetector;
 import org.jetbrains.annotations.NotNull;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -148,32 +146,16 @@ public class FacetManager {
     }
 
     public static CompletableFuture<Collection<Facet<?>>> scan(@NotNull Project project) {
-        if (project == null)
-            throw new IllegalArgumentException("Project must not be null");
-
-        return scan(project.getPath());
-    }
-
-    public static CompletableFuture<Collection<Facet<?>>> scan(@NotNull Path projectPath) {
-        if (projectPath == null)
-            throw new IllegalArgumentException("Project path must not be null");
-
-        if (Files.notExists(projectPath))
-            throw new IllegalArgumentException("Project path does not exist: " + projectPath);
-
-        if (!Files.isDirectory(projectPath))
-            throw new IllegalArgumentException("Project path must be a directory: " + projectPath);
-
         return CompletableFuture.supplyAsync(() -> {
             Set<Facet<?>> facets = DETECTORS.stream()
-                .map(detector -> detector.detect(projectPath))
+                .map(detector -> detector.detect(project))
                 .flatMap(Optional::stream)
                 .collect(Collectors.toSet());
 
             if (facets.isEmpty()) {
-                Railroad.LOGGER.warn("No facets detected for project at {}", projectPath);
+                Railroad.LOGGER.warn("No facets detected for project at {}", project.getPath());
             } else {
-                Railroad.LOGGER.info("Detected {} facets for project at {}", facets.size(), projectPath);
+                Railroad.LOGGER.info("Detected {} facets for project at {}", facets.size(), project.getPath());
             }
 
             return facets;

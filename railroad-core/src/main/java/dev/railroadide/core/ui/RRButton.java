@@ -23,8 +23,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
  * Supports different sizes, styles, and icon integration.
  */
 public class RRButton extends Button {
-
-    public static final String[] DEFAULT_STYLE_CLASSES = { "rr-button", "button" };
+    public static final String[] DEFAULT_STYLE_CLASSES = {"rr-button", "button"};
 
     private FontIcon icon;
 
@@ -32,10 +31,11 @@ public class RRButton extends Button {
     private FontIcon loadingSpinner;
 
     private final BooleanProperty isLoading = new SimpleBooleanProperty(this, "isLoading", false);
+
     public boolean getIsLoading() {
         return isLoading.get();
     }
-    
+
     private final LocalizedTextProperty localizedText = new LocalizedTextProperty(this, "localizedText", null);
 
     private final BooleanProperty isSquare = new SimpleBooleanProperty(this, "isSquare", false);
@@ -124,7 +124,7 @@ public class RRButton extends Button {
 
     protected void initialize(String localizationKey, Object... args) {
         getStyleClass().setAll(RRButton.DEFAULT_STYLE_CLASSES);
-        
+
         setAlignment(Pos.CENTER);
         setPadding(new Insets(8, 16, 8, 16));
 

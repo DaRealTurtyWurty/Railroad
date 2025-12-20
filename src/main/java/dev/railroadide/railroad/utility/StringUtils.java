@@ -214,4 +214,22 @@ public final class StringUtils {
 
         return str.split(delimiter);
     }
+
+    public static String capitalizeFirstLetterOfEachWord(String input) {
+        String[] words = input.split(" ");
+        var capitalized = new StringBuilder();
+        for (int i = 0; i < words.length; i++) {
+            String word = words[i];
+            if (!word.isEmpty()) {
+                capitalized.append(Character.toUpperCase(word.charAt(0)))
+                    .append(word.substring(1).toLowerCase());
+
+                if (i < words.length - 1) {
+                    capitalized.append(" ");
+                }
+            }
+        }
+
+        return capitalized.toString().trim();
+    }
 }

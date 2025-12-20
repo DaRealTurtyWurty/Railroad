@@ -31,15 +31,12 @@ public class ToolingGradleTaskExecutionHandle implements GradleTaskExecutionHand
     private final List<Consumer<GradleTaskOutputEvent>> outputListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<GradleTaskErrorEvent>> errorListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<GradleTaskStatusEvent>> statusListeners = new CopyOnWriteArrayList<>();
-
-    private volatile GradleTaskState state = GradleTaskState.QUEUED;
-    private volatile CompletableFuture<GradleTaskExecutionResult> resultCompletion = new CompletableFuture<>();
-
-    private volatile CancellationTokenSource cancellationTokenSource;
-    private volatile int debugPort = -1;
-
     private final Queue<String> outputBuffer = new ConcurrentLinkedQueue<>();
     private final Queue<String> errorBuffer = new ConcurrentLinkedQueue<>();
+    private volatile GradleTaskState state = GradleTaskState.QUEUED;
+    private volatile CompletableFuture<GradleTaskExecutionResult> resultCompletion = new CompletableFuture<>();
+    private volatile CancellationTokenSource cancellationTokenSource;
+    private volatile int debugPort = -1;
 
     /**
      * Creates a new ToolingGradleTaskExecutionHandle for the given request.

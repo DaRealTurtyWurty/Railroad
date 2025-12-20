@@ -137,6 +137,7 @@ public class Project implements JsonSerializable<JsonObject>, dev.railroadide.ra
             for (Facet<?> facet : facets) {
                 if (facet != null) {
                     this.facets.add(facet);
+                    Railroad.EVENT_BUS.publish(new FacetDetectedEvent(this, facet));
                 } else {
                     Railroad.LOGGER.warn("Discovered null facet for project: {}", getPathString());
                 }

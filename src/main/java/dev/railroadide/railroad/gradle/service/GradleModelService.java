@@ -1,9 +1,8 @@
 package dev.railroadide.railroad.gradle.service;
 
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
-import dev.railroadide.railroad.gradle.model.task.GradleTaskModel;
+import dev.railroadide.railroad.gradle.model.GradleModelListener;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -26,37 +25,16 @@ public interface GradleModelService {
     Optional<GradleBuildModel> getCachedModel();
 
     /**
-     * @return every task from the most recently cached model, or an empty list if no model is loaded
+     * Adds a listener to be notified of model changes.
+     *
+     * @param listener the listener to add
      */
-    default List<GradleTaskModel> getAllTasks() {
-        return getCachedModel().map(GradleBuildModel::projects)
-            .stream()
-            .flatMap(projects -> projects.stream()
-                .flatMap(project -> project.tasks().stream()))
-            .toList();
-    }
+    void addListener(GradleModelListener listener);
 
     /**
-     * Finds tasks that match the provided name.
+     * Removes a previously added listener.
      *
-     * @param name the task name to search for
-     * @return tasks whose simple name matches the provided string
+     * @param listener the listener to remove
      */
-    default List<GradleTaskModel> findTasksByName(String name) {
-        return getAllTasks().stream()
-            .filter(task -> task.name().equals(name))
-            .toList();
-    }
-
-    /**
-     * Looks up a task by its full Gradle path.
-     *
-     * @param path the fully-qualified task path
-     * @return the matching task if it exists
-     */
-    default Optional<GradleTaskModel> findTaskByPath(String path) {
-        return getAllTasks().stream()
-            .filter(task -> task.path().equals(path))
-            .findFirst();
-    }
+    void removeListener(GradleModelListener listener);
 }

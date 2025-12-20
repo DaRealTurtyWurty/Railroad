@@ -1,7 +1,6 @@
 package dev.railroadide.railroad.gradle.project;
 
 import java.nio.file.Path;
-import java.time.Duration;
 
 /**
  * Preferences for invoking Gradle builds.
@@ -43,11 +42,11 @@ public record GradleInvocationPreferences(boolean offlineMode,
     }
 
     /**
-     * Returns the daemon idle timeout as a Duration.
+     * Returns the daemon idle timeout in minutes.
      *
-     * @return the daemon idle timeout, or null if not set
+     * @return the daemon idle timeout in minutes, or null if not set
      */
-    Duration daemonIdleTimeout() {
-        return daemonIdleTimeoutMinutes == null ? null : Duration.ofMinutes(daemonIdleTimeoutMinutes);
+    Long daemonIdleTimeout() {
+        return daemonIdleTimeoutMinutes;
     }
 }

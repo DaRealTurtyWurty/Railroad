@@ -150,6 +150,16 @@ railroad.runconfig.shell_script.configuration.interpreterArgs.label=Interpreter 
 railroad.runconfig.shell_script.configuration.interpreterArgs.prompt=Arguments separated by spaces
 railroad.runconfig.shell_script.configuration.executeInTerminal.label=Run in terminal
 
+# =============================================================================
+# Gradle Tools
+# =============================================================================
+railroad.gradle.tools.tasks=Tasks
+railroad.gradle.tools.dependencies=Dependencies
+railroad.gradle.tools.button.sync.tooltip=Sync Gradle Project
+railroad.gradle.tools.button.downloadsources.tooltip=Download Sources
+railroad.gradle.tools.button.toggleoffline.tooltip=Toggle Offline Mode
+railroad.gradle.tools.ctx_menu.open_gradle_config=Open Gradle Configuration
+railroad.gradle.tools.ctx_menu.sync=Sync Gradle Project
 
 # =============================================================================
 # HOME/WELCOME SCREEN
