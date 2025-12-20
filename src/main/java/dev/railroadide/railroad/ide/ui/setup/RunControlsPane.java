@@ -5,6 +5,8 @@ import dev.railroadide.core.ui.RRButton;
 import dev.railroadide.core.ui.RRHBox;
 import dev.railroadide.core.ui.localized.LocalizedComboBox;
 import dev.railroadide.core.ui.localized.LocalizedTooltip;
+import dev.railroadide.core.ui.styling.ButtonSize;
+import dev.railroadide.core.ui.styling.ButtonVariant;
 import dev.railroadide.core.utility.ServiceLocator;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.ide.IDESetup;
@@ -73,18 +75,6 @@ public final class RunControlsPane extends RRHBox {
                 return "railroad.ide.toolbar.edit_run_configurations";
 
             return object.uuid().toString();
-        }, string -> {
-            if (string == null || string.isEmpty() ||
-                "railroad.ide.toolbar.edit_run_configurations".equalsIgnoreCase(string))
-                return null;
-
-            try {
-                var uuid = UUID.fromString(string);
-                return project.getRunConfigManager().getConfigurationByUUID(uuid);
-            } catch (IllegalArgumentException exception) {
-                Railroad.LOGGER.warn("Failed to parse UUID from string: {}", string, exception);
-                return null;
-            }
         });
 
         comboBox.getItems().setAll(project.getRunConfigManager().getConfigurations());
@@ -143,8 +133,8 @@ public final class RunControlsPane extends RRHBox {
 
     private void configureButtons() {
         runButton.setSquare(true);
-        runButton.setButtonSize(RRButton.ButtonSize.SMALL);
-        runButton.setVariant(RRButton.ButtonVariant.GHOST);
+        runButton.setButtonSize(ButtonSize.SMALL);
+        runButton.setVariant(ButtonVariant.GHOST);
         runButton.setTooltip(runButtonTooltip);
         runButton.getStyleClass().addAll("toolbar-button", "run-button");
         runButton.setFocusTraversable(false);
@@ -162,8 +152,8 @@ public final class RunControlsPane extends RRHBox {
         });
 
         debugButton.setSquare(true);
-        debugButton.setButtonSize(RRButton.ButtonSize.SMALL);
-        debugButton.setVariant(RRButton.ButtonVariant.GHOST);
+        debugButton.setButtonSize(ButtonSize.SMALL);
+        debugButton.setVariant(ButtonVariant.GHOST);
         debugButton.setTooltip(debugButtonTooltip);
         debugButton.getStyleClass().addAll("toolbar-button", "debug-button");
         debugButton.setFocusTraversable(false);
@@ -181,8 +171,8 @@ public final class RunControlsPane extends RRHBox {
         });
 
         stopButton.setSquare(true);
-        stopButton.setButtonSize(RRButton.ButtonSize.SMALL);
-        stopButton.setVariant(RRButton.ButtonVariant.GHOST);
+        stopButton.setButtonSize(ButtonSize.SMALL);
+        stopButton.setVariant(ButtonVariant.GHOST);
         stopButton.setTooltip(new LocalizedTooltip("railroad.ide.toolbar.stop.tooltip"));
         stopButton.getStyleClass().addAll("toolbar-button", "stop-button");
         stopButton.setFocusTraversable(false);
@@ -199,8 +189,8 @@ public final class RunControlsPane extends RRHBox {
         });
 
         moreActionsButton.setSquare(true);
-        moreActionsButton.setButtonSize(RRButton.ButtonSize.SMALL);
-        moreActionsButton.setVariant(RRButton.ButtonVariant.GHOST);
+        moreActionsButton.setButtonSize(ButtonSize.SMALL);
+        moreActionsButton.setVariant(ButtonVariant.GHOST);
         moreActionsButton.setTooltip(new LocalizedTooltip("railroad.ide.toolbar.run_configurations.more_actions.tooltip"));
         moreActionsButton.getStyleClass().addAll("toolbar-button", "more-actions-button");
         moreActionsButton.setFocusTraversable(false);

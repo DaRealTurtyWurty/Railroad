@@ -5,6 +5,8 @@ import dev.railroadide.core.ui.RRCard;
 import dev.railroadide.core.ui.RRHBox;
 import dev.railroadide.core.ui.RRVBox;
 import dev.railroadide.core.ui.localized.LocalizedTooltip;
+import dev.railroadide.core.ui.styling.ButtonSize;
+import dev.railroadide.core.ui.styling.ButtonVariant;
 import dev.railroadide.railroad.theme.Theme;
 import dev.railroadide.railroad.theme.ThemeDownloadManager;
 import javafx.beans.property.ObjectProperty;
@@ -45,13 +47,15 @@ public class ThemeDownloadCell extends ListCell<Theme> {
 
         card = new RRCard(12, new Insets(16));
         card.setInteractive(false);
-        card.getStyleClass().add("theme-download-card");
+        card.getStyleClass().addAll("card", "compact");
 
         content = new RRHBox(16);
         content.setAlignment(Pos.CENTER_LEFT);
+        content.getStyleClass().add("transparent-background");
 
         infoSection = new RRVBox(4);
         infoSection.setAlignment(Pos.CENTER_LEFT);
+        infoSection.getStyleClass().add("transparent-background");
         HBox.setHgrow(infoSection, Priority.ALWAYS);
 
         themeNameLabel = new Label();
@@ -64,16 +68,17 @@ public class ThemeDownloadCell extends ListCell<Theme> {
 
         actionSection = new RRHBox(8);
         actionSection.setAlignment(Pos.CENTER_RIGHT);
+        actionSection.getStyleClass().add("transparent-background");
 
         previewButton = new RRButton();
         previewButton.setIcon(FontAwesomeSolid.EYE);
-        previewButton.setButtonSize(RRButton.ButtonSize.SMALL);
-        previewButton.setVariant(RRButton.ButtonVariant.GHOST);
+        previewButton.setButtonSize(ButtonSize.SMALL);
+        previewButton.setVariant(ButtonVariant.GHOST);
         previewButton.setTooltip(new LocalizedTooltip("railroad.home.settings.appearance.preview.tooltip"));
 
         downloadButton = new RRButton("railroad.home.settings.appearance.download");
-        downloadButton.setButtonSize(RRButton.ButtonSize.SMALL);
-        downloadButton.setVariant(RRButton.ButtonVariant.PRIMARY);
+        downloadButton.setButtonSize(ButtonSize.SMALL);
+        downloadButton.setVariant(ButtonVariant.PRIMARY);
 
         actionSection.getChildren().addAll(previewButton, downloadButton);
 
@@ -89,14 +94,14 @@ public class ThemeDownloadCell extends ListCell<Theme> {
             Theme theme = themeProperty.get();
             if (theme != null) {
                 boolean success = ThemeDownloadManager.downloadTheme(theme);
-                updateDownloadButtonState(success);
+                updateButtonStates(success);
             }
         });
 
         previewButton.setOnAction(e -> {
             Theme theme = themeProperty.get();
             if (theme != null) {
-                new ThemeExamplePane(theme.getName());
+                new ThemeExamplePane(theme.getName().replace(".css", ""));
             }
         });
     }
@@ -128,20 +133,22 @@ public class ThemeDownloadCell extends ListCell<Theme> {
         themeProperty.addListener((observable, oldValue, newValue) -> {
             if (newValue != null) {
                 boolean isDownloaded = ThemeDownloadManager.isDownloaded(newValue);
-                updateDownloadButtonState(isDownloaded);
+                updateButtonStates(isDownloaded);
             }
         });
     }
 
-    private void updateDownloadButtonState(boolean isDownloaded) {
+    private void updateButtonStates(boolean isDownloaded) {
         if (isDownloaded) {
             downloadButton.setLocalizedText("railroad.home.settings.appearance.installed");
-            downloadButton.setVariant(RRButton.ButtonVariant.SUCCESS);
+            downloadButton.setVariant(ButtonVariant.SUCCESS);
             downloadButton.setDisable(true);
+            previewButton.setDisable(false);
         } else {
             downloadButton.setLocalizedText("railroad.home.settings.appearance.download");
-            downloadButton.setVariant(RRButton.ButtonVariant.PRIMARY);
+            downloadButton.setVariant(ButtonVariant.PRIMARY);
             downloadButton.setDisable(false);
+            previewButton.setDisable(true);
         }
     }
 
