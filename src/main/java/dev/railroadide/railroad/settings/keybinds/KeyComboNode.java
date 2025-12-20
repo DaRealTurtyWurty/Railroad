@@ -66,6 +66,17 @@ public class KeyComboNode extends RRButton {
         if (event.isControlDown()) modifiers.add(KeyCombination.CONTROL_DOWN);
         if (event.isAltDown()) modifiers.add(KeyCombination.ALT_DOWN);
         if (event.isShiftDown()) modifiers.add(KeyCombination.SHIFT_DOWN);
+        if (event.isMetaDown()) modifiers.add(KeyCombination.META_DOWN);
+
+        if (OperatingSystem.isMac()) {
+            if (event.isMetaDown()) {
+                modifiers.remove(KeyCombination.SHORTCUT_DOWN);
+            }
+        } else {
+            if (event.isControlDown()) {
+                modifiers.remove(KeyCombination.SHORTCUT_DOWN);
+            }
+        }
 
         pendingModifiers = modifiers.isEmpty() ? null : modifiers.toArray(new KeyCombination.Modifier[0]);
     }
@@ -128,6 +139,7 @@ public class KeyComboNode extends RRButton {
     private String localizeModifier(KeyCombination.Modifier modifier) {
         return switch (modifier.getKey()) {
             case SHORTCUT -> OperatingSystem.isMac() ? "⌘" : "Ctrl";
+            case META -> "⌘";
             case CONTROL -> "Ctrl";
             case ALT -> OperatingSystem.isMac() ? "⌥" : "Alt";
             case SHIFT -> "Shift";
