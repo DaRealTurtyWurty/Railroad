@@ -1,13 +1,8 @@
 package dev.railroadide.core.ui.localized;
 
-import dev.railroadide.core.localization.LocalizationService;
-import dev.railroadide.core.utility.FromStringFunction;
-import dev.railroadide.core.utility.ServiceLocator;
-import dev.railroadide.core.utility.ToStringFunction;
+import javafx.collections.ObservableList;
 import javafx.scene.control.ComboBox;
-import javafx.util.StringConverter;
-
-import java.util.Locale;
+import java.util.function.Function;
 
 /**
  * An extension of the JavaFX ComboBox that allows for the ComboBox's items to have localised labels.
@@ -15,33 +10,54 @@ import java.util.Locale;
  * @param <T> The type of the ComboBox items.
  */
 public class LocalizedComboBox<T> extends ComboBox<T> {
+
+    public static final String[] DEFAULT_STYLE_CLASSES = { "combo-box-base", "rr-combo-box", "combo-box" };
+
     /**
-     * Creates a new LocalizedComboBox with the given key and valueOf functions.
-     *
-     * @param keyFunction     The function that converts the object to a key.
-     * @param valueOfFunction The function that converts the key to the object.
+     * Create a new ComboBox that can localize it's items with a given key function
      */
-    public LocalizedComboBox(ToStringFunction<T> keyFunction, FromStringFunction<T> valueOfFunction) {
-        var localizationService = ServiceLocator.getService(LocalizationService.class);
-
-        setConverter(new StringConverter<>() {
-            @Override
-            public String toString(T object) {
-                String key = keyFunction.toString(object);
-                if (key == null || key.isEmpty())
-                    return "";
-
-                if (localizationService.isKeyValid(key)) {
-                    return localizationService.get(key);
-                }
-
-                return key;
-            }
-
-            @Override
-            public T fromString(String string) {
-                return valueOfFunction.fromString(string.toUpperCase(Locale.ROOT));
-            }
-        });
+    public LocalizedComboBox() {
+        super();
+        initialize();
     }
+
+    /**
+     * Create a new ComboBox that can localize it's items with a given key function
+     * 
+     * @param keyFunction A function that for any value T returns a localization key
+     */
+    public LocalizedComboBox(Function<T, String> keyFunction) {
+        super();
+        initialize();
+        setKeyFunction(keyFunction);
+    }
+
+    /**
+     * Creates a new LocalizedComboBox from a list of localizationKeys
+     * 
+     * @param localizationKeys A list of localization keys
+     * @return
+     */
+    public static LocalizedComboBox<String> fromLocalizationKeys(ObservableList<String> localizationKeys) {
+        LocalizedComboBox<String> combo = new LocalizedComboBox<>();
+        combo.setKeyFunction(Function.identity());
+        combo.setItems(localizationKeys);
+
+        return combo;
+    }
+
+    protected void initialize() {
+        getStyleClass().setAll(LocalizedComboBox.DEFAULT_STYLE_CLASSES);
+    }
+
+    /**
+     * Assign a new key function to the LocalizedComboBox
+     * 
+     * @param keyFunction A function that for any value T returns a localization key
+     */
+    public void setKeyFunction(Function<T, String> keyFunction) {
+        setCellFactory(list -> new LocalizedListCell<T>(keyFunction));
+        setButtonCell(new LocalizedListCell<T>(keyFunction));
+    }
+
 }

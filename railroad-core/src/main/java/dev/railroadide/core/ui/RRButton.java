@@ -1,19 +1,20 @@
 package dev.railroadide.core.ui;
 
-import dev.railroadide.core.localization.LocalizationService;
-import dev.railroadide.core.utility.ServiceLocator;
+import dev.railroadide.core.ui.localized.LocalizedTextProperty;
+import dev.railroadide.core.ui.styling.ButtonSize;
+import dev.railroadide.core.ui.styling.ButtonVariant;
 import javafx.animation.ScaleTransition;
 import javafx.beans.property.BooleanProperty;
-import javafx.beans.property.BooleanPropertyBase;
-import javafx.css.PseudoClass;
-import javafx.event.ActionEvent;
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBase;
 import javafx.util.Duration;
-import lombok.Getter;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 import org.kordamp.ikonli.javafx.FontIcon;
@@ -23,33 +24,49 @@ import org.kordamp.ikonli.javafx.FontIcon;
  * Supports different sizes, styles, and icon integration.
  */
 public class RRButton extends Button {
-    private final RRButtonBase<RRButton> support;
+
+    public static final String[] DEFAULT_STYLE_CLASSES = { "rr-button", "button" };
+
+    private FontIcon icon;
+
+    private Node originalGraphic;
+    private FontIcon loadingSpinner;
+
+    private final BooleanProperty isLoading = new SimpleBooleanProperty(this, "isLoading", false);
+    public boolean getIsLoading() {
+        return isLoading.get();
+    }
+    
+    private final LocalizedTextProperty localizedText = new LocalizedTextProperty(this, "localizedText", null);
+
+    private final BooleanProperty isSquare = new SimpleBooleanProperty(this, "isSquare", false);
+    private final BooleanProperty isOutlined = new SimpleBooleanProperty(this, "isOutlined", false);
+    private final BooleanProperty isFlat = new SimpleBooleanProperty(this, "isFlat", false);
+    private final ObjectProperty<ButtonVariant> variant = new SimpleObjectProperty<>(this, "variant", ButtonVariant.PRIMARY);
+    private final ObjectProperty<ButtonSize> size = new SimpleObjectProperty<>(this, "size", ButtonSize.MEDIUM);
 
     public RRButton() {
         this("");
     }
 
     public RRButton(String localizationKey, Ikon icon, Object... args) {
-        super((localizationKey != null && !localizationKey.isBlank()) ? ServiceLocator.getService(LocalizationService.class).get(localizationKey) : "");
-        support = new RRButtonBase<>(this);
-        support.setIcon(icon);
-        support.initialize();
-        support.trackLocalization(localizationKey, args);
+        super();
+
+        initialize(localizationKey, args);
+        setIcon(icon);
     }
 
     public RRButton(String localizationKey, Node graphic, Object... args) {
-        super((localizationKey != null && !localizationKey.isBlank()) ? ServiceLocator.getService(LocalizationService.class).get(localizationKey) : "");
+        super();
+
+        initialize(localizationKey, args);
         setGraphic(graphic);
-        support = new RRButtonBase<>(this);
-        support.initialize();
-        support.trackLocalization(localizationKey, args);
     }
 
     public RRButton(String localizationKey, Object... args) {
-        super(ServiceLocator.getService(LocalizationService.class).get(localizationKey, args));
-        support = new RRButtonBase<>(this);
-        support.initialize();
-        support.trackLocalization(localizationKey, args);
+        super();
+
+        initialize(localizationKey, args);
     }
 
     /**
@@ -106,6 +123,55 @@ public class RRButton extends Button {
         return button;
     }
 
+    protected void initialize(String localizationKey, Object... args) {
+        getStyleClass().setAll(RRButton.DEFAULT_STYLE_CLASSES);
+        
+        setAlignment(Pos.CENTER);
+        setPadding(new Insets(8, 16, 8, 16));
+
+        textProperty().bindBidirectional(localizedText);
+        localizedText.setTranslation(localizationKey, args);
+
+        loadingSpinner = new FontIcon(FontAwesomeSolid.SYNC_ALT);
+        loadingSpinner.setIconSize(16);
+        loadingSpinner.getStyleClass().add("loading-spinner");
+
+        setOnMousePressed($ -> {
+            if (!getIsLoading()) {
+                var scale = new ScaleTransition(Duration.millis(100), this);
+                scale.setToX(0.95);
+                scale.setToY(0.95);
+                scale.play();
+            }
+        });
+
+        setOnMouseReleased($ -> {
+            if (!getIsLoading()) {
+                var scale = new ScaleTransition(Duration.millis(100), this);
+                scale.setToX(1.0);
+                scale.setToY(1.0);
+                scale.play();
+            }
+        });
+
+        isLoading.addListener($ -> {
+            if (getIsLoading()) {
+                onLoading();
+            } else {
+                onNotLoading();
+            }
+        });
+
+        variant.addListener($ -> updateStyle());
+        size.addListener($ -> updateStyle());
+        isSquare.addListener($ -> updateStyle());
+        isOutlined.addListener($ -> updateStyle());
+        isFlat.addListener($ -> updateStyle());
+
+        updateStyle();
+        updateContent();
+    }
+
     /**
      * Set the button text using a localization key with optional formatting arguments.
      * The text will automatically update when the application language changes.
@@ -114,28 +180,42 @@ public class RRButton extends Button {
      * @param args            optional formatting arguments for the localized text
      */
     public void setLocalizedText(String localizationKey, Object... args) {
-        support.setLocalizedText(localizationKey, args);
+        localizedText.setTranslation(localizationKey, args);
     }
 
     /**
      * Set the button variant
      */
     public void setVariant(ButtonVariant variant) {
-        support.setVariant(variant);
+        this.variant.set(variant);
     }
 
     /**
      * Set the button size
      */
     public void setButtonSize(ButtonSize size) {
-        support.setButtonSize(size);
+        this.size.set(size);
     }
 
     /**
      * Set an icon for the button
      */
     public void setIcon(Ikon iconCode) {
-        support.setIcon(iconCode);
+        if (icon != null && getGraphic() == icon) {
+            setGraphic(null);
+        }
+
+        if (iconCode != null) {
+            icon = new FontIcon(iconCode);
+            icon.setIconSize(16);
+            icon.getStyleClass().add("button-icon");
+        } else {
+            icon = null;
+        }
+
+        if (!getIsLoading()) {
+            updateContent();
+        }
     }
 
     /**
@@ -168,11 +248,46 @@ public class RRButton extends Button {
      * @param loading true to show loading state, false to restore normal state
      */
     public void setLoading(boolean loading) {
-        support.setLoading(loading);
+        isLoading.set(loading);
     }
 
-    public boolean isLoading() {
-        return support.isLoading();
+    /**
+     * Called when the button has started loading
+     */
+    protected void onLoading() {
+        textProperty().unbindBidirectional(localizedText);
+        originalGraphic = getGraphic();
+
+        setDisable(true);
+        getStyleClass().add("loading");
+
+        var loadingContent = new RRHBox(8);
+        loadingContent.setAlignment(Pos.CENTER);
+        loadingContent.getChildren().addAll(loadingSpinner);
+
+        if (localizedText.get() != null && !localizedText.get().isEmpty()) {
+            setText("Loading...");
+        } else {
+            setText("");
+        }
+
+        setGraphic(loadingContent);
+    }
+
+    /**
+     * Called when the button has stopped loading
+     */
+    protected void onNotLoading() {
+        setDisable(false);
+        getStyleClass().remove("loading");
+
+        textProperty().bindBidirectional(localizedText);
+
+        if (originalGraphic != null) {
+            setGraphic(originalGraphic);
+        } else {
+            updateContent();
+        }
     }
 
     /**
@@ -186,158 +301,26 @@ public class RRButton extends Button {
      * Force the button into a square shape.
      */
     public void setSquare(boolean square) {
-        support.setSquare(square);
+        isSquare.set(square);
     }
 
     /**
      * Set the button as outlined
      */
     public void setOutlined(boolean outlined) {
-        support.setOutlined(outlined);
+        isOutlined.set(outlined);
     }
 
     /**
      * Set the button as flat
      */
     public void setFlat(boolean flat) {
-        support.setFlat(flat);
+        isFlat.set(flat);
     }
 
-    public enum ButtonVariant {
-        PRIMARY, SECONDARY, GHOST, DANGER, SUCCESS, WARNING
-    }
-
-    public enum ButtonSize {
-        SMALL, MEDIUM, LARGE
-    }
-
-    /**
-     * Toggle version of RRButton retaining the same styling and behaviors.
-     */
-    public static class Toggle extends RRButton {
-        private static final PseudoClass SELECTED_PSEUDO_CLASS = PseudoClass.getPseudoClass("selected");
-        private final BooleanProperty selected = new BooleanPropertyBase(false) {
-            @Override
-            protected void invalidated() {
-                pseudoClassStateChanged(SELECTED_PSEUDO_CLASS, get());
-            }
-
-            @Override
-            public Object getBean() {
-                return Toggle.this;
-            }
-
-            @Override
-            public String getName() {
-                return "selected";
-            }
-        };
-
-        public Toggle() {
-            this("");
-        }
-
-        public Toggle(String localizationKey, Ikon icon, Object... args) {
-            super(localizationKey, icon, args);
-            initializeToggle();
-        }
-
-        public Toggle(String localizationKey, Node graphic, Object... args) {
-            super(localizationKey, graphic, args);
-            initializeToggle();
-        }
-
-        public Toggle(String localizationKey, Object... args) {
-            super(localizationKey, args);
-            initializeToggle();
-        }
-
-        public static Toggle primary(String text) {
-            var button = new Toggle(text);
-            button.setVariant(ButtonVariant.PRIMARY);
-            return button;
-        }
-
-        public static Toggle secondary(String text) {
-            var button = new Toggle(text);
-            button.setVariant(ButtonVariant.SECONDARY);
-            return button;
-        }
-
-        public static Toggle ghost(String text) {
-            var button = new Toggle(text);
-            button.setVariant(ButtonVariant.GHOST);
-            return button;
-        }
-
-        public static Toggle danger(String text) {
-            var button = new Toggle(text);
-            button.setVariant(ButtonVariant.DANGER);
-            return button;
-        }
-
-        public static Toggle success(String text) {
-            var button = new Toggle(text);
-            button.setVariant(ButtonVariant.SUCCESS);
-            return button;
-        }
-
-        public static Toggle warning(String text) {
-            var button = new Toggle(text);
-            button.setVariant(ButtonVariant.WARNING);
-            return button;
-        }
-
-        private void initializeToggle() {
-            if (!getStyleClass().contains("toggle")) {
-                getStyleClass().add("toggle");
-            }
-            addEventHandler(ActionEvent.ACTION, event -> {
-                if (!isLoading()) {
-                    setSelected(!isSelected());
-                }
-            });
-        }
-
-        public final boolean isSelected() {
-            return selected.get();
-        }
-
-        public final void setSelected(boolean value) {
-            selected.set(value);
-        }
-
-        public final BooleanProperty selectedProperty() {
-            return selected;
-        }
-    }
-
-    private static final class RRButtonBase<B extends ButtonBase> {
-        private final B control;
-        private ButtonVariant variant = ButtonVariant.PRIMARY;
-        private ButtonSize size = ButtonSize.MEDIUM;
-        private FontIcon icon;
-        @Getter
-        private boolean isLoading = false;
-        private boolean square = false;
-        private String localizationKey;
-        private Object[] localizationArgs;
-
-        private String originalText;
-        private Node originalGraphic;
-        private final FontIcon loadingSpinner;
-
-        private RRButtonBase(B control) {
-            this.control = control;
-            loadingSpinner = new FontIcon(FontAwesomeSolid.SYNC_ALT);
-            loadingSpinner.setIconSize(16);
-            loadingSpinner.getStyleClass().add("loading-spinner");
-        }
-
-        private void initialize() {
-            if (!control.getStyleClass().contains("rr-button")) {
-                control.getStyleClass().add("rr-button");
-            }
+    private void updateContent() {
+        if (getIsLoading())
+            return; // Don't update content while loading
 
             control.setAlignment(Pos.CENTER);
             control.setPadding(new Insets(8, 16, 8, 16));
@@ -408,131 +391,35 @@ public class RRButton extends Button {
             }
         }
 
-        public void setLoading(boolean loading) {
-            if (this.isLoading == loading)
-                return;
+    private void updateStyle() {
+        ObservableList<String> styleClass = getStyleClass();
 
-            this.isLoading = loading;
+        styleClass.removeAll("square", "outlined", "flat");
+        styleClass.removeAll("primary", "secondary", "ghost", "danger", "success", "warning");
+        styleClass.removeAll("small", "medium", "large");
 
-            if (loading) {
-                originalText = control.getText();
-                originalGraphic = control.getGraphic();
+        if (isSquare.get())
+            styleClass.add("square");
 
-                control.setDisable(true);
-                control.getStyleClass().add("loading");
+        if (isOutlined.get())
+            styleClass.add("outlined");
 
-                var loadingContent = new RRHBox(8);
-                loadingContent.setAlignment(Pos.CENTER);
-                loadingContent.getChildren().addAll(loadingSpinner);
+        if (isFlat.get())
+            styleClass.add("flat");
 
-                if (originalText != null && !originalText.isEmpty()) {
-                    control.setText("Loading...");
-                } else {
-                    control.setText("");
-                }
-
-                control.setGraphic(loadingContent);
-            } else {
-                control.setDisable(false);
-                control.getStyleClass().remove("loading");
-
-                if (originalText != null) {
-                    control.setText(originalText);
-                }
-
-                if (originalGraphic != null) {
-                    control.setGraphic(originalGraphic);
-                } else {
-                    updateContent();
-                }
-            }
+        switch (variant.get()) {
+            case PRIMARY -> styleClass.add("primary");
+            case SECONDARY -> styleClass.add("secondary");
+            case GHOST -> styleClass.add("ghost");
+            case DANGER -> styleClass.add("danger");
+            case SUCCESS -> styleClass.add("success");
+            case WARNING -> styleClass.add("warning");
         }
 
-        public void setRounded(boolean rounded) {
-            if (rounded) {
-                control.getStyleClass().add("rounded");
-            } else {
-                control.getStyleClass().remove("rounded");
-            }
-        }
-
-        public void setSquare(boolean square) {
-            if (this.square == square)
-                return;
-
-            this.square = square;
-
-            if (square) {
-                if (!control.getStyleClass().contains("square")) {
-                    control.getStyleClass().add("square");
-                }
-            } else {
-                control.getStyleClass().remove("square");
-            }
-        }
-
-        public void setOutlined(boolean outlined) {
-            if (outlined) {
-                control.getStyleClass().add("outlined");
-            } else {
-                control.getStyleClass().remove("outlined");
-            }
-        }
-
-        public void setFlat(boolean flat) {
-            if (flat) {
-                control.getStyleClass().add("flat");
-            } else {
-                control.getStyleClass().remove("flat");
-            }
-        }
-
-        public void setVariant(ButtonVariant variant) {
-            this.variant = variant;
-            updateStyle();
-        }
-
-        public void setButtonSize(ButtonSize size) {
-            this.size = size;
-            updateStyle();
-        }
-
-        private void updateContent() {
-            if (isLoading)
-                return; // Don't update content while loading
-
-            if (icon == null)
-                return; // Preserve any custom graphic when no icon is set
-
-            var content = new RRHBox(8);
-            content.setAlignment(Pos.CENTER);
-            content.getChildren().add(icon);
-
-            if (control.getText() != null && !control.getText().isEmpty()) {
-                control.setGraphic(content);
-            } else {
-                control.setGraphic(icon);
-            }
-        }
-
-        private void updateStyle() {
-            control.getStyleClass().removeAll("primary", "secondary", "ghost", "danger", "success", "warning");
-            control.getStyleClass().removeAll("small", "medium", "large");
-
-            switch (variant) {
-                case PRIMARY -> control.getStyleClass().add("primary");
-                case SECONDARY -> control.getStyleClass().add("secondary");
-                case GHOST -> control.getStyleClass().add("ghost");
-                case DANGER -> control.getStyleClass().add("danger");
-                case SUCCESS -> control.getStyleClass().add("success");
-                case WARNING -> control.getStyleClass().add("warning");
-            }
-
-            switch (size) {
-                case SMALL -> control.getStyleClass().add("small");
-                case MEDIUM -> control.getStyleClass().add("medium");
-                case LARGE -> control.getStyleClass().add("large");
-            }
+        switch (size.get()) {
+            case SMALL -> styleClass.add("small");
+            case MEDIUM -> styleClass.add("medium");
+            case LARGE -> styleClass.add("large");
         }
     }
 }

@@ -30,23 +30,27 @@ public class RRFormContainer extends VBox {
         titleLabel = new LocalizedLabel("");
         titleLabel.getStyleClass().add("form-title");
 
-        if (title != null && !title.trim().isEmpty()) {
-            if (title.contains(".")) {
-                titleLabel.setKey(title);
-            } else {
-                titleLabel.setText(title);
-            }
+        if (title != null && title.contains(".")) {
+            setLocalizedTitle(title);
+        } else {
+            setTitle(title);
         }
-        titleLabel.setVisible(title != null && !title.trim().isEmpty());
 
         formContent = new VBox(20);
         formContent.getStyleClass().add("form-content");
 
+        initialize(padding);
+    }
+
+    protected void initialize(Insets padding) {
+
         setPadding(padding);
         setSpacing(20);
 
-        getChildren().addAll(titleLabel, formContent);
         VBox.setVgrow(formContent, javafx.scene.layout.Priority.ALWAYS);
+        updateLayout();
+
+        titleLabel.visibleProperty().addListener(_observable -> updateLayout());
     }
 
     /**
@@ -63,6 +67,15 @@ public class RRFormContainer extends VBox {
     public void setLocalizedTitle(String localizationKey, Object... args) {
         titleLabel.setKey(localizationKey, args);
         titleLabel.setVisible(localizationKey != null && !localizationKey.trim().isEmpty());
+    }
+
+    private void updateLayout() {
+        getChildren().clear();
+
+        if (titleLabel.isVisible()) {
+            getChildren().add(titleLabel);
+        }
+        getChildren().add(formContent);
     }
 
     /**

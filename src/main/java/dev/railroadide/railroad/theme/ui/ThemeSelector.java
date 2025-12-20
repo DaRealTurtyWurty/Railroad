@@ -2,12 +2,14 @@ package dev.railroadide.railroad.theme.ui;
 
 import dev.railroadide.core.ui.RRButton;
 import dev.railroadide.core.ui.RRFormSection;
+import dev.railroadide.core.ui.styling.ButtonSize;
+import dev.railroadide.core.ui.styling.ButtonVariant;
 import dev.railroadide.railroad.settings.Settings;
 import dev.railroadide.railroad.settings.handler.SettingsHandler;
 import dev.railroadide.railroad.theme.ThemeDownloadManager;
 import dev.railroadide.railroad.theme.ThemeManager;
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
 import javafx.geometry.Pos;
 import javafx.scene.control.ComboBox;
 import javafx.scene.layout.HBox;
@@ -23,7 +25,7 @@ import java.util.List;
  * Features a clean layout with theme preview and easy switching.
  */
 public class ThemeSelector extends VBox {
-    private final ObjectProperty<String> selectedThemeProperty;
+    private final StringProperty selectedThemeProperty;
     private ComboBox<String> themeComboBox;
     private RRButton previewButton;
     private RRButton downloadButton;
@@ -33,7 +35,7 @@ public class ThemeSelector extends VBox {
     }
 
     public ThemeSelector(String currentTheme) {
-        selectedThemeProperty = new SimpleObjectProperty<>(currentTheme);
+        selectedThemeProperty = new SimpleStringProperty(currentTheme);
 
         setSpacing(16);
         setAlignment(Pos.TOP_LEFT);
@@ -55,8 +57,8 @@ public class ThemeSelector extends VBox {
 
         previewButton = new RRButton();
         previewButton.setIcon(FontAwesomeSolid.EYE);
-        previewButton.setButtonSize(RRButton.ButtonSize.SMALL);
-        previewButton.setVariant(RRButton.ButtonVariant.GHOST);
+        previewButton.setButtonSize(ButtonSize.SMALL);
+        previewButton.setVariant(ButtonVariant.GHOST);
         previewButton.setOnAction(e -> previewSelectedTheme());
 
         var selectionRow = new HBox(12);
@@ -67,7 +69,7 @@ public class ThemeSelector extends VBox {
 
         downloadButton = new RRButton("railroad.home.settings.appearance.downloadtheme");
         downloadButton.setIcon(FontAwesomeSolid.DOWNLOAD);
-        downloadButton.setVariant(RRButton.ButtonVariant.PRIMARY);
+        downloadButton.setVariant(ButtonVariant.PRIMARY);
         downloadButton.setOnAction(e -> new ThemeDownloadPane(getScene().getWindow()));
 
         section.addContent(downloadButton);
@@ -90,18 +92,23 @@ public class ThemeSelector extends VBox {
 
         themeComboBox.setValue(selectedThemeProperty.get());
 
+        ThemeManager.getCurrentThemeProperty().addListener((observable, oldValue, newValue) -> {
+            themeComboBox.setValue(newValue);
+        });
+        
         themeComboBox.valueProperty().addListener((observable, oldValue, newValue) -> {
-            if (newValue != null && !newValue.equals(oldValue)) {
-                selectedThemeProperty.set(newValue);
-                applyTheme(newValue);
-            }
+            selectedThemeProperty.set(newValue);
+        });
+
+        selectedThemeProperty.addListener((observable, oldValue, newValue) -> {
+            applyTheme(newValue);
         });
     }
 
     private void previewSelectedTheme() {
         String selectedTheme = themeComboBox.getValue();
         if (selectedTheme != null) {
-            new ThemeExamplePane(selectedTheme + ".css");
+            new ThemeExamplePane(selectedTheme);
         }
     }
 
@@ -109,7 +116,7 @@ public class ThemeSelector extends VBox {
         ThemeManager.setTheme(themeName);
     }
 
-    public ObjectProperty<String> selectedThemeProperty() {
+    public StringProperty selectedThemeProperty() {
         return selectedThemeProperty;
     }
 

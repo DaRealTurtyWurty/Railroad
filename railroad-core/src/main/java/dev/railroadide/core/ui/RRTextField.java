@@ -1,7 +1,9 @@
 package dev.railroadide.core.ui;
 
-import dev.railroadide.core.localization.LocalizationService;
-import dev.railroadide.core.utility.ServiceLocator;
+import dev.railroadide.core.ui.domain.TextFieldControl;
+import dev.railroadide.core.ui.localized.LocalizedTextProperty;
+import dev.railroadide.core.ui.styling.TextFieldSize;
+import dev.railroadide.core.ui.styling.ValidationState;
 import javafx.animation.FadeTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -17,13 +19,18 @@ import org.kordamp.ikonli.javafx.FontIcon;
  * A modern text field component with enhanced styling, icons, and validation states.
  * Supports different sizes, validation states, and icon integration.
  */
-public class RRTextField extends TextField {
+public class RRTextField extends TextField implements TextFieldControl {
+
+    public static final String[] DEFAULT_STYLE_CLASSES = { "rr-text-field", "text-field" };
+
     private TextFieldSize size = TextFieldSize.MEDIUM;
     private ValidationState validationState = ValidationState.NONE;
     private FontIcon prefixIcon;
     private FontIcon suffixIcon;
     @Getter
     private HBox container;
+
+    private final LocalizedTextProperty localizedPromptText = new LocalizedTextProperty(this, "localizedPromptText", null);
 
     /**
      * Constructs a new text field with empty text and default styling.
@@ -51,15 +58,16 @@ public class RRTextField extends TextField {
      */
     public RRTextField(String localizationKey, Object... args) {
         super();
-        setLocalizedPlaceholder(localizationKey, args);
         initialize();
+
+        setLocalizedPlaceholder(localizationKey, args);
     }
 
-    private void initialize() {
-        if (!getStyleClass().contains("rr-text-field")) {
-            getStyleClass().add("rr-text-field");
-        }
+    protected void initialize() {
+        getStyleClass().setAll(RRTextField.DEFAULT_STYLE_CLASSES);
         setPadding(new Insets(8, 12, 8, 12));
+
+        promptTextProperty().bindBidirectional(localizedPromptText);
 
         container = new HBox();
         container.setAlignment(Pos.CENTER_LEFT);
@@ -78,6 +86,7 @@ public class RRTextField extends TextField {
     /**
      * Set the text field size
      */
+    @Override
     public void setTextFieldSize(TextFieldSize size) {
         this.size = size;
         updateStyle();
@@ -86,6 +95,7 @@ public class RRTextField extends TextField {
     /**
      * Set the validation state
      */
+    @Override
     public void setValidationState(ValidationState state) {
         this.validationState = state;
         updateStyle();
@@ -94,6 +104,7 @@ public class RRTextField extends TextField {
     /**
      * Set a prefix icon
      */
+    @Override
     public void setPrefixIcon(Ikon iconCode) {
         if (iconCode != null) {
             prefixIcon = new FontIcon(iconCode);
@@ -108,6 +119,7 @@ public class RRTextField extends TextField {
     /**
      * Set a suffix icon
      */
+    @Override
     public void setSuffixIcon(Ikon iconCode) {
         if (iconCode != null) {
             suffixIcon = new FontIcon(iconCode);
@@ -123,6 +135,7 @@ public class RRTextField extends TextField {
     /**
      * Set the text field as rounded
      */
+    @Override
     public void setRounded(boolean rounded) {
         if (rounded) {
             getStyleClass().add("rounded");
@@ -134,6 +147,7 @@ public class RRTextField extends TextField {
     /**
      * Set the text field as outlined
      */
+    @Override
     public void setOutlined(boolean outlined) {
         if (outlined) {
             getStyleClass().add("outlined");
@@ -145,6 +159,7 @@ public class RRTextField extends TextField {
     /**
      * Set the text field as disabled state
      */
+    @Override
     public void setDisabledState(boolean disabled) {
         setDisable(disabled);
         if (disabled) {
@@ -183,12 +198,11 @@ public class RRTextField extends TextField {
             case SUCCESS -> getStyleClass().add("success");
             case ERROR -> getStyleClass().add("error");
             case WARNING -> getStyleClass().add("warning");
+            default -> {}
         }
     }
 
-    /**
-     * Set placeholder text with modern styling
-     */
+    @Override
     public void setPlaceholder(String placeholder) {
         setPromptText(placeholder);
     }
@@ -196,6 +210,7 @@ public class RRTextField extends TextField {
     /**
      * Clear the text field with animation
      */
+    @Override
     public void clearWithAnimation() {
         FadeTransition fade = new FadeTransition(Duration.millis(200), this);
         fade.setFromValue(1.0);
@@ -211,19 +226,8 @@ public class RRTextField extends TextField {
         fade.play();
     }
 
+    @Override
     public void setLocalizedPlaceholder(String localizationKey, Object... args) {
-        setPromptText(ServiceLocator.getService(LocalizationService.class).get(localizationKey, args));
-        if (localizationKey != null) {
-            ServiceLocator.getService(LocalizationService.class).currentLanguageProperty().addListener((observable, oldValue, newValue) ->
-                setPromptText(ServiceLocator.getService(LocalizationService.class).get(localizationKey, args)));
-        }
-    }
-
-    public enum TextFieldSize {
-        SMALL, MEDIUM, LARGE
-    }
-
-    public enum ValidationState {
-        NONE, SUCCESS, ERROR, WARNING
+        localizedPromptText.setTranslation(localizationKey, args);
     }
 }
