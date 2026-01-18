@@ -30,6 +30,7 @@ railroad.generic.enable=Enable
 railroad.generic.disable=Disable
 railroad.generic.dismiss=Dismiss
 railroad.generic.unknown=Unknown
+railroad.generic.download=Download
 
 # =============================================================================
 # RUN CONFIGURATIONS
@@ -376,6 +377,16 @@ railroad.settings.ide.code_style.title=Code Style
 railroad.settings.ide.code_style.description=Configure the code style settings for your projects, including indentation, line breaks, and formatting options.
 railroad.settings.ide.code_style.auto_pair_inside_strings.title=Auto-pair inside strings
 railroad.settings.ide.code_style.auto_pair_inside_strings.description=Enable or disable automatic pairing of brackets, braces and parenthesis inside string literals.
+
+# VCS Settings
+settings.tree.vcs=VCS
+railroad.settings.vcs.title=VCS
+railroad.settings.vcs.description=Settings relating to VCS (Version Control System) such as Git.
+railroad.settings.vcs.git_binary_command_search_timeout_ms.title=Git binary search command timeout(ms)
+railroad.settings.vcs.git_binary_command_search_timeout_ms.description=The time in milliseconds to wait when running the command that searches for the git binary executable.
+railroad.settings.vcs.git_executable_path.title=Git Executable Path
+railroad.settings.vcs.git_executable_path.placeholder=Path to your git executable binary
+railroad.settings.vcs.git_executable_path.description=The path to the Git executable binary file.
 
 # =============================================================================
 # IDE
