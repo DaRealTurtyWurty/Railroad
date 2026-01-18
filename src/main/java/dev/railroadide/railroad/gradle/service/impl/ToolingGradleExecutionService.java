@@ -2,6 +2,8 @@ package dev.railroadide.railroad.gradle.service.impl;
 
 import dev.railroadide.railroad.gradle.GradleEnvironment;
 import dev.railroadide.railroad.gradle.GradleOutputStream;
+import dev.railroadide.railroad.ide.console.ConsoleService;
+import dev.railroadide.railroad.ide.console.ConsoleStream;
 import dev.railroadide.railroad.gradle.service.GradleExecutionService;
 import dev.railroadide.railroad.gradle.service.task.GradleTaskExecutionHandle;
 import dev.railroadide.railroad.gradle.service.task.GradleTaskExecutionRequest;
@@ -139,8 +141,15 @@ public class ToolingGradleExecutionService implements GradleExecutionService {
 
             build.withCancellationToken(tokenSource.token());
 
-            build.setStandardOutput(new GradleOutputStream(handle::emitOutput));
-            build.setStandardError(new GradleOutputStream(handle::emitError));
+            ConsoleService consoleService = ConsoleService.getInstance();
+            build.setStandardOutput(new GradleOutputStream(output -> {
+                handle.emitOutput(output);
+                consoleService.write(output, ConsoleStream.STDOUT);
+            }));
+            build.setStandardError(new GradleOutputStream(error -> {
+                handle.emitError(error);
+                consoleService.write(error, ConsoleStream.STDERR);
+            }));
             build.addProgressListener((ProgressListener) event -> {
                 String msg = event.getDescriptor() != null
                     ? event.getDescriptor().getName()

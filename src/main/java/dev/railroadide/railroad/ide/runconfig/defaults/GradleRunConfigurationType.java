@@ -1,6 +1,10 @@
 package dev.railroadide.railroad.ide.runconfig.defaults;
 
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.gradle.GradleOutputStream;
+import dev.railroadide.railroad.ide.console.ConsoleInputBinding;
+import dev.railroadide.railroad.ide.console.ConsoleService;
+import dev.railroadide.railroad.ide.console.ConsoleStream;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationType;
 import dev.railroadide.railroad.ide.runconfig.defaults.data.GradleRunConfigurationData;
@@ -11,6 +15,10 @@ import dev.railroadide.railroad.utility.icon.RailroadBrandsIcon;
 import javafx.scene.paint.Color;
 import org.gradle.tooling.*;
 
+import java.io.IOException;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -137,6 +145,29 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
         String[] vmOptions = data.getVmOptions() == null ? new String[0] : data.getVmOptions();
         JDK javaHome = requireJavaHome(data);
 
+        ConsoleService consoleService = ConsoleService.getInstance();
+        PipedOutputStream stdinWriter = new PipedOutputStream();
+        ConsoleInputBinding stdinBinding;
+        PipedInputStream stdinReader;
+        try {
+            stdinReader = new PipedInputStream(stdinWriter);
+        } catch (IOException exception) {
+            future.completeExceptionally(exception);
+            return;
+        }
+
+        stdinBinding = ConsoleInputBinding.bind(input -> {
+            try {
+                stdinWriter.write(input.getBytes(StandardCharsets.UTF_8));
+                stdinWriter.flush();
+            } catch (IOException exception) {
+                consoleService.write(
+                    "[Gradle ERR] Failed to write to stdin: " + exception.getMessage() + System.lineSeparator(),
+                    ConsoleStream.STDERR
+                );
+            }
+        });
+
         var connector = GradleConnector.newConnector()
             .forProjectDirectory(gradleProjectPath.toFile())
             .useBuildDistribution();
@@ -149,18 +180,24 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
 
             connection.newBuild()
                 .forTasks(task)
+                .withArguments("--console=plain")
                 .setJvmArguments(vmOptions)
                 .setEnvironmentVariables(environmentVariables)
                 .setJavaHome(javaHome.path().toFile())
                 .setColorOutput(true)
                 .withCancellationToken(tokenSource.token())
-                .setStandardOutput(System.out) // TODO: Redirect to IDE console
-                .setStandardError(System.err) // TODO: Redirect to IDE console
-                .setStandardInput(System.in) // TODO: Redirect to IDE console
+                .setStandardOutput(new GradleOutputStream(output ->
+                    consoleService.write(output, ConsoleStream.STDOUT)
+                ))
+                .setStandardError(new GradleOutputStream(error ->
+                    consoleService.write(error, ConsoleStream.STDERR)
+                ))
+                .setStandardInput(stdinReader)
                 .run(new ResultHandler<>() {
                     @Override
                     public void onComplete(Void result) {
                         closeHandle(executions.remove(configuration));
+                        closeConsoleInput(stdinBinding, stdinReader, stdinWriter);
                         future.complete(null);
                     }
 
@@ -168,17 +205,35 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
                     public void onFailure(GradleConnectionException failure) {
                         Railroad.LOGGER.error("Gradle build failed", failure);
                         closeHandle(executions.remove(configuration));
+                        closeConsoleInput(stdinBinding, stdinReader, stdinWriter);
                         future.completeExceptionally(failure);
                     }
                 });
         } catch (BuildException exception) {
             closeHandle(executions.remove(configuration));
+            closeConsoleInput(stdinBinding, stdinReader, stdinWriter);
             future.completeExceptionally(new RuntimeException("Gradle build failed: " + exception.getMessage(), exception));
         } catch (GradleConnectionException exception) {
+            closeConsoleInput(stdinBinding, stdinReader, stdinWriter);
             future.completeExceptionally(exception);
         } catch (Throwable throwable) {
             closeHandle(executions.remove(configuration));
+            closeConsoleInput(stdinBinding, stdinReader, stdinWriter);
             future.completeExceptionally(throwable);
+        }
+    }
+
+    private static void closeConsoleInput(ConsoleInputBinding binding,
+                                          PipedInputStream reader,
+                                          PipedOutputStream writer) {
+        binding.close();
+        try {
+            reader.close();
+        } catch (IOException ignored) {
+        }
+        try {
+            writer.close();
+        } catch (IOException ignored) {
         }
     }
 }

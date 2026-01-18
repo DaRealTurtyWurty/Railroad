@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.ide.runconfig.defaults;
 
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.ide.console.ConsoleProcessBridge;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationType;
 import dev.railroadide.railroad.ide.runconfig.defaults.data.JavaApplicationRunConfigurationData;
@@ -10,10 +11,8 @@ import dev.railroadide.railroad.project.Project;
 import javafx.scene.paint.Color;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -123,9 +122,7 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
 
                 Process process = builder.start();
                 runningProcesses.put(configuration, process);
-
-                // Start consuming output (must be done asynchronously)
-                new ProcessOutputHandler(process, configuration.data().getName()).run();
+                ConsoleProcessBridge consoleBridge = ConsoleProcessBridge.attach(process, configuration.data().getName());
 
                 if (debug && debugPort > 0) {
                     // TODO: trigger IDE debugger attachment here
@@ -134,6 +131,7 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
 
                 process.onExit().thenAccept(p -> {
                     runningProcesses.remove(configuration);
+                    consoleBridge.close();
                     if (p.exitValue() != 0) {
                         Railroad.LOGGER.error("Application process exited with code: {}", p.exitValue());
                     } else {
@@ -185,33 +183,5 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
         }
     }
 
-    private record ProcessOutputHandler(Process process, String name) implements Runnable {
-        @Override
-        public void run() {
-            // In the future IDE, we will read from process.getInputStream() and process.getErrorStream()
-            // and display it in the IDE console.
-            // For now, we just print to System.out/err.
-            new Thread(() -> {
-                try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        System.out.println("[" + name + " OUT] " + line);
-                    }
-                } catch (IOException exception) {
-                    System.err.println("[" + name + " ERR] Error reading stdout: " + exception.getMessage());
-                }
-            }).start();
-
-            new Thread(() -> {
-                try (var reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        System.err.println("[" + name + " ERR] " + line);
-                    }
-                } catch (IOException exception) {
-                    System.err.println("[" + name + " ERR] Error reading stderr: " + exception.getMessage());
-                }
-            }).start();
-        }
-    }
+    
 }

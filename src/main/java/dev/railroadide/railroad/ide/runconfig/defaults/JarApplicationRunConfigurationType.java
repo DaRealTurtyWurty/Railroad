@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.runconfig.defaults;
 
+import dev.railroadide.railroad.ide.console.ConsoleProcessBridge;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationType;
 import dev.railroadide.railroad.ide.runconfig.defaults.data.JarApplicationRunConfigurationData;
@@ -39,16 +40,22 @@ public class JarApplicationRunConfigurationType extends RunConfigurationType<Jar
                 var builder = new ProcessBuilder()
                     .command(buildCommand(jre, jarPath, vmOptions, programArguments))
                     .directory(workingDirectory.toFile())
-                    .inheritIO(); // TODO: Delegate to IDE console
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                    .redirectError(ProcessBuilder.Redirect.PIPE);
                 if (!environmentVariables.isEmpty()) {
                     builder.environment().putAll(environmentVariables);
                 }
                 Process process = builder.start();
                 runningProcesses.put(configuration, process);
-                int exitCode = process.waitFor();
-                runningProcesses.remove(configuration);
-                if (exitCode != 0)
-                    throw new IllegalStateException("Jar Application process exited with code: " + exitCode);
+                ConsoleProcessBridge consoleBridge = ConsoleProcessBridge.attach(process, configuration.data().getName());
+                try {
+                    int exitCode = process.waitFor();
+                    if (exitCode != 0)
+                        throw new IllegalStateException("Jar Application process exited with code: " + exitCode);
+                } finally {
+                    runningProcesses.remove(configuration);
+                    consoleBridge.close();
+                }
             } catch (IOException exception) {
                 throw new IllegalStateException("Failed to start Jar Application process", exception);
             } catch (InterruptedException exception) {

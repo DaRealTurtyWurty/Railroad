@@ -6,6 +6,7 @@ import dev.railroadide.core.settings.DefaultSettingCodecs;
 import dev.railroadide.core.settings.Setting;
 import dev.railroadide.core.settings.SettingCategory;
 import dev.railroadide.core.settings.keybinds.KeybindData;
+import dev.railroadide.railroad.ide.runconfig.ui.form.FormRunConfigurationPicker;
 import dev.railroadide.railroad.localization.L18n;
 import dev.railroadide.railroad.localization.Languages;
 import dev.railroadide.railroad.plugin.PluginManager;
@@ -153,6 +154,20 @@ public final class Settings {
         .category(SettingCategory.simple("railroad:ide.jdk_management"))
         .codec(DefaultSettingCodecs.LONG)
         .defaultValue(3000L)
+        .build());
+
+    public static final Setting<Boolean> CONSOLE_USE_SPACES_FOR_TABS = registerSetting(Setting.builder(Boolean.class, "railroad:console_use_spaces_for_tabs")
+        .treePath("ide")
+        .category(SettingCategory.simple("railroad:ide.console"))
+        .codec(DefaultSettingCodecs.BOOLEAN)
+        .defaultValue(true)
+        .build());
+
+    public static final Setting<Integer> CONSOLE_SPACES_PER_TAB = registerSetting(Setting.builder(Integer.class, "railroad:console_spaces_per_tab")
+        .treePath("ide")
+        .category(SettingCategory.simple("railroad:ide.console"))
+        .codec(DefaultSettingCodecs.INTEGER)
+        .defaultValue(4)
         .build());
 
     public static void initialize() {

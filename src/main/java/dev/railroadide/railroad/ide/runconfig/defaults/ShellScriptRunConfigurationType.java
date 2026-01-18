@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.ide.runconfig.defaults;
 
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.ide.console.ConsoleProcessBridge;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationType;
 import dev.railroadide.railroad.ide.runconfig.defaults.data.ShellScriptRunConfigurationData;
@@ -9,9 +10,7 @@ import dev.railroadide.railroad.project.Project;
 import javafx.scene.paint.Color;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -101,13 +100,15 @@ public class ShellScriptRunConfigurationType extends RunConfigurationType<ShellS
 
                 Process process = builder.start();
                 runningProcesses.put(configuration, process);
-
-                if (!data.isExecuteInTerminal()) {
-                    new ProcessOutputHandler(process, configuration.data().getName()).run();
-                }
+                ConsoleProcessBridge consoleBridge = data.isExecuteInTerminal()
+                    ? null
+                    : ConsoleProcessBridge.attach(process, configuration.data().getName());
 
                 process.onExit().thenAccept(p -> {
                     runningProcesses.remove(configuration);
+                    if (consoleBridge != null) {
+                        consoleBridge.close();
+                    }
                     cleanupTemporaryScript(configuration);
                     if (p.exitValue() != 0) {
                         Railroad.LOGGER.error("Shell script exited with code {} for configuration: {}", p.exitValue(),
@@ -198,30 +199,4 @@ public class ShellScriptRunConfigurationType extends RunConfigurationType<ShellS
     private record ScriptDescriptor(Path scriptPath, boolean isTemporary) {
     }
 
-    private record ProcessOutputHandler(Process process, String name) implements Runnable {
-        @Override
-        public void run() {
-            new Thread(() -> {
-                try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        System.out.println("[" + name + " OUT] " + line);
-                    }
-                } catch (IOException exception) {
-                    System.err.println("[" + name + " ERR] Error reading stdout: " + exception.getMessage());
-                }
-            }, name + "-stdout-reader").start();
-
-            new Thread(() -> {
-                try (var reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        System.err.println("[" + name + " ERR] " + line);
-                    }
-                } catch (IOException exception) {
-                    System.err.println("[" + name + " ERR] Error reading stderr: " + exception.getMessage());
-                }
-            }, name + "-stderr-reader").start();
-        }
-    }
 }
