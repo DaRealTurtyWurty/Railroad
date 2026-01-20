@@ -162,6 +162,13 @@ public final class Settings {
         .defaultValue(5000L)
         .build());
 
+    public static final Setting<Long> GIT_VERSION_COMMAND_TIMEOUT_MS = registerSetting(Setting.builder(Long.class, "railroad:git_version_command_timeout_ms")
+        .treePath("vcs")
+        .category(SettingCategory.simple("railroad:vcs"))
+        .codec(DefaultSettingCodecs.LONG)
+        .defaultValue(5000L)
+        .build());
+
     public static final Setting<Path> GIT_EXECUTABLE_PATH = registerSetting(Setting.builder(Path.class, "railroad:git_executable_path")
         .treePath("vcs")
         .category(SettingCategory.simple("railroad:vcs"))
