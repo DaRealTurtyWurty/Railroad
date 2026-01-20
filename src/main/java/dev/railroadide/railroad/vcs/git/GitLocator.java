@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.vcs;
+package dev.railroadide.railroad.vcs.git;
 
 import dev.railroadide.core.utility.OperatingSystem;
 import dev.railroadide.railroad.Railroad;
