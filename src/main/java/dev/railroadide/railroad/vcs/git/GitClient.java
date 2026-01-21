@@ -7,7 +7,7 @@ import java.util.Optional;
 
 // TODO: Add small FS cache for detected repositories to avoid repeated git calls
 public class GitClient {
-    private final GitProcessRunner runner;
+    protected final GitProcessRunner runner;
 
     public GitClient(GitProcessRunner runner) {
         this.runner = runner;
