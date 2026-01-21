@@ -1,5 +1,8 @@
 package dev.railroadide.railroad.vcs.git;
 
+import lombok.Getter;
+import lombok.Setter;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,7 +20,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 public class GitProcessRunner {
-    private final Path gitExecutable;
+    @Getter
+    @Setter
+    private Path gitExecutable;
 
     public GitProcessRunner(Path gitExecutable) {
         this.gitExecutable = gitExecutable;
@@ -80,7 +85,7 @@ public class GitProcessRunner {
                 : System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
 
             while (true) {
-                if (process.waitFor(100, TimeUnit.MILLISECONDS))
+                if (process.waitFor(1, TimeUnit.SECONDS))
                     break; // Process finished
 
                 if (token != null && token.isCancellationRequested()) {
@@ -240,7 +245,7 @@ public class GitProcessRunner {
         }
 
         var line = new String(lineBytes, 0, length, StandardCharsets.UTF_8);
-        if(!line.isEmpty()) {
+        if (!line.isEmpty()) {
             onLine.accept(line);
         }
     }
@@ -248,16 +253,9 @@ public class GitProcessRunner {
     private static void emitRecord(ByteArrayOutputStream recordBuffer, Consumer<String> onRecord) {
         var record = recordBuffer.toString(StandardCharsets.UTF_8);
         recordBuffer.reset();
-        if(!record.isEmpty()) {
+        if (!record.isEmpty()) {
             onRecord.accept(record);
         }
-    }
-
-    private static String[] buildCommand(Path gitExecutable, String... args) {
-        String[] command = new String[args.length + 1];
-        command[0] = gitExecutable.toString();
-        System.arraycopy(args, 0, command, 1, args.length);
-        return command;
     }
 
     private static String[] buildCommand(Path gitExecutable, Collection<String> args) {
