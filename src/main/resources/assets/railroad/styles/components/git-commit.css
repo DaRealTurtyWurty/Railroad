@@ -1,0 +1,91 @@
+/* Git commit pane styles */
+.git-commit-header-pane {
+    -fx-background-color: -color-bg-subtle;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 8px 10px;
+    -fx-spacing: 8px;
+}
+
+.git-commit-header-button {
+    -fx-min-width: 26px !important;
+    -fx-min-height: 26px !important;
+    -fx-pref-width: 26px !important;
+    -fx-pref-height: 26px !important;
+    -fx-max-width: 26px !important;
+    -fx-max-height: 26px !important;
+    -fx-padding: 4px !important;
+}
+
+.git-commit-header-button .ikonli-font-icon {
+    -fx-icon-size: 12px !important;
+}
+
+.git-commit-header-button.sync-button .ikonli-font-icon {
+    -fx-icon-color: -color-accent-emphasis;
+    -fx-fill: -color-accent-emphasis;
+}
+
+.git-commit-header-button.undo-button .ikonli-font-icon {
+    -fx-icon-color: -color-warning-emphasis;
+    -fx-fill: -color-warning-emphasis;
+}
+
+.git-commit-header-button.shelf-button .ikonli-font-icon {
+    -fx-icon-color: -color-success-emphasis;
+    -fx-fill: -color-success-emphasis;
+}
+
+.git-commit-header-button.expand-all-button .ikonli-font-icon {
+    -fx-icon-color: -color-fg-default;
+    -fx-fill: -color-fg-default;
+}
+
+.git-commit-header-button.collapse-all-button .ikonli-font-icon {
+    -fx-icon-color: -color-fg-muted;
+    -fx-fill: -color-fg-muted;
+}
+
+.git-commit-change-tree-cell, .git-commit-change-icon-container, .git-commit-change-text-container {
+    -fx-background-color: transparent;
+}
+
+.git-commit-changes-pane {
+    -fx-border-width: 0;
+}
+
+.git-commit-actions-pane {
+    -fx-padding: 10px;
+}
+
+.git-file-item-modified > .git-commit-change-title-text {
+    -fx-fill: #4695f0;
+}
+
+.git-file-item-type-changed > .git-commit-change-title-text {
+    -fx-fill: #a753f5;
+}
+
+.git-file-item-added > .git-commit-change-title-text {
+    -fx-fill: #36e35e;
+}
+
+.git-file-item-deleted > .git-commit-change-title-text {
+    -fx-fill: #e63e4e;
+}
+
+.git-file-item-renamed > .git-commit-change-title-text {
+    -fx-fill: #f0680a;
+}
+
+.git-file-item-copied > .git-commit-change-title-text {
+    -fx-fill: #7356f5;
+}
+
+.git-file-item-unmerged > .git-commit-change-title-text {
+    -fx-fill: #ffd33d;
+}
+
+.git-file-item-untracked > .git-commit-change-title-text, .git-file-item-ignored > .git-commit-change-title-text {
+    -fx-fill: #728294;
+}

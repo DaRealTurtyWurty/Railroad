@@ -9,7 +9,6 @@ import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 
 public class GitCommitHeaderPane extends RRHBox {
-
     public GitCommitHeaderPane(Project project, GitCommitChangesPane gitCommitChangesPane) {
         RRButton refreshButton = createButton(FontAwesomeSolid.SYNC, new String[]{"git-commit-header-button", "sync-button"}, "git.commit.header.refresh.tooltip");
         RRButton rollbackButton = createButton(FontAwesomeSolid.UNDO, new String[]{"git-commit-header-button", "undo-button"}, "git.commit.header.rollback.tooltip");
@@ -35,10 +34,11 @@ public class GitCommitHeaderPane extends RRHBox {
         collapseAllButton.setOnAction(event ->
             gitCommitChangesPane.collapseAll());
 
-        rollbackButton.setOnAction(event ->
-            project.getGitManager().rollbackChanges(gitCommitChangesPane.getSelectedChanges()));
-        shelfButton.setOnAction(event ->
-            project.getGitManager().shelveChanges(gitCommitChangesPane.getSelectedChanges()));
+        // TODO: Implement rollback and shelve functionality
+//        rollbackButton.setOnAction(event ->
+//            project.getGitManager().rollbackChanges(gitCommitChangesPane.getSelectedChanges()));
+//        shelfButton.setOnAction(event ->
+//            project.getGitManager().shelveChanges(gitCommitChangesPane.getSelectedChanges()));
     }
 
     private static RRButton createButton(Ikon ikon, String[] styleClass, String tooltipKey) {

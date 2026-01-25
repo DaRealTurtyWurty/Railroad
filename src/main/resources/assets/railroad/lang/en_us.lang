@@ -716,3 +716,21 @@ railroad.mapping_channel.mcp=MCP
 railroad.mapping_channel.yarn=Yarn
 railroad.mapping_channel.official=Official (Mojmaps)
 railroad.mapping_channel.parchment=Parchment
+
+# =============================================================================
+# GIT COMMIT
+# =============================================================================
+git.commit.header.refresh.tooltip=Refresh changes
+git.commit.header.rollback.tooltip=Rollback changes
+git.commit.header.shelf.tooltip=Shelve changes
+git.commit.header.expand_all.tooltip=Expand all
+git.commit.header.collapse_all.tooltip=Collapse all
+git.commit.actions.amend.checkbox=Amend commit
+git.commit.actions.signoff.checkbox=Sign off
+git.commit.actions.message.placeholder=Commit message
+git.commit.actions.description.placeholder=Commit description
+git.commit.actions.commit.button=Commit
+git.commit.actions.commit_and_push.button=Commit and Push
+git.commit.changes.root.title=Changes
+git.commit.changes.empty=No changes
+git.commit.changes.directory.subtitle=%s files

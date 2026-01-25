@@ -1,152 +1,162 @@
 package dev.railroadide.railroad.ide.ui.git;
 
-import dev.railroadide.railroad.localization.L18n;
+import dev.railroadide.core.ui.RRBorderPane;
+import dev.railroadide.core.ui.RRCheckBoxTreeItem;
+import dev.railroadide.core.ui.RRCheckBoxTreeView;
+import dev.railroadide.core.ui.localized.LocalizedText;
+import dev.railroadide.railroad.ide.ui.git.changes.*;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.vcs.git.FileChange;
-import io.github.palexdev.materialfx.controls.MFXCheckTreeItem;
-import io.github.palexdev.materialfx.controls.MFXCheckTreeView;
-import javafx.event.ActionEvent;
-import javafx.scene.Node;
-import javafx.scene.control.ContextMenu;
-import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
-import org.kordamp.ikonli.javafx.FontIcon;
+import dev.railroadide.railroad.vcs.git.GitRepository;
+import javafx.application.Platform;
+import javafx.scene.control.TreeItem;
 
 import java.nio.file.Path;
-import java.util.List;
-import java.util.function.Consumer;
+import java.util.*;
 
-public class GitCommitChangesPane extends MFXCheckTreeView<GitCommitChangesPane.Item> {
-    public GitCommitChangesPane() {
-        setShowRoot(false);
-        getStyleClass().add("git-commit-changes-pane");
+public class GitCommitChangesPane extends RRBorderPane {
+    private final RRCheckBoxTreeView<ChangeItem> treeView = new RRCheckBoxTreeView<>();
+    private final LocalizedText noChangesText = new LocalizedText("git.commit.changes.empty");
 
+    private List<FileChange> lastChanges = Collections.emptyList();
+    private Path lastRepoRoot;
 
+    public GitCommitChangesPane(Project project) {
+        getStyleClass().add("git-commit-changes-pane-root");
+
+        treeView.setShowRoot(false);
+        treeView.getStyleClass().add("git-commit-changes-pane");
+        treeView.setCellFactory(view -> new CommitChangeTreeCell());
+
+        project.getGitManager().repoStatusProperty().addListener((observable, oldValue, newValue) -> {
+            List<FileChange> changes = newValue == null ? Collections.emptyList() : newValue.changes();
+            Platform.runLater(() -> setProjectChanges(project, changes));
+        });
+
+        if (project.getGitManager().getRepoStatus() != null) {
+            setProjectChanges(project, project.getGitManager().getRepoStatus().changes());
+        } else {
+            setChanges(Collections.emptyList());
+        }
+
+        setCenter(treeView);
+        treeView.prefWidthProperty().bind(widthProperty());
+        treeView.prefHeightProperty().bind(heightProperty());
     }
 
     private void setProjectChanges(Project project, List<FileChange> changes) {
+        GitRepository repository = project.getGitManager().getGitRepository();
+        Path repoRoot = repository == null ? null : repository.root();
+        List<FileChange> safeChanges = changes == null ? Collections.emptyList() : List.copyOf(changes);
+        if (isSameChanges(repoRoot, safeChanges))
+            return;
 
+        if (safeChanges.isEmpty() || repository == null) {
+            setChanges(List.of());
+            lastChanges = safeChanges;
+            lastRepoRoot = repoRoot;
+            return;
+        }
+
+        var root = new CommitTreeItem(RootItem.INSTANCE);
+        var changesRoot = new CommitTreeItem(ChangesRootItem.INSTANCE);
+        root.getChildren().add(changesRoot);
+        Map<Path, CommitTreeItem> directories = new TreeMap<>(Comparator.comparing(Path::toString));
+        Map<Path, List<FileChange>> directoryChanges = new HashMap<>();
+
+        for (FileChange change : changes) {
+            Path relativePath = repository.root().relativize(change.path());
+            Path parent = relativePath.getParent();
+            if (parent == null) {
+                changesRoot.getChildren().add(new CommitTreeItem(new FileItem(project, change)));
+                continue;
+            }
+
+            CommitTreeItem parentItem = null;
+            Path current = Path.of("");
+            for (Path part : parent) {
+                current = current.resolve(part);
+                List<FileChange> changesForDir = directoryChanges.computeIfAbsent(current, ignored -> new ArrayList<>());
+                changesForDir.add(change);
+
+                CommitTreeItem directoryItem = directories.get(current);
+                if (directoryItem == null) {
+                    Path directoryPath = repository.root().resolve(current).normalize();
+                    directoryItem = new CommitTreeItem(new DirectoryItem(project, directoryPath, changesForDir));
+                    directories.put(current, directoryItem);
+
+                    Objects.requireNonNullElse(parentItem, changesRoot).getChildren().add(directoryItem);
+                }
+
+                parentItem = directoryItem;
+            }
+
+            Objects.requireNonNullElse(parentItem, changesRoot).getChildren()
+                .add(new CommitTreeItem(new FileItem(project, change)));
+        }
+
+        changesRoot.collapseSingleChildDirectories();
+        changesRoot.setExpanded(true);
+        treeView.setRoot(root);
+        lastChanges = safeChanges;
+        lastRepoRoot = repository.root();
     }
 
-    private void setChanges(List<Item> items) {
-        var root = new MFXCheckTreeItem<Item>(null);
-        for (var item : items) {
-            var treeItem = new TreeItem(item);
-            root.getItems().add(treeItem);
-        }
+    private void setChanges(List<ChangeItem> items) {
+        if (items == null || items.isEmpty()) {
+            setCenter(noChangesText);
+        } else {
+            var root = new CommitTreeItem(RootItem.INSTANCE);
+            var changesRoot = new CommitTreeItem(ChangesRootItem.INSTANCE);
+            root.getChildren().add(changesRoot);
+            for (ChangeItem item : items) {
+                var treeItem = new CommitTreeItem(item);
+                changesRoot.getChildren().add(treeItem);
+            }
 
-        setRoot(root);
-    }
-
-    public static class TreeItem extends MFXCheckTreeItem<Item> {
-        public TreeItem(Item item) {
-            super(item);
-            getStyleClass().add(item.getStyleClass());
-        }
-    }
-
-    public sealed interface Item {
-        Node getIcon();
-
-        String getTitle();
-
-        String getSubtitle();
-
-        ContextMenu getContextMenu(Project project);
-
-        Consumer<Boolean> getSelectionHandler();
-
-        Consumer<ActionEvent> getDoubleClickHandler();
-
-        String getStyleClass();
-    }
-
-    public record FileItem(Project project, FileChange change) implements Item {
-        @Override
-        public Node getIcon() {
-            // TODO: Replace with some icon manager lookup
-            var fontIcon = new FontIcon(FontAwesomeSolid.FILE);
-            fontIcon.getStyleClass().add("git-file-icon");
-            fontIcon.setIconSize(16);
-            return fontIcon;
-        }
-
-        @Override
-        public String getTitle() {
-            return change.path().getFileName().toString();
-        }
-
-        @Override
-        public String getSubtitle() {
-            return project.getGitManager().getGitRepository().root().relativize(change.path()).toString();
-        }
-
-        @Override
-        public ContextMenu getContextMenu(Project project) {
-            return null; // TODO: Implement context menu
-        }
-
-        @Override
-        public Consumer<Boolean> getSelectionHandler() {
-            return isSelected -> {
-
-            };
-        }
-
-        @Override
-        public Consumer<ActionEvent> getDoubleClickHandler() {
-            return event -> {
-
-            };
-        }
-
-        @Override
-        public String getStyleClass() {
-            return "git-file-item";
+            changesRoot.setExpanded(true);
+            treeView.setRoot(root);
+            setCenter(treeView);
         }
     }
 
-    public record DirectoryItem(Project project, Path path, List<FileChange> changes) implements Item {
-        @Override
-        public Node getIcon() {
-            // TODO: Replace with some icon manager lookup
-            var fontIcon = new FontIcon(FontAwesomeSolid.FOLDER);
-            fontIcon.getStyleClass().add("git-directory-icon");
-            fontIcon.setIconSize(16);
-            return fontIcon;
+    private boolean isSameChanges(Path repoRoot, List<FileChange> changes) {
+        return Objects.equals(lastRepoRoot, repoRoot) && Objects.equals(lastChanges, changes);
+    }
+
+    public List<FileChange> getSelectedChanges() {
+        // TODO: Don't just get the first child, have a better way to access the changes root
+        TreeItem<ChangeItem> root = treeView.getRoot().getChildren().getFirst();
+        if (!(root instanceof RRCheckBoxTreeItem<ChangeItem> checkRoot))
+            return Collections.emptyList();
+
+        List<ChangeItem> selectedItems = checkRoot.getSelectedValues();
+        return selectedItems.stream()
+            .filter(FileItem.class::isInstance)
+            .map(FileItem.class::cast)
+            .map(FileItem::change)
+            .toList();
+    }
+
+    public void expandAll() {
+        TreeItem<ChangeItem> root = treeView.getRoot();
+        if (root instanceof RRCheckBoxTreeItem<ChangeItem> checkRoot) {
+            for (TreeItem<ChangeItem> child : checkRoot.getChildren()) {
+                if (child instanceof RRCheckBoxTreeItem<ChangeItem> checkChild) {
+                    checkChild.expandAll();
+                }
+            }
         }
+    }
 
-        @Override
-        public String getTitle() {
-            return path.getFileName().toString();
-        }
-
-        @Override
-        public String getSubtitle() {
-            return L18n.localize("git.commit.changes.directory.subtitle", String.valueOf(changes.size()));
-        }
-
-        @Override
-        public ContextMenu getContextMenu(Project project) {
-            return null; // TODO: Implement context menu
-        }
-
-        @Override
-        public Consumer<Boolean> getSelectionHandler() {
-            return isSelected -> {
-
-            };
-        }
-
-        @Override
-        public Consumer<ActionEvent> getDoubleClickHandler() {
-            return event -> {
-
-            };
-        }
-
-        @Override
-        public String getStyleClass() {
-            return "git-directory-item";
+    public void collapseAll() {
+        TreeItem<ChangeItem> root = treeView.getRoot();
+        if (root instanceof RRCheckBoxTreeItem<ChangeItem> checkRoot) {
+            for (TreeItem<ChangeItem> child : checkRoot.getChildren()) {
+                if (child instanceof RRCheckBoxTreeItem<ChangeItem> checkChild) {
+                    checkChild.collapseAll();
+                }
+            }
         }
     }
 }

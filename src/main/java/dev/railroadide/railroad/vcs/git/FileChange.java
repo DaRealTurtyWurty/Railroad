@@ -19,4 +19,28 @@ public record FileChange(
     public boolean isConflict() {
         return indexStatus == 'U' || workTreeStatus == 'U';
     }
+
+    public boolean isModified() {
+        return indexStatus == 'M' || workTreeStatus == 'M';
+    }
+
+    public boolean isAdded() {
+        return indexStatus == 'A' || workTreeStatus == 'A';
+    }
+
+    public boolean isDeleted() {
+        return indexStatus == 'D' || workTreeStatus == 'D';
+    }
+
+    public boolean isRenamed() {
+        return indexStatus == 'R' || workTreeStatus == 'R';
+    }
+
+    public boolean isCopied() {
+        return indexStatus == 'C' || workTreeStatus == 'C';
+    }
+
+    public boolean isUnchanged() {
+        return indexStatus == ' ' && workTreeStatus == ' ';
+    }
 }

@@ -43,9 +43,11 @@ public class GitManager {
         this.gitClient.detectRepository(this.project.getPath()).ifPresentOrElse(repository -> {
             this.gitRepository.set(repository);
             this.active.set(true);
+            startAutoRefresh();
         }, () -> {
             this.gitRepository.set(null);
             this.active.set(false);
+            stopAutoRefresh();
         });
     }
 
@@ -114,6 +116,9 @@ public class GitManager {
         if (repository != null) {
             RepoStatus status = this.gitClient.getStatus(repository);
             this.repoStatus.set(status);
+//            Railroad.LOGGER.debug("Loaded {} changes from Git repository at {}",
+//                status.changes().size(),
+//                repository.root());
         } else {
             this.repoStatus.set(null);
         }
@@ -162,5 +167,12 @@ public class GitManager {
 
     public void setGitExecutablePath(Path path) {
         this.gitClient.runner.setGitExecutable(path);
+    }
+
+    public void commitChanges(GitCommitData commit, boolean pushAfterCommit) {
+        this.executorService.submit(() -> {
+            gitClient.commitChanges(this.gitRepository.get(), commit, pushAfterCommit);
+            refreshStatusInternal();
+        });
     }
 }

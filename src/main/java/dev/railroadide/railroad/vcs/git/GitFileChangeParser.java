@@ -16,11 +16,7 @@ public final class GitFileChangeParser {
         char x = record.charAt(0);
         char y = record.charAt(1);
 
-        int spaceIndex = record.indexOf(' ');
-        if (spaceIndex < 2)
-            return null;
-
-        String filePath = record.substring(spaceIndex + 1);
+        String filePath = record.substring(2).trim();
 
         // Rename or Copy
         boolean expectsSecondPath = (x == 'R' || x == 'C' || y == 'R' || y == 'C');

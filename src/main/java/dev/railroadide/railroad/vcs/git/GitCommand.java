@@ -65,6 +65,14 @@ public final class GitCommand {
             return this;
         }
 
+        public Builder addArgs(Object... args) {
+            for (Object arg : args) {
+                this.arguments.add(String.valueOf(arg));
+            }
+
+            return this;
+        }
+
         public Builder workingDirectory(Path path) {
             this.workingDirectory = path;
             return this;

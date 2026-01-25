@@ -69,4 +69,32 @@ public class GitClient {
             return Optional.empty();
         }
     }
+
+    public void commitChanges(GitRepository gitRepository, GitCommitData commit, boolean pushAfterCommit) {
+        GitCommand commitCmd = GitCommands.commit(gitRepository, commit);
+        GitResult commitResult = runner.run(commitCmd, null, null, ResultCaptureMode.TEXT_LINES);
+
+        if (commitResult.timedOut())
+            throw new GitExecutionException("git commit timed out");
+
+        if (commitResult.cancelled())
+            throw new GitExecutionException("git commit was cancelled");
+
+        if (commitResult.exitCode() != 0)
+            throw new GitExecutionException("git commit failed: " + String.join("\n", commitResult.stderr()));
+
+        if (pushAfterCommit) {
+            GitCommand pushCmd = GitCommands.push(gitRepository);
+            GitResult pushResult = runner.run(pushCmd, null, null, ResultCaptureMode.TEXT_LINES);
+
+            if (pushResult.timedOut())
+                throw new GitExecutionException("git push timed out");
+
+            if (pushResult.cancelled())
+                throw new GitExecutionException("git push was cancelled");
+
+            if (pushResult.exitCode() != 0)
+                throw new GitExecutionException("git push failed: " + String.join("\n", pushResult.stderr()));
+        }
+    }
 }
