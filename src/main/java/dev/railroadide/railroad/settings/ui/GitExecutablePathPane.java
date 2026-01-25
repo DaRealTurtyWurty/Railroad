@@ -69,7 +69,7 @@ public class GitExecutablePathPane extends RRHBox {
             String url = "https://git-scm.com/install/" + postfix;
             Railroad.getHostServicess().showDocument(url);
         });
-        downloadButton.setVisible(GitUtils.INSTANCE.getVersion() == null);
+        downloadButton.setVisible("" == null);
 
         getChildren().addAll(pathField, browseButton, downloadButton);
         setSpacing(10);

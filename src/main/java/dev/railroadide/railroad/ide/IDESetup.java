@@ -103,7 +103,8 @@ public class IDESetup {
             mainSplit,
             Orientation.VERTICAL,
             0,
-            Map.of("Project", FontAwesomeSolid.FOLDER.getDescription())
+            Map.of("Project", FontAwesomeSolid.FOLDER.getDescription(),
+                "Git", FontAwesomeSolid.CODE_BRANCH.getDescription())
         ));
 
         var bottomBar = new RRVBox();

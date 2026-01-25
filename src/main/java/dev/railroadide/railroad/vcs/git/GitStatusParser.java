@@ -69,9 +69,9 @@ public final class GitStatusParser {
 
         Matcher matcher = AHEAD_BEHIND.matcher(header);
         if (matcher.find()) {
-            // group 2 is ahead count, group 4 is behind count
-            String aheadStr = matcher.group(2);
-            String behindStr = matcher.group(4);
+            // group 1 is ahead count, group 2 is behind count
+            String aheadStr = matcher.group(1);
+            String behindStr = matcher.group(2);
             if (aheadStr != null) {
                 ahead = Integer.parseInt(aheadStr);
             }

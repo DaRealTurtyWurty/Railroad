@@ -205,6 +205,7 @@ public class Project implements JsonSerializable<JsonObject>, dev.railroadide.ra
         Railroad.PROJECT_MANAGER.updateProjectInfo(this);
         IDESetup.switchToIDE(this);
         discoverFacets();
+        this.gitManager.detectRepository();
     }
 
     @Override
