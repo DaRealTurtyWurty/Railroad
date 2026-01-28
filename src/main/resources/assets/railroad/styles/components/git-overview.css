@@ -1,82 +1,40 @@
 /* Git overview pane styles */
-/* Git overview pane styles */
 .git-overview-header-pane,
 .git-overview-identity-pane {
-    -fx-background-color: -color-bg-subtle;
-    -fx-background-radius: 10px;
-    -fx-border-color: -color-border-subtle;
-    -fx-border-radius: 10px;
-    -fx-border-width: 1px;
     -fx-padding: 10px 12px;
     -fx-spacing: 8px;
+    -fx-background-color: -color-bg-subtle;
 }
 
 .git-overview-actions-box {
     -fx-padding: 2px 0 8px 0;
     -fx-spacing: 8px;
+    -fx-background-color: -color-bg-subtle;
+}
+
+.git-overview-info-grid,
+.git-overview-identity-grid {
+    -fx-padding: 4 4 4 4;
+}
+
+.git-overview-grid-row-separator {
     -fx-border-color: -color-border-subtle;
     -fx-border-width: 0 0 1px 0;
+    -fx-padding: 4px 0;
 }
 
-.git-overview-info-table,
-.git-overview-identity-table {
-    -fx-background-color: transparent;
-    -fx-border-color: transparent;
-    -fx-padding: 0;
-}
-
-.git-overview-info-table.no-header > .column-header-background,
-.git-overview-identity-table.no-header > .column-header-background {
-    -fx-max-height: 0;
-    -fx-pref-height: 0;
-    -fx-min-height: 0;
-    -fx-padding: 0;
-    -fx-border-color: transparent;
-    -fx-background-color: transparent;
-}
-
-.git-overview-info-table.no-header > .column-header-background > .filler,
-.git-overview-identity-table.no-header > .column-header-background > .filler {
-    -fx-max-height: 0;
-    -fx-pref-height: 0;
-    -fx-min-height: 0;
-}
-
-.git-overview-info-table.table-view .table-row-cell,
-.git-overview-identity-table.table-view .table-row-cell {
-    -fx-background-color: transparent;
-    -fx-background-insets: 0;
-    -fx-padding: 0;
-}
-
-.git-overview-info-table.table-view .table-cell,
-.git-overview-identity-table.table-view .table-cell {
-    -fx-padding: 6px 8px;
-    -fx-border-color: -color-border-subtle;
-    -fx-border-width: 0 1px 1px 0;
-}
-
-.git-overview-info-table.table-view .table-row-cell > .table-cell:last-visible,
-.git-overview-identity-table.table-view .table-row-cell > .table-cell:last-visible {
-    -fx-border-width: 0 0 1px 0;
-}
-
-.git-overview-table-label .text,
-.git-overview-identity-label .text {
+.git-overview-info-grid .localized-text,
+.git-overview-identity-grid .localized-text {
     -fx-fill: -color-fg-muted;
     -fx-font-size: 0.95em;
     -fx-font-weight: 600;
 }
 
+
 .git-overview-table-value-text,
 .git-overview-identity-value-text {
     -fx-fill: -color-fg-default;
     -fx-font-size: 0.98em;
-}
-
-.git-overview-table-value,
-.git-overview-identity-value {
-    -fx-text-alignment: left;
 }
 
 .git-overview-value-container {
@@ -133,7 +91,6 @@
 }
 
 .git-overview-changes-row {
-    -fx-alignment: center-left;
     -fx-spacing: 10px;
     -fx-padding: 8px 6px 2px 6px;
 }
@@ -157,11 +114,4 @@
 .git-overview-change-label {
     -fx-fill: -color-fg-muted;
     -fx-font-size: 0.9em;
-}
-
-.git-overview-info-table .table-row-cell:hover,
-.git-overview-identity-table .table-row-cell:hover,
-.git-overview-info-table .table-row-cell:filled:hover,
-.git-overview-identity-table .table-row-cell:filled:hover {
-    -fx-background-color: transparent;
 }
