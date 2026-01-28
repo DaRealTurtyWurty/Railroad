@@ -43,8 +43,10 @@ public class GitProcessRunner {
 
         try {
             String[] cmd = buildCommand(gitExecutable, command.arguments());
-            var processBuilder = new ProcessBuilder(cmd)
-                .directory(command.workingDirectory().toFile());
+            var processBuilder = new ProcessBuilder(cmd);
+            if (command.workingDirectory() != null) {
+                processBuilder.directory(command.workingDirectory().toFile());
+            }
 
             processBuilder.environment().putAll(command.environment());
             processBuilder.environment().put("GIT_TERMINAL_PROMPT", "0"); // Disable git prompts

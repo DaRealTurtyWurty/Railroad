@@ -43,4 +43,12 @@ public record FileChange(
     public boolean isUnchanged() {
         return indexStatus == ' ' && workTreeStatus == ' ';
     }
+
+    public boolean isStaged() {
+        return indexStatus != ' ' && !isUntracked();
+    }
+
+    public boolean isUnstaged() {
+        return workTreeStatus != ' ' && !isUntracked();
+    }
 }

@@ -88,7 +88,88 @@ public final class GitCommands {
         return GitCommand.builder()
             .workingDirectory(repo)
             .timeout(15, TimeUnit.SECONDS)
-            .addArgs("push")
+            .addArgs("push", "--progress")
+            .build();
+    }
+
+    public static GitCommand remoteGetUrls(GitRepository repo) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("remote", "-v")
+            .build();
+    }
+
+    public static GitCommand getUpstream(GitRepository repo) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+            .build();
+    }
+
+    public static GitCommand fetch(GitRepository repo) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(30, TimeUnit.SECONDS)
+            .addArgs("fetch", "--prune", "--progress")
+            .build();
+    }
+
+    public static GitCommand pull(GitRepository repo) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(30, TimeUnit.SECONDS)
+            .addArgs("pull", "--ff-only", "--progress")
+            .build();
+    }
+
+    public static GitCommand getUserName() {
+        return GitCommand.builder()
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("config", "--get", "user.name")
+            .build();
+    }
+
+    public static GitCommand getUserEmail() {
+        return GitCommand.builder()
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("config", "--get", "user.email")
+            .build();
+    }
+
+    public static GitCommand getCommitGpgSign() {
+        return GitCommand.builder()
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("config", "--get", "commit.gpgsign")
+            .build();
+    }
+
+    public static GitCommand getGpgFormat() {
+        return GitCommand.builder()
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("config", "--get", "gpg.format")
+            .build();
+    }
+
+    public static GitCommand getUserSigningKey() {
+        return GitCommand.builder()
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("config", "--get", "user.signingkey")
+            .build();
+    }
+
+    public static GitCommand getGpgProgram() {
+        return GitCommand.builder()
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("config", "--get", "gpg.program")
+            .build();
+    }
+
+    public static GitCommand getGitVersion() {
+        return GitCommand.builder()
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("--version")
             .build();
     }
 }

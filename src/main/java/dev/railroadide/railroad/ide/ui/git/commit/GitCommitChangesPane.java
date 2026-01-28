@@ -1,10 +1,10 @@
-package dev.railroadide.railroad.ide.ui.git;
+package dev.railroadide.railroad.ide.ui.git.commit;
 
 import dev.railroadide.core.ui.RRBorderPane;
 import dev.railroadide.core.ui.RRCheckBoxTreeItem;
 import dev.railroadide.core.ui.RRCheckBoxTreeView;
 import dev.railroadide.core.ui.localized.LocalizedText;
-import dev.railroadide.railroad.ide.ui.git.changes.*;
+import dev.railroadide.railroad.ide.ui.git.commit.changes.*;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.vcs.git.FileChange;
 import dev.railroadide.railroad.vcs.git.GitRepository;
