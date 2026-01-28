@@ -1,10 +1,8 @@
-package dev.railroadide.railroad.ide.ui.git;
+package dev.railroadide.railroad.ide.ui.git.commit;
 
 import dev.railroadide.core.ui.*;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.vcs.git.GitCommitData;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
 
 public class GitCommitActionsPane extends RRVBox {
     private final Project project;

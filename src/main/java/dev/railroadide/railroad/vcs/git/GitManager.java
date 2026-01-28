@@ -1,13 +1,12 @@
 package dev.railroadide.railroad.vcs.git;
 
+import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.project.data.ProjectDataStore;
-import javafx.beans.property.BooleanProperty;
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.SimpleBooleanProperty;
-import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.*;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -25,8 +24,10 @@ public class GitManager {
 
     private final ObjectProperty<RepoStatus> repoStatus = new SimpleObjectProperty<>();
     private final BooleanProperty active = new SimpleBooleanProperty(false);
-
     private final ObjectProperty<GitRepository> gitRepository = new SimpleObjectProperty<>();
+    private final LongProperty lastFetchTimestamp = new SimpleLongProperty(0L);
+    private final ObjectProperty<GitIdentity> gitIdentity = new SimpleObjectProperty<>();
+
     private volatile ScheduledFuture<?> autoRefreshFuture;
 
     public GitManager(Project project, GitClient gitClient, ScheduledExecutorService executorService) {
@@ -44,6 +45,7 @@ public class GitManager {
             this.gitRepository.set(repository);
             this.active.set(true);
             startAutoRefresh();
+            loadIdentity();
         }, () -> {
             this.gitRepository.set(null);
             this.active.set(false);
@@ -111,19 +113,6 @@ public class GitManager {
         return gitRepository.get();
     }
 
-    private void refreshStatusInternal() {
-        GitRepository repository = this.gitRepository.get();
-        if (repository != null) {
-            RepoStatus status = this.gitClient.getStatus(repository);
-            this.repoStatus.set(status);
-//            Railroad.LOGGER.debug("Loaded {} changes from Git repository at {}",
-//                status.changes().size(),
-//                repository.root());
-        } else {
-            this.repoStatus.set(null);
-        }
-    }
-
     public GitSettings getGitSettings() {
         ProjectDataStore dataStore = project.getDataStore();
         return dataStore.readJson(SETTINGS_PATH, GitSettings.class).orElseGet(GitSettings::new);
@@ -147,6 +136,73 @@ public class GitManager {
         dataStore.writeJson(SETTINGS_PATH, settings);
     }
 
+    public void setGitExecutablePath(Path path) {
+        this.gitClient.runner.setGitExecutable(path);
+    }
+
+    public void commitChanges(GitCommitData commit, boolean pushAfterCommit) {
+        this.executorService.submit(() -> {
+            gitClient.commitChanges(this.gitRepository.get(), commit, pushAfterCommit);
+            refreshStatusInternal();
+        });
+    }
+
+    public List<GitRemote> getRemotes() {
+        GitRepository repository = this.gitRepository.get();
+        if (repository != null) {
+            return this.gitClient.getRemotes(repository);
+        } else {
+            return List.of();
+        }
+    }
+
+    public Optional<GitUpstream> getUpstream() {
+        GitRepository repository = this.gitRepository.get();
+        if (repository != null) {
+            return this.gitClient.getUpstream(repository);
+        } else {
+            return Optional.empty();
+        }
+    }
+
+    public void fetch() {
+        this.executorService.submit(() -> {
+            GitRepository repository = this.gitRepository.get();
+            if (repository != null) {
+                this.gitClient.fetch(repository, GitOutputListener.NO_OP, event -> {
+                    if (event instanceof GitProgressEvent.Percentage(String phase, int percent)) {
+                        Railroad.LOGGER.debug("Git Fetch Progress - {}: {}%", phase, percent);
+                    } else if (event instanceof GitProgressEvent.Message(String message)) {
+                        Railroad.LOGGER.debug("Git Fetch Message - {}", message);
+                    }
+                });
+                this.lastFetchTimestamp.set(System.currentTimeMillis());
+                refreshStatusInternal();
+            }
+        });
+    }
+
+    public LongProperty lastFetchTimestampProperty() {
+        return lastFetchTimestamp;
+    }
+
+    public long getLastFetchTimestamp() {
+        return lastFetchTimestamp.get();
+    }
+
+    private void refreshStatusInternal() {
+        GitRepository repository = this.gitRepository.get();
+        if (repository != null) {
+            RepoStatus status = this.gitClient.getStatus(repository);
+            this.repoStatus.set(status);
+//            Railroad.LOGGER.debug("Loaded {} changes from Git repository at {}",
+//                status.changes().size(),
+//                repository.root());
+        } else {
+            this.repoStatus.set(null);
+        }
+    }
+
     private long getAutoRefreshIntervalMillis() {
         ProjectDataStore dataStore = project.getDataStore();
         Optional<GitSettings> settings = dataStore.readJson(SETTINGS_PATH, GitSettings.class);
@@ -165,14 +221,55 @@ public class GitManager {
         project.getDataStore().writeJson(SETTINGS_PATH, settings);
     }
 
-    public void setGitExecutablePath(Path path) {
-        this.gitClient.runner.setGitExecutable(path);
+    public void push() {
+        this.executorService.submit(() -> {
+            GitRepository repository = this.gitRepository.get();
+            if (repository != null) {
+                this.gitClient.push(repository, GitOutputListener.NO_OP, event -> {
+                    if (event instanceof GitProgressEvent.Percentage(String phase, int percent)) {
+                        Railroad.LOGGER.debug("Git Push Progress - {}: {}%", phase, percent);
+                    } else if (event instanceof GitProgressEvent.Message(String message)) {
+                        Railroad.LOGGER.debug("Git Push Message - {}", message);
+                    }
+                });
+                refreshStatusInternal();
+            }
+        });
     }
 
-    public void commitChanges(GitCommitData commit, boolean pushAfterCommit) {
+    public void pull() {
         this.executorService.submit(() -> {
-            gitClient.commitChanges(this.gitRepository.get(), commit, pushAfterCommit);
-            refreshStatusInternal();
+            GitRepository repository = this.gitRepository.get();
+            if (repository != null) {
+                this.gitClient.pull(repository, GitOutputListener.NO_OP, event -> {
+                    if (event instanceof GitProgressEvent.Percentage(String phase, int percent)) {
+                        Railroad.LOGGER.debug("Git Pull Progress - {}: {}%", phase, percent);
+                    } else if (event instanceof GitProgressEvent.Message(String message)) {
+                        Railroad.LOGGER.debug("Git Pull Message - {}", message);
+                    }
+                });
+                refreshStatusInternal();
+            }
+        });
+    }
+
+    public ObjectProperty<GitIdentity> gitIdentityProperty() {
+        return gitIdentity;
+    }
+
+    public GitIdentity getIdentity() {
+        return gitIdentityProperty().get();
+    }
+
+    public void loadIdentity() {
+        this.executorService.submit(() -> {
+            try {
+                GitIdentity identity = this.gitClient.getIdentity();
+                this.gitIdentity.set(identity);
+                Railroad.LOGGER.debug("Loaded Git identity: {}", identity);
+            } catch (Exception exception) {
+                Railroad.LOGGER.warn("Failed to load Git identity", exception);
+            }
         });
     }
 }

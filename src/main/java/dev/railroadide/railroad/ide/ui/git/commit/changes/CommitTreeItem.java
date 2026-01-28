@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.ide.ui.git.changes;
+package dev.railroadide.railroad.ide.ui.git.commit.changes;
 
 import dev.railroadide.core.ui.RRCheckBoxTreeItem;
 import dev.railroadide.railroad.project.Project;

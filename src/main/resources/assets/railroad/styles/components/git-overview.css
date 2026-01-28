@@ -1,0 +1,167 @@
+/* Git overview pane styles */
+/* Git overview pane styles */
+.git-overview-header-pane,
+.git-overview-identity-pane {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 10px;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-radius: 10px;
+    -fx-border-width: 1px;
+    -fx-padding: 10px 12px;
+    -fx-spacing: 8px;
+}
+
+.git-overview-actions-box {
+    -fx-padding: 2px 0 8px 0;
+    -fx-spacing: 8px;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.git-overview-info-table,
+.git-overview-identity-table {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.git-overview-info-table.no-header > .column-header-background,
+.git-overview-identity-table.no-header > .column-header-background {
+    -fx-max-height: 0;
+    -fx-pref-height: 0;
+    -fx-min-height: 0;
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+    -fx-background-color: transparent;
+}
+
+.git-overview-info-table.no-header > .column-header-background > .filler,
+.git-overview-identity-table.no-header > .column-header-background > .filler {
+    -fx-max-height: 0;
+    -fx-pref-height: 0;
+    -fx-min-height: 0;
+}
+
+.git-overview-info-table.table-view .table-row-cell,
+.git-overview-identity-table.table-view .table-row-cell {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.git-overview-info-table.table-view .table-cell,
+.git-overview-identity-table.table-view .table-cell {
+    -fx-padding: 6px 8px;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 0 1px 1px 0;
+}
+
+.git-overview-info-table.table-view .table-row-cell > .table-cell:last-visible,
+.git-overview-identity-table.table-view .table-row-cell > .table-cell:last-visible {
+    -fx-border-width: 0 0 1px 0;
+}
+
+.git-overview-table-label .text,
+.git-overview-identity-label .text {
+    -fx-fill: -color-fg-muted;
+    -fx-font-size: 0.95em;
+    -fx-font-weight: 600;
+}
+
+.git-overview-table-value-text,
+.git-overview-identity-value-text {
+    -fx-fill: -color-fg-default;
+    -fx-font-size: 0.98em;
+}
+
+.git-overview-table-value,
+.git-overview-identity-value {
+    -fx-text-alignment: left;
+}
+
+.git-overview-value-container {
+    -fx-alignment: center-left;
+    -fx-spacing: 6px;
+}
+
+.git-overview-value-strong {
+    -fx-font-weight: 700;
+}
+
+.git-overview-mono,
+.git-overview-code {
+    -fx-font-family: "Consolas", "Monaco", "Courier New", monospace;
+}
+
+.git-overview-separator {
+    -fx-fill: -color-fg-muted;
+}
+
+.git-overview-tag {
+    -fx-background-color: -color-bg-default;
+    -fx-background-radius: 6px;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-radius: 6px;
+    -fx-border-width: 1px;
+    -fx-padding: 1px 4px;
+    -fx-spacing: 3px;
+    -fx-alignment: center-left;
+}
+
+.git-overview-tag .text {
+    -fx-font-size: 0.9em;
+}
+
+.git-overview-tag-warn {
+    -fx-border-color: -color-warning-muted;
+}
+
+.git-overview-tag-good {
+    -fx-border-color: -color-success-muted;
+}
+
+.git-overview-dot {
+    -fx-fill: -color-fg-muted;
+}
+
+.git-overview-tag-warn .git-overview-dot {
+    -fx-fill: -color-warning-emphasis;
+}
+
+.git-overview-tag-good .git-overview-dot {
+    -fx-fill: -color-success-emphasis;
+}
+
+.git-overview-changes-row {
+    -fx-alignment: center-left;
+    -fx-spacing: 10px;
+    -fx-padding: 8px 6px 2px 6px;
+}
+
+.git-overview-change-chip {
+    -fx-background-color: -color-bg-default;
+    -fx-background-radius: 8px;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-radius: 8px;
+    -fx-border-width: 1px;
+    -fx-padding: 6px 10px;
+    -fx-alignment: center;
+}
+
+.git-overview-change-number {
+    -fx-fill: -color-fg-default;
+    -fx-font-size: 1.05em;
+    -fx-font-weight: 700;
+}
+
+.git-overview-change-label {
+    -fx-fill: -color-fg-muted;
+    -fx-font-size: 0.9em;
+}
+
+.git-overview-info-table .table-row-cell:hover,
+.git-overview-identity-table .table-row-cell:hover,
+.git-overview-info-table .table-row-cell:filled:hover,
+.git-overview-identity-table .table-row-cell:filled:hover {
+    -fx-background-color: transparent;
+}

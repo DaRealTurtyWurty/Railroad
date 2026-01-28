@@ -1,0 +1,20 @@
+package dev.railroadide.railroad.vcs.git;
+
+import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
+
+public record GitCommit(
+    String hash,
+    String subject,
+    String authorName,
+    String authorEmail,
+    long authorTimestampEpochSeconds,
+
+    String committerName,
+    String committerEmail,
+    long committerTimestampEpochSeconds,
+
+    List<String> parentHashes,
+    @Nullable String body) {
+}

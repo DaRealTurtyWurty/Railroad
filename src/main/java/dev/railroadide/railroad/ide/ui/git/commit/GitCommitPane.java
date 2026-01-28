@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.ide.ui.git;
+package dev.railroadide.railroad.ide.ui.git.commit;
 
 import dev.railroadide.core.ui.RRVBox;
 import dev.railroadide.railroad.project.Project;
