@@ -1,9 +1,6 @@
 package dev.railroadide.railroad.ide.ui.git.overview;
 
-import dev.railroadide.core.ui.RRButton;
-import dev.railroadide.core.ui.RRHBox;
-import dev.railroadide.core.ui.RRTableView;
-import dev.railroadide.core.ui.RRVBox;
+import dev.railroadide.core.ui.*;
 import dev.railroadide.core.ui.localized.LocalizedText;
 import dev.railroadide.core.ui.styling.ButtonVariant;
 import dev.railroadide.railroad.project.Project;
@@ -11,23 +8,12 @@ import dev.railroadide.railroad.utility.ShutdownHooks;
 import dev.railroadide.railroad.utility.StringUtils;
 import dev.railroadide.railroad.vcs.git.*;
 import javafx.application.Platform;
-import javafx.beans.property.ReadOnlyObjectWrapper;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
-import javafx.scene.Scene;
-import javafx.scene.control.ContentDisplay;
-import javafx.scene.control.TableCell;
-import javafx.scene.control.TableColumn;
-import javafx.scene.control.TableView;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.VBox;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.beans.binding.Bindings;
+import javafx.geometry.VPos;
+import javafx.scene.Scene;
+import javafx.scene.layout.*;
 import javafx.scene.text.Text;
-import javafx.scene.text.TextFlow;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 
 import java.util.List;
@@ -37,29 +23,33 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-// Git Overview Header Pane
-// Fetch, Pull, Push Buttons
-// Repository - <name> - <dirty>
-// HEAD - <branch> - upstream: <remote>/<branch>
-// Upstream - <commits ahead/behind> - last fetch: <time>
-// Remote - <name> - URL: <url>
-// Local Changes - <count> - staged: <count>, unstaged: <count>, untracked: <count>, conflicted: <count>
 public class GitOverviewHeaderPane extends RRVBox {
     private final RRHBox actionsBox = new RRHBox(8);
-    private final RRTableView<InfoRow> infoTable = new RRTableView<>();
+    private final GridPane infoGrid = new RRGridPane();
     private final RRHBox changesRow = new RRHBox(10);
     private final ChangeChip stagedChip = new ChangeChip("Staged");
     private final ChangeChip unstagedChip = new ChangeChip("Unstaged");
     private final ChangeChip untrackedChip = new ChangeChip("Untracked");
     private final ChangeChip conflictedChip = new ChangeChip("Conflicted");
 
-    private final InfoRow repositoryRow = new InfoRow("railroad.git.overview.header.repository.label", RowType.REPOSITORY);
-    private final InfoRow headRow = new InfoRow("railroad.git.overview.header.head.label", RowType.HEAD);
-    private final InfoRow upstreamRow = new InfoRow("railroad.git.overview.header.upstream.label", RowType.UPSTREAM);
-    private final InfoRow remoteRow = new InfoRow("railroad.git.overview.header.remote.label", RowType.REMOTE);
+    private final Text repoNameText = new Text();
+    private final HBox repoStatusTag = createTag("git-overview-tag");
+    private final Text repoStatusText = new Text();
+    private final Text headBranchText = new Text();
+    private final HBox headUpstreamTag = createTag("git-overview-tag");
+    private final Text headUpstreamText = new Text();
+    private final HBox upstreamBehindTag = createTag("git-overview-tag", "git-overview-tag-warn");
+    private final Text upstreamBehindText = new Text();
+    private final HBox upstreamAheadTag = createTag("git-overview-tag", "git-overview-tag-good");
+    private final Text upstreamAheadText = new Text();
+    private final HBox upstreamFetchTag = createTag("git-overview-tag");
+    private final Text upstreamFetchText = new Text();
+    private final Text remoteNameText = new Text();
+    private final Text remoteUrlText = new Text();
 
     public GitOverviewHeaderPane(Project project) {
         getStyleClass().add("git-overview-header-pane");
+        setSpacing(8);
 
         // Actions Box
         actionsBox.getStyleClass().add("git-overview-actions-box");
@@ -81,9 +71,9 @@ public class GitOverviewHeaderPane extends RRVBox {
 
         getChildren().add(actionsBox);
 
-        configureTable();
-        VBox.setVgrow(infoTable, Priority.ALWAYS);
-        getChildren().add(infoTable);
+        configureInfoGrid();
+        VBox.setVgrow(infoGrid, Priority.ALWAYS);
+        getChildren().add(infoGrid);
         configureChangeChips();
         getChildren().add(changesRow);
 
@@ -119,45 +109,90 @@ public class GitOverviewHeaderPane extends RRVBox {
         }
     }
 
-    private void configureTable() {
-        infoTable.getStyleClass().addAll("git-overview-info-table", "no-header");
-        infoTable.setEditable(false);
-        infoTable.setFocusTraversable(false);
-        infoTable.setSelectionModel(null);
-        infoTable.setPrefWidth(Double.MAX_VALUE);
-        infoTable.setMaxWidth(Double.MAX_VALUE);
-        infoTable.setFixedCellSize(28);
-        infoTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+    private void configureInfoGrid() {
+        infoGrid.getStyleClass().add("git-overview-info-grid");
+        infoGrid.setHgap(12);
+        infoGrid.setVgap(0); // Set vgap to 0 because separators will provide vertical spacing
 
-        var labelColumn = new TableColumn<InfoRow, String>();
-        labelColumn.setSortable(false);
-        labelColumn.setReorderable(false);
-        labelColumn.setResizable(false);
-        labelColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().labelKey()));
-        labelColumn.setCellFactory(column -> new InfoRowLabelTableCell());
-        labelColumn.setMinWidth(150);
+        var col1 = new ColumnConstraints();
+        col1.setMinWidth(150);
+        col1.setHgrow(Priority.NEVER);
+        var col2 = new ColumnConstraints();
+        col2.setHgrow(Priority.ALWAYS);
+        infoGrid.getColumnConstraints().addAll(col1, col2);
 
-        var valueColumn = new TableColumn<InfoRow, InfoRow>();
-        valueColumn.setSortable(false);
-        valueColumn.setReorderable(false);
-        valueColumn.setResizable(true);
-        valueColumn.setCellValueFactory(data -> new ReadOnlyObjectWrapper<>(data.getValue()));
-        valueColumn.setCellFactory(column -> new InfoRowValueTableCell());
-        valueColumn.prefWidthProperty().bind(infoTable.widthProperty().subtract(labelColumn.widthProperty()).subtract(8));
+        int row = 0;
 
-        // noinspection unchecked
-        infoTable.getColumns().addAll(labelColumn, valueColumn);
+        // Repository
+        repoNameText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-value-strong");
+        repoStatusText.getStyleClass().add("git-overview-table-value-text");
+        repoStatusTag.getChildren().addAll(createDot(), repoStatusText);
+        infoGrid.add(new LocalizedText("railroad.git.overview.header.repository.label"), 0, row);
+        GridPane.setValignment(infoGrid.getChildren().get(infoGrid.getChildren().size() - 1), VPos.CENTER);
+        infoGrid.add(new RRFlowPane(6, 6, repoNameText, repoStatusTag), 1, row);
+        GridPane.setValignment(infoGrid.getChildren().get(infoGrid.getChildren().size() - 1), VPos.CENTER);
+        row++;
+        Region separator0 = new Region();
+        separator0.getStyleClass().add("git-overview-grid-row-separator");
+        separator0.setMaxWidth(Double.MAX_VALUE); // Ensure the separator stretches
+        GridPane.setMargin(separator0, new Insets(4, 0, 4, 0)); // Add vertical margin for separator
+        infoGrid.add(separator0, 0, row, 2, 1); // col=0, row=current, columnspan=2, rowspan=1
+        row++;
 
-        ObservableList<InfoRow> rows = FXCollections.observableArrayList(
-            repositoryRow,
-            headRow,
-            upstreamRow,
-            remoteRow
-        );
-        infoTable.setItems(rows);
-        infoTable.prefHeightProperty().bind(Bindings.size(infoTable.getItems())
-            .multiply(infoTable.fixedCellSizeProperty()).add(2));
-        infoTable.maxHeightProperty().bind(infoTable.prefHeightProperty());
+        // HEAD
+        headBranchText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-mono");
+        var headUpstreamLabel = new Text("upstream:");
+        headUpstreamLabel.getStyleClass().add("git-overview-table-value-text");
+        headUpstreamText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-mono");
+        headUpstreamTag.getChildren().addAll(headUpstreamLabel, headUpstreamText);
+        infoGrid.add(new LocalizedText("railroad.git.overview.header.head.label"), 0, row);
+        GridPane.setValignment(infoGrid.getChildren().get(infoGrid.getChildren().size() - 1), VPos.CENTER);
+        infoGrid.add(new RRFlowPane(6, 6, headBranchText, headUpstreamTag), 1, row);
+        GridPane.setValignment(infoGrid.getChildren().get(infoGrid.getChildren().size() - 1), VPos.CENTER);
+        row++;
+        Region separator1 = new Region();
+        separator1.getStyleClass().add("git-overview-grid-row-separator");
+        separator1.setMaxWidth(Double.MAX_VALUE); // Ensure the separator stretches
+        GridPane.setMargin(separator1, new Insets(4, 0, 4, 0)); // Add vertical margin for separator
+        infoGrid.add(separator1, 0, row, 2, 1);
+        row++;
+
+        // Upstream
+        upstreamBehindText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-value-strong");
+        var upstreamBehindLabel = new Text("behind");
+        upstreamBehindLabel.getStyleClass().add("git-overview-table-value-text");
+        upstreamBehindTag.getChildren().addAll(createDot("git-overview-dot-warn"), upstreamBehindLabel, upstreamBehindText);
+
+        upstreamAheadText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-value-strong");
+        var upstreamAheadLabel = new Text("ahead");
+        upstreamAheadLabel.getStyleClass().add("git-overview-table-value-text");
+        upstreamAheadTag.getChildren().addAll(createDot("git-overview-dot-good"), upstreamAheadLabel, upstreamAheadText);
+
+        upstreamFetchText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-mono");
+        var upstreamFetchLabel = new Text("last fetch");
+        upstreamFetchLabel.getStyleClass().add("git-overview-table-value-text");
+        upstreamFetchTag.getChildren().addAll(upstreamFetchLabel, upstreamFetchText);
+        infoGrid.add(new LocalizedText("railroad.git.overview.header.upstream.label"), 0, row);
+        GridPane.setValignment(infoGrid.getChildren().get(infoGrid.getChildren().size() - 1), VPos.CENTER);
+        infoGrid.add(new RRFlowPane(6, 6, upstreamBehindTag, upstreamAheadTag, upstreamFetchTag), 1, row);
+        GridPane.setValignment(infoGrid.getChildren().get(infoGrid.getChildren().size() - 1), VPos.CENTER);
+        row++;
+        Region separator2 = new Region();
+        separator2.getStyleClass().add("git-overview-grid-row-separator");
+        separator2.setMaxWidth(Double.MAX_VALUE); // Ensure the separator stretches
+        GridPane.setMargin(separator2, new Insets(4, 0, 4, 0)); // Add vertical margin for separator
+        infoGrid.add(separator2, 0, row, 2, 1);
+        row++;
+
+        // Remote
+        remoteNameText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-mono");
+        var remoteSeparatorText = new Text("•");
+        remoteSeparatorText.getStyleClass().add("git-overview-separator");
+        remoteUrlText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-code");
+        infoGrid.add(new LocalizedText("railroad.git.overview.header.remote.label"), 0, row);
+        GridPane.setValignment(infoGrid.getChildren().get(infoGrid.getChildren().size() - 1), VPos.CENTER);
+        infoGrid.add(new RRFlowPane(6, 6, remoteNameText, remoteSeparatorText, remoteUrlText), 1, row);
+        GridPane.setValignment(infoGrid.getChildren().get(infoGrid.getChildren().size() - 1), VPos.CENTER);
     }
 
     private void updateHeaderInfo(GitManager gitManager) {
@@ -166,14 +201,15 @@ public class GitOverviewHeaderPane extends RRVBox {
         boolean dirty = !changes.isEmpty();
 
         String repositoryName = gitManager.getGitRepository().root().getFileName().toString();
-        repositoryRow.setPrimary(repositoryName);
-        repositoryRow.setSecondary(dirty ? "Dirty" : "Clean");
+        repoNameText.setText(repositoryName);
+        repoStatusText.setText(dirty ? "Dirty" : "Clean");
+        updateStatusTag(repoStatusTag, dirty ? "Dirty" : "Clean");
 
         GitUpstream upstream = gitManager.getUpstream().orElse(null);
 
         String upstreamTarget = upstream != null ? upstream.remoteName() + "/" + upstream.branchName() : "None";
-        headRow.setPrimary(status.branch());
-        headRow.setSecondary(upstreamTarget);
+        headBranchText.setText(status.branch());
+        headUpstreamText.setText(upstreamTarget);
 
         updateUpstreamRow(gitManager);
 
@@ -183,8 +219,8 @@ public class GitOverviewHeaderPane extends RRVBox {
             .findFirst()
             .map(GitRemote::fetchUrl)
             .orElse("N/A");
-        remoteRow.setPrimary(remoteName);
-        remoteRow.setSecondary(remoteUrl);
+        remoteNameText.setText(remoteName);
+        remoteUrlText.setText(remoteUrl);
 
         long staged = changes.stream().filter(FileChange::isStaged).count();
         long unstaged = changes.stream().filter(FileChange::isUnstaged).count();
@@ -194,7 +230,6 @@ public class GitOverviewHeaderPane extends RRVBox {
         unstagedChip.setCount(unstaged);
         untrackedChip.setCount(untracked);
         conflictedChip.setCount(conflicted);
-        infoTable.refresh();
     }
 
     private void listenForUpdates(GitManager gitManager) {
@@ -204,227 +239,44 @@ public class GitOverviewHeaderPane extends RRVBox {
 
     private void updateUpstreamRow(GitManager gitManager) {
         var status = gitManager.getRepoStatus();
-        upstreamRow.setPrimary(Long.toString(status.behind()));
-        upstreamRow.setSecondary(Long.toString(status.ahead()));
-        upstreamRow.setTertiary(StringUtils.formatElapsed(gitManager.getLastFetchTimestamp()));
+        upstreamBehindText.setText(Long.toString(status.behind()));
+        upstreamAheadText.setText(Long.toString(status.ahead()));
+        upstreamFetchText.setText(StringUtils.formatElapsed(gitManager.getLastFetchTimestamp()));
     }
 
     private void configureChangeChips() {
         changesRow.getStyleClass().add("git-overview-changes-row");
         changesRow.getChildren().addAll(stagedChip, unstagedChip, untrackedChip, conflictedChip);
+        changesRow.setAlignment(Pos.CENTER);
     }
 
-    private static final class InfoRow {
-        private final String labelKey;
-        private final RowType type;
-        private final StringProperty primary = new SimpleStringProperty("");
-        private final StringProperty secondary = new SimpleStringProperty("");
-        private final StringProperty tertiary = new SimpleStringProperty("");
+    private static HBox createTag(String... styleClasses) {
+        var tag = new RRHBox(4);
+        tag.getStyleClass().addAll(styleClasses);
+        return tag;
+    }
 
-        private InfoRow(String labelKey, RowType type) {
-            this.labelKey = labelKey;
-            this.type = type;
-        }
+    private static Text createDot(String... extraClasses) {
+        var dot = new Text("•");
+        dot.getStyleClass().add("git-overview-dot");
+        dot.getStyleClass().addAll(extraClasses);
+        return dot;
+    }
 
-        private String labelKey() {
-            return labelKey;
-        }
-
-        private RowType type() {
-            return type;
-        }
-
-        private StringProperty primaryProperty() {
-            return primary;
-        }
-
-        private StringProperty secondaryProperty() {
-            return secondary;
-        }
-
-        private StringProperty tertiaryProperty() {
-            return tertiary;
-        }
-
-        private void setPrimary(String value) {
-            this.primary.set(value);
-        }
-
-        private void setSecondary(String value) {
-            this.secondary.set(value);
-        }
-
-        private void setTertiary(String value) {
-            this.tertiary.set(value);
+    private static void updateStatusTag(HBox tag, String status) {
+        tag.getStyleClass().removeAll("git-overview-tag-warn", "git-overview-tag-good");
+        if ("Dirty".equalsIgnoreCase(status)) {
+            tag.getStyleClass().add("git-overview-tag-warn");
+        } else {
+            tag.getStyleClass().add("git-overview-tag-good");
         }
     }
 
-    private enum RowType {
-        REPOSITORY,
-        HEAD,
-        UPSTREAM,
-        REMOTE
-    }
-
-    private static class InfoRowValueTableCell extends TableCell<InfoRow, InfoRow> {
-        private final HBox container = new HBox(6);
-
-        private final Text repoNameText = new Text();
-        private final HBox repoStatusTag = createTag("git-overview-tag");
-        private final Text repoStatusText = new Text();
-
-        private final Text headBranchText = new Text();
-        private final HBox headUpstreamTag = createTag("git-overview-tag");
-        private final Text headUpstreamLabel = new Text("upstream:");
-        private final Text headUpstreamText = new Text();
-
-        private final HBox upstreamBehindTag = createTag("git-overview-tag", "git-overview-tag-warn");
-        private final Text upstreamBehindLabel = new Text("behind");
-        private final Text upstreamBehindText = new Text();
-        private final HBox upstreamAheadTag = createTag("git-overview-tag", "git-overview-tag-good");
-        private final Text upstreamAheadLabel = new Text("ahead");
-        private final Text upstreamAheadText = new Text();
-        private final HBox upstreamFetchTag = createTag("git-overview-tag");
-        private final Text upstreamFetchLabel = new Text("last fetch");
-        private final Text upstreamFetchText = new Text();
-
-        private final Text remoteNameText = new Text();
-        private final Text remoteSeparatorText = new Text("•");
-        private final Text remoteUrlText = new Text();
-
-        private InfoRowValueTableCell() {
-            container.getStyleClass().add("git-overview-value-container");
-            setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
-
-            repoNameText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-value-strong");
-            repoStatusText.getStyleClass().add("git-overview-table-value-text");
-            repoStatusTag.getChildren().addAll(createDot(), repoStatusText);
-
-            headBranchText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-mono");
-            headUpstreamLabel.getStyleClass().add("git-overview-table-value-text");
-            headUpstreamText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-mono");
-            headUpstreamTag.getChildren().addAll(headUpstreamLabel, headUpstreamText);
-
-            upstreamBehindText.getStyleClass().add("git-overview-table-value-text");
-            upstreamBehindText.getStyleClass().add("git-overview-value-strong");
-            upstreamBehindLabel.getStyleClass().add("git-overview-table-value-text");
-            upstreamBehindTag.getChildren().addAll(createDot("git-overview-dot-warn"), upstreamBehindLabel, upstreamBehindText);
-            upstreamAheadText.getStyleClass().add("git-overview-table-value-text");
-            upstreamAheadText.getStyleClass().add("git-overview-value-strong");
-            upstreamAheadLabel.getStyleClass().add("git-overview-table-value-text");
-            upstreamAheadTag.getChildren().addAll(createDot("git-overview-dot-good"), upstreamAheadLabel, upstreamAheadText);
-            upstreamFetchText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-mono");
-            upstreamFetchLabel.getStyleClass().add("git-overview-table-value-text");
-            upstreamFetchTag.getChildren().addAll(upstreamFetchLabel, upstreamFetchText);
-
-            remoteNameText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-mono");
-            remoteSeparatorText.getStyleClass().add("git-overview-separator");
-            remoteUrlText.getStyleClass().addAll("git-overview-table-value-text", "git-overview-code");
-
-            setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
-        }
-
-        @Override
-        protected void updateItem(InfoRow row, boolean empty) {
-            super.updateItem(row, empty);
-            setText(null);
-            if (empty || row == null) {
-                setGraphic(null);
-                return;
-            }
-
-            unbindAll();
-            container.getChildren().clear();
-
-            switch (row.type()) {
-                case REPOSITORY -> {
-                    repoNameText.textProperty().bind(row.primaryProperty());
-                    repoStatusText.textProperty().bind(row.secondaryProperty());
-                    updateStatusTag(repoStatusTag, row.secondaryProperty().get());
-                    container.getChildren().addAll(repoNameText, repoStatusTag);
-                }
-                case HEAD -> {
-                    headBranchText.textProperty().bind(row.primaryProperty());
-                    headUpstreamText.textProperty().bind(row.secondaryProperty());
-                    container.getChildren().addAll(headBranchText, headUpstreamTag);
-                }
-                case UPSTREAM -> {
-                    upstreamBehindText.textProperty().bind(row.primaryProperty());
-                    upstreamAheadText.textProperty().bind(row.secondaryProperty());
-                    upstreamFetchText.textProperty().bind(row.tertiaryProperty());
-                    container.getChildren().addAll(upstreamBehindTag, upstreamAheadTag, upstreamFetchTag);
-                }
-                case REMOTE -> {
-                    remoteNameText.textProperty().bind(row.primaryProperty());
-                    remoteUrlText.textProperty().bind(row.secondaryProperty());
-                    container.getChildren().addAll(remoteNameText, remoteSeparatorText, remoteUrlText);
-                }
-            }
-
-            setGraphic(container);
-        }
-
-        private void unbindAll() {
-            repoNameText.textProperty().unbind();
-            repoStatusText.textProperty().unbind();
-            headBranchText.textProperty().unbind();
-            headUpstreamText.textProperty().unbind();
-            upstreamBehindText.textProperty().unbind();
-            upstreamAheadText.textProperty().unbind();
-            upstreamFetchText.textProperty().unbind();
-            remoteNameText.textProperty().unbind();
-            remoteUrlText.textProperty().unbind();
-        }
-
-        private static HBox createTag(String... styleClasses) {
-            var tag = new HBox(4);
-            tag.getStyleClass().addAll(styleClasses);
-            return tag;
-        }
-
-        private static Text createDot(String... extraClasses) {
-            var dot = new Text("•");
-            dot.getStyleClass().add("git-overview-dot");
-            dot.getStyleClass().addAll(extraClasses);
-            return dot;
-        }
-
-        private static void updateStatusTag(HBox tag, String status) {
-            tag.getStyleClass().removeAll("git-overview-tag-warn", "git-overview-tag-good");
-            if ("Dirty".equalsIgnoreCase(status)) {
-                tag.getStyleClass().add("git-overview-tag-warn");
-            } else {
-                tag.getStyleClass().add("git-overview-tag-good");
-            }
-        }
-    }
-
-    private static class InfoRowLabelTableCell extends TableCell<InfoRow, String> {
-        private final TextFlow labelFlow = new TextFlow();
-
-        private InfoRowLabelTableCell() {
-            labelFlow.getStyleClass().add("git-overview-table-label");
-            setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
-        }
-
-        @Override
-        protected void updateItem(String labelKey, boolean empty) {
-            super.updateItem(labelKey, empty);
-            setText(null);
-            if (empty || labelKey == null) {
-                setGraphic(null);
-                return;
-            }
-
-            labelFlow.getChildren().setAll(new LocalizedText(labelKey));
-            setGraphic(labelFlow);
-        }
-    }
-
-    private static class ChangeChip extends RRVBox {
+    private static class ChangeChip extends RRHBox {
         private final Text countText = new Text();
 
         private ChangeChip(String label) {
+            super(4);
             getStyleClass().add("git-overview-change-chip");
             var labelText = new Text(label);
             countText.getStyleClass().add("git-overview-change-number");

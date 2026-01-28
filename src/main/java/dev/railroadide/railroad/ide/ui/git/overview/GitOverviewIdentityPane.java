@@ -1,6 +1,6 @@
 package dev.railroadide.railroad.ide.ui.git.overview;
 
-import dev.railroadide.core.ui.RRTableView;
+import dev.railroadide.core.ui.RRGridPane;
 import dev.railroadide.core.ui.RRVBox;
 import dev.railroadide.core.ui.localized.LocalizedText;
 import dev.railroadide.railroad.project.Project;
@@ -8,98 +8,115 @@ import dev.railroadide.railroad.vcs.git.GitIdentity;
 import dev.railroadide.railroad.vcs.git.GitManager;
 import dev.railroadide.railroad.vcs.git.SigningStatus;
 import javafx.application.Platform;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
-import javafx.scene.control.ContentDisplay;
-import javafx.scene.control.TableCell;
-import javafx.scene.control.TableColumn;
-import javafx.scene.control.TableView;
+import javafx.geometry.Insets;
+import javafx.geometry.VPos;
+import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
-import javafx.beans.binding.Bindings;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
 
 public class GitOverviewIdentityPane extends RRVBox {
-    private final RRTableView<InfoRow> identityTable = new RRTableView<>();
-    private final InfoRow userNameRow = new InfoRow("railroad.git.overview.identity.user.label");
-    private final InfoRow userEmailRow = new InfoRow("railroad.git.overview.identity.email.label");
-    private final InfoRow signedRow = new InfoRow("railroad.git.overview.identity.signing.label");
-    private final InfoRow gitVersionRow = new InfoRow("railroad.git.overview.identity.git_version.label");
+    private final GridPane identityGrid = new RRGridPane();
+    private final Text userNameText = new Text();
+    private final Text userEmailText = new Text();
+    private final Text signedText = new Text();
+    private final Text gitVersionText = new Text();
 
     public GitOverviewIdentityPane(Project project) {
         getStyleClass().add("git-overview-identity-pane");
 
-        configureTable();
-        VBox.setVgrow(identityTable, Priority.ALWAYS);
-        getChildren().add(identityTable);
+        configureGrid();
+        VBox.setVgrow(identityGrid, Priority.ALWAYS);
+        getChildren().add(identityGrid);
 
         GitManager gitManager = project.getGitManager();
         updateIdentityInfo(gitManager);
         listenForUpdates(gitManager);
     }
 
-    private void configureTable() {
-        identityTable.getStyleClass().addAll("git-overview-identity-table", "no-header");
-        identityTable.setEditable(false);
-        identityTable.setFocusTraversable(false);
-        identityTable.setSelectionModel(null);
-        identityTable.setPrefWidth(Double.MAX_VALUE);
-        identityTable.setMaxWidth(Double.MAX_VALUE);
-        identityTable.setFixedCellSize(28);
-        identityTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+    private void configureGrid() {
+        identityGrid.getStyleClass().add("git-overview-identity-grid");
+        identityGrid.setHgap(12);
+        identityGrid.setVgap(0); // Set vgap to 0 because separators will provide vertical spacing
 
-        var labelColumn = new TableColumn<InfoRow, String>();
-        labelColumn.setSortable(false);
-        labelColumn.setReorderable(false);
-        labelColumn.setResizable(false);
-        labelColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().labelKey()));
-        labelColumn.setCellFactory(column -> new InfoRowLabelTableCell());
-        labelColumn.setMinWidth(150);
+        var col1 = new ColumnConstraints();
+        col1.setMinWidth(150);
+        col1.setHgrow(Priority.NEVER);
+        var col2 = new ColumnConstraints();
+        col2.setHgrow(Priority.ALWAYS);
+        identityGrid.getColumnConstraints().addAll(col1, col2);
 
-        var valueColumn = new TableColumn<InfoRow, String>();
-        valueColumn.setSortable(false);
-        valueColumn.setReorderable(false);
-        valueColumn.setResizable(true);
-        valueColumn.setCellValueFactory(data -> data.getValue().valueProperty());
-        valueColumn.setCellFactory(column -> new InfoRowValueTableCell());
-        valueColumn.prefWidthProperty().bind(identityTable.widthProperty().subtract(labelColumn.widthProperty()).subtract(8));
+        int row = 0;
 
-        // noinspection unchecked
-        identityTable.getColumns().addAll(labelColumn, valueColumn);
+        userNameText.getStyleClass().add("git-overview-identity-value-text");
+        userEmailText.getStyleClass().add("git-overview-identity-value-text");
+        signedText.getStyleClass().add("git-overview-identity-value-text");
+        gitVersionText.getStyleClass().add("git-overview-identity-value-text");
 
-        ObservableList<InfoRow> rows = FXCollections.observableArrayList(
-            userNameRow,
-            userEmailRow,
-            signedRow,
-            gitVersionRow
-        );
-        identityTable.setItems(rows);
-        identityTable.prefHeightProperty().bind(Bindings.size(identityTable.getItems())
-            .multiply(identityTable.fixedCellSizeProperty()).add(2));
-        identityTable.maxHeightProperty().bind(identityTable.prefHeightProperty());
+        identityGrid.add(new LocalizedText("railroad.git.overview.identity.user.label"), 0, row);
+        GridPane.setValignment(identityGrid.getChildren().get(identityGrid.getChildren().size() - 1), VPos.CENTER);
+        identityGrid.add(new TextFlow(userNameText), 1, row);
+        GridPane.setValignment(identityGrid.getChildren().get(identityGrid.getChildren().size() - 1), VPos.CENTER);
+        row++;
+        Region separator0 = new Region();
+        separator0.getStyleClass().add("git-overview-grid-row-separator");
+        separator0.setMaxWidth(Double.MAX_VALUE); // Ensure the separator stretches
+        GridPane.setMargin(separator0, new Insets(4, 0, 4, 0));
+        identityGrid.add(separator0, 0, row, 2, 1);
+        row++;
+
+        identityGrid.add(new LocalizedText("railroad.git.overview.identity.email.label"), 0, row);
+        GridPane.setValignment(identityGrid.getChildren().get(identityGrid.getChildren().size() - 1), VPos.CENTER);
+        identityGrid.add(new TextFlow(userEmailText), 1, row);
+        GridPane.setValignment(identityGrid.getChildren().get(identityGrid.getChildren().size() - 1), VPos.CENTER);
+        row++;
+        Region separator1 = new Region();
+        separator1.getStyleClass().add("git-overview-grid-row-separator");
+        separator1.setMaxWidth(Double.MAX_VALUE); // Ensure the separator stretches
+        GridPane.setMargin(separator1, new Insets(4, 0, 4, 0));
+        identityGrid.add(separator1, 0, row, 2, 1);
+        row++;
+
+        identityGrid.add(new LocalizedText("railroad.git.overview.identity.signing.label"), 0, row);
+        GridPane.setValignment(identityGrid.getChildren().get(identityGrid.getChildren().size() - 1), VPos.CENTER);
+        identityGrid.add(new TextFlow(signedText), 1, row);
+        GridPane.setValignment(identityGrid.getChildren().get(identityGrid.getChildren().size() - 1), VPos.CENTER);
+        row++;
+        Region separator2 = new Region();
+        separator2.getStyleClass().add("git-overview-grid-row-separator");
+        separator2.setMaxWidth(Double.MAX_VALUE); // Ensure the separator stretches
+        GridPane.setMargin(separator2, new Insets(4, 0, 4, 0));
+        identityGrid.add(separator2, 0, row, 2, 1);
+        row++;
+
+        identityGrid.add(new LocalizedText("railroad.git.overview.identity.git_version.label"), 0, row);
+        GridPane.setValignment(identityGrid.getChildren().get(identityGrid.getChildren().size() - 1), VPos.CENTER);
+        identityGrid.add(new TextFlow(gitVersionText), 1, row);
+        GridPane.setValignment(identityGrid.getChildren().get(identityGrid.getChildren().size() - 1), VPos.CENTER);
+        // No separator after the last row
     }
 
     private void updateIdentityInfo(GitManager gitManager) {
         GitIdentity identity = gitManager.getIdentity();
         Platform.runLater(() -> {
             if (identity == null) {
-                userNameRow.setValue("Not Set");
-                userEmailRow.setValue("Not Set");
-                signedRow.setValue("Not Configured");
-                gitVersionRow.setValue("Unknown");
+                userNameText.setText("Not Set");
+                userEmailText.setText("Not Set");
+                signedText.setText("Not Configured");
+                gitVersionText.setText("Unknown");
             } else {
                 String userName = identity.userName();
                 String userEmail = identity.email();
                 SigningStatus signingStatus = identity.signing();
                 String gitVersion = identity.gitVersion();
 
-                userNameRow.setValue(userName != null ? userName : "Not Set");
-                userEmailRow.setValue(userEmail != null ? userEmail : "Not Set");
-                signedRow.setValue(signingStatus != null ? signingStatus.toString() : "Not Configured");
-                gitVersionRow.setValue(gitVersion != null ? gitVersion : "Unknown");
+                userNameText.setText(userName != null ? userName : "Not Set");
+                userEmailText.setText(userEmail != null ? userEmail : "Not Set");
+                signedText.setText(signingStatus != null ? signingStatus.toString() : "Not Configured");
+                gitVersionText.setText(gitVersion != null ? gitVersion : "Unknown");
             }
         });
     }
@@ -107,73 +124,5 @@ public class GitOverviewIdentityPane extends RRVBox {
     private void listenForUpdates(GitManager gitManager) {
         gitManager.gitIdentityProperty().addListener((obs, oldIdentity, newIdentity) ->
             updateIdentityInfo(gitManager));
-    }
-
-    private static final class InfoRow {
-        private final String labelKey;
-        private final StringProperty value = new SimpleStringProperty("");
-
-        private InfoRow(String labelKey) {
-            this.labelKey = labelKey;
-        }
-
-        private String labelKey() {
-            return labelKey;
-        }
-
-        private StringProperty valueProperty() {
-            return value;
-        }
-
-        private void setValue(String value) {
-            this.value.set(value);
-        }
-    }
-
-    private static class InfoRowLabelTableCell extends TableCell<InfoRow, String> {
-        private final TextFlow labelFlow = new TextFlow();
-
-        private InfoRowLabelTableCell() {
-            labelFlow.getStyleClass().add("git-overview-identity-label");
-            setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
-        }
-
-        @Override
-        protected void updateItem(String labelKey, boolean empty) {
-            super.updateItem(labelKey, empty);
-            setText(null);
-            if (empty || labelKey == null) {
-                setGraphic(null);
-                return;
-            }
-
-            labelFlow.getChildren().setAll(new LocalizedText(labelKey));
-            setGraphic(labelFlow);
-        }
-    }
-
-    private static class InfoRowValueTableCell extends TableCell<InfoRow, String> {
-        private final Text valueText = new Text();
-        private final TextFlow valueFlow = new TextFlow(valueText);
-
-        private InfoRowValueTableCell() {
-            valueText.getStyleClass().add("git-overview-identity-value-text");
-            valueFlow.getStyleClass().add("git-overview-identity-value");
-            valueFlow.prefWidthProperty().bind(widthProperty());
-            setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
-        }
-
-        @Override
-        protected void updateItem(String value, boolean empty) {
-            super.updateItem(value, empty);
-            setText(null);
-            if (empty) {
-                setGraphic(null);
-                return;
-            }
-
-            valueText.setText(value == null ? "" : value);
-            setGraphic(valueFlow);
-        }
     }
 }
