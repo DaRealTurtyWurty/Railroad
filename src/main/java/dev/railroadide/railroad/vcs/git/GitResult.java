@@ -17,4 +17,8 @@ public record GitResult(int exitCode, List<String> stdout, List<String> stderr, 
 
         return stderr.getFirst();
     }
+
+    public String readAllStdout() {
+        return String.join("\n", stdout);
+    }
 }

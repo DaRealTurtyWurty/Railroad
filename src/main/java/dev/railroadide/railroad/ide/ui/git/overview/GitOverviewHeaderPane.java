@@ -115,8 +115,10 @@ public class GitOverviewHeaderPane extends RRVBox {
         infoGrid.setVgap(0); // Set vgap to 0 because separators will provide vertical spacing
 
         var col1 = new ColumnConstraints();
-        col1.setMinWidth(150);
         col1.setHgrow(Priority.NEVER);
+        col1.setPrefWidth(Region.USE_COMPUTED_SIZE);
+        col1.setMinWidth(Region.USE_PREF_SIZE);
+        col1.setMaxWidth(Region.USE_PREF_SIZE);
         var col2 = new ColumnConstraints();
         col2.setHgrow(Priority.ALWAYS);
         infoGrid.getColumnConstraints().addAll(col1, col2);
@@ -197,6 +199,23 @@ public class GitOverviewHeaderPane extends RRVBox {
 
     private void updateHeaderInfo(GitManager gitManager) {
         RepoStatus status = gitManager.getRepoStatus();
+        if (status == null) {
+            repoNameText.setText("Unknown");
+            repoStatusText.setText("Unknown");
+            updateStatusTag(repoStatusTag, "Unknown");
+            headBranchText.setText("Unknown");
+            headUpstreamText.setText("None");
+            upstreamBehindText.setText("0");
+            upstreamAheadText.setText("0");
+            upstreamFetchText.setText("Never");
+            remoteNameText.setText("None");
+            remoteUrlText.setText("N/A");
+            stagedChip.setCount(0);
+            unstagedChip.setCount(0);
+            untrackedChip.setCount(0);
+            conflictedChip.setCount(0);
+            return;
+        }
         List<FileChange> changes = status.changes();
         boolean dirty = !changes.isEmpty();
 
@@ -239,6 +258,12 @@ public class GitOverviewHeaderPane extends RRVBox {
 
     private void updateUpstreamRow(GitManager gitManager) {
         var status = gitManager.getRepoStatus();
+        if (status == null) {
+            upstreamBehindText.setText("0");
+            upstreamAheadText.setText("0");
+            upstreamFetchText.setText("Never");
+            return;
+        }
         upstreamBehindText.setText(Long.toString(status.behind()));
         upstreamAheadText.setText(Long.toString(status.ahead()));
         upstreamFetchText.setText(StringUtils.formatElapsed(gitManager.getLastFetchTimestamp()));

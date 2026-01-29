@@ -232,4 +232,10 @@ public final class StringUtils {
 
         return capitalized.toString().trim();
     }
+
+    public static String formatDateTime(long millis) {
+        Instant instant = Instant.ofEpochMilli(millis);
+        ZonedDateTime zdt = instant.atZone(ZoneId.systemDefault());
+        return zdt.toLocalDateTime().toString().replace('T', ' ');
+    }
 }

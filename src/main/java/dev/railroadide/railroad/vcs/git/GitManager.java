@@ -8,10 +8,7 @@ import javafx.beans.property.*;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 public class GitManager {
     private static final String SETTINGS_PATH = "vcs/git.json";
@@ -271,5 +268,16 @@ public class GitManager {
                 Railroad.LOGGER.warn("Failed to load Git identity", exception);
             }
         });
+    }
+
+    public CompletableFuture<Optional<CommitPage>> getRecentCommits(int count) {
+        return CompletableFuture.supplyAsync(() -> {
+            GitRepository repository = this.gitRepository.get();
+            if (repository != null) {
+                return Optional.ofNullable(this.gitClient.getRecentCommits(repository, null, count));
+            } else {
+                return Optional.empty();
+            }
+        }, executorService);
     }
 }

@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.vcs.git;
 
 import dev.railroadide.railroad.Railroad;
+import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -325,5 +326,21 @@ public class GitClient {
         String gitVersion = getGitVersion();
 
         return new GitIdentity(userName, userEmail, signingStatus, gitVersion);
+    }
+
+    public CommitPage getRecentCommits(GitRepository repo, @Nullable String cursor, int limit) {
+        GitCommand cmd = GitCommands.getRecentCommits(repo, cursor, limit);
+        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_WHOLE);
+
+        if (result.timedOut())
+            throw new GitExecutionException("git log timed out");
+
+        if (result.cancelled())
+            throw new GitExecutionException("git log was cancelled");
+
+        if (result.exitCode() != 0)
+            throw new GitExecutionException("git log failed: " + String.join("\n", result.stderr()));
+
+        return GitCommitParser.parseCommits(result.readAllStdout(), limit);
     }
 }
