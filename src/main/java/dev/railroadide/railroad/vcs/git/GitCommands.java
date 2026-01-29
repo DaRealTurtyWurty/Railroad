@@ -1,5 +1,7 @@
 package dev.railroadide.railroad.vcs.git;
 
+import org.jetbrains.annotations.Nullable;
+
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -171,5 +173,24 @@ public final class GitCommands {
             .timeout(5, TimeUnit.SECONDS)
             .addArgs("--version")
             .build();
+    }
+
+    public static GitCommand getRecentCommits(GitRepository repo, @Nullable String cursor, int limit) {
+        GitCommand.Builder builder = GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(10, TimeUnit.SECONDS)
+            .addArgs(
+                "--no-pager",
+                "log",
+                "--first-parent",
+                "-n", String.valueOf(limit),
+                "--date=unix",
+                "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ae%x00%at%x00%P%x1e");
+
+        if (cursor != null && !cursor.isBlank()) {
+            builder.addArgs(cursor + "^");
+        }
+
+        return builder.build();
     }
 }

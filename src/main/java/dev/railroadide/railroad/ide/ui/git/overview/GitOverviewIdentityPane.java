@@ -43,8 +43,10 @@ public class GitOverviewIdentityPane extends RRVBox {
         identityGrid.setVgap(0); // Set vgap to 0 because separators will provide vertical spacing
 
         var col1 = new ColumnConstraints();
-        col1.setMinWidth(150);
         col1.setHgrow(Priority.NEVER);
+        col1.setPrefWidth(Region.USE_COMPUTED_SIZE);
+        col1.setMinWidth(Region.USE_PREF_SIZE);
+        col1.setMaxWidth(Region.USE_PREF_SIZE);
         var col2 = new ColumnConstraints();
         col2.setHgrow(Priority.ALWAYS);
         identityGrid.getColumnConstraints().addAll(col1, col2);
