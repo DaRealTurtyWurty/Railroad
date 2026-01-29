@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.execution;
 
 public class GitExecutionException extends RuntimeException {
     public GitExecutionException(String message) {

@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.execution.progress;
 
 import java.util.Optional;
 import java.util.regex.Matcher;

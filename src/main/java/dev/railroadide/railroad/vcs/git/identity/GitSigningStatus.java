@@ -1,15 +1,15 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.identity;
 
 import org.jspecify.annotations.NonNull;
 
 import java.util.StringJoiner;
 
-public record SigningStatus(
+public record GitSigningStatus(
     boolean enabled,
     Format format,
     String signingKey
 ) {
-    public static SigningStatus fromGitConfigValues(String gpgSignSetting, String gpgFormatSetting, String userSigningKey, String gpgProgram) {
+    public static GitSigningStatus fromGitConfigValues(String gpgSignSetting, String gpgFormatSetting, String userSigningKey, String gpgProgram) {
         boolean enabled = "true".equalsIgnoreCase(gpgSignSetting) || "always".equalsIgnoreCase(gpgSignSetting);
         Format format;
         if ("openpgp".equalsIgnoreCase(gpgFormatSetting)) {
@@ -22,7 +22,7 @@ public record SigningStatus(
 
         String signingKey = (userSigningKey != null && !userSigningKey.isBlank()) ? userSigningKey : null;
 
-        return new SigningStatus(enabled, format, signingKey);
+        return new GitSigningStatus(enabled, format, signingKey);
     }
 
     public enum Format {

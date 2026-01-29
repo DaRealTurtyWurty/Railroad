@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.execution;
 
 public interface GitOutputListener {
     GitOutputListener NO_OP = new GitOutputListener() {

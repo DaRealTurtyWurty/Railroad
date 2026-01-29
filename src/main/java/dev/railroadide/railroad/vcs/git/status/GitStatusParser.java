@@ -1,5 +1,6 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.status;
 
+import dev.railroadide.railroad.vcs.git.util.GitRepository;
 import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
@@ -16,17 +17,17 @@ public final class GitStatusParser {
         "\\[.*?(?:ahead\\s+(\\d+))?.*?\\s*(?:behind\\s+(\\d+))?.*?\\]"
     );
 
-    public static RepoStatus parsePorcelainV1Z(GitRepository repo, List<String> records) {
+    public static GitRepoStatus parsePorcelainV1Z(GitRepository repo, List<String> records) {
         if (records == null || records.isEmpty())
-            return new RepoStatus("(unknown)", 0, 0, Collections.emptyList());
+            return new GitRepoStatus("(unknown)", 0, 0, Collections.emptyList());
 
         BranchInfo branchInfo = parseBranchHeader(records.getFirst());
-        List<FileChange> changes = new ArrayList<>();
+        List<GitFileChange> changes = new ArrayList<>();
 
         int index = 1;
         while (index < records.size()) {
             String record = records.get(index);
-            FileChange change = GitFileChangeParser.parsePorcelainV1ZRecord(repo, record,
+            GitFileChange change = GitFileChangeParser.parsePorcelainV1ZRecord(repo, record,
                 (index + 1) < records.size() ? records.get(index + 1) : null);
             if (change != null) {
                 changes.add(change);
@@ -38,7 +39,7 @@ public final class GitStatusParser {
             index++;
         }
 
-        return new RepoStatus(
+        return new GitRepoStatus(
             branchInfo.branch,
             branchInfo.ahead,
             branchInfo.behind,

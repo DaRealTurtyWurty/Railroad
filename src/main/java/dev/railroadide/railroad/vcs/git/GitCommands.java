@@ -1,5 +1,8 @@
 package dev.railroadide.railroad.vcs.git;
 
+import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
+import dev.railroadide.railroad.vcs.git.status.GitFileChange;
+import dev.railroadide.railroad.vcs.git.util.GitRepository;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
@@ -72,10 +75,10 @@ public final class GitCommands {
             builder.addArgs("--signoff");
         }
 
-        List<FileChange> fileChanges = commit.selectedChanges();
+        List<GitFileChange> fileChanges = commit.selectedChanges();
         if (!fileChanges.isEmpty()) {
             builder.addArgs("--");
-            for (FileChange change : fileChanges) {
+            for (GitFileChange change : fileChanges) {
                 if (change == null || change.path() == null)
                     continue;
 

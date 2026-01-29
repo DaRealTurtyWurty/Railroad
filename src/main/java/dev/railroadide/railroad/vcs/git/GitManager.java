@@ -3,6 +3,16 @@ package dev.railroadide.railroad.vcs.git;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.project.data.ProjectDataStore;
+import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
+import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
+import dev.railroadide.railroad.vcs.git.identity.GitIdentity;
+import dev.railroadide.railroad.vcs.git.execution.GitOutputListener;
+import dev.railroadide.railroad.vcs.git.execution.progress.GitProgressEvent;
+import dev.railroadide.railroad.vcs.git.remote.GitRemote;
+import dev.railroadide.railroad.vcs.git.remote.GitUpstream;
+import dev.railroadide.railroad.vcs.git.status.GitRepoStatus;
+import dev.railroadide.railroad.vcs.git.util.GitRepository;
+import dev.railroadide.railroad.vcs.git.util.GitSettings;
 import javafx.beans.property.*;
 
 import java.nio.file.Path;
@@ -19,7 +29,7 @@ public class GitManager {
 
     private final ScheduledExecutorService executorService;
 
-    private final ObjectProperty<RepoStatus> repoStatus = new SimpleObjectProperty<>();
+    private final ObjectProperty<GitRepoStatus> repoStatus = new SimpleObjectProperty<>();
     private final BooleanProperty active = new SimpleBooleanProperty(false);
     private final ObjectProperty<GitRepository> gitRepository = new SimpleObjectProperty<>();
     private final LongProperty lastFetchTimestamp = new SimpleLongProperty(0L);
@@ -87,7 +97,7 @@ public class GitManager {
         }
     }
 
-    public ObjectProperty<RepoStatus> repoStatusProperty() {
+    public ObjectProperty<GitRepoStatus> repoStatusProperty() {
         return repoStatus;
     }
 
@@ -99,7 +109,7 @@ public class GitManager {
         return gitRepository;
     }
 
-    public RepoStatus getRepoStatus() {
+    public GitRepoStatus getRepoStatus() {
         return repoStatus.get();
     }
 
@@ -191,7 +201,7 @@ public class GitManager {
     private void refreshStatusInternal() {
         GitRepository repository = this.gitRepository.get();
         if (repository != null) {
-            RepoStatus status = this.gitClient.getStatus(repository);
+            GitRepoStatus status = this.gitClient.getStatus(repository);
             this.repoStatus.set(status);
 //            Railroad.LOGGER.debug("Loaded {} changes from Git repository at {}",
 //                status.changes().size(),
@@ -271,7 +281,7 @@ public class GitManager {
         });
     }
 
-    public CompletableFuture<Optional<CommitPage>> getRecentCommits(int count) {
+    public CompletableFuture<Optional<GitCommitPage>> getRecentCommits(int count) {
         return CompletableFuture.supplyAsync(() -> {
             GitRepository repository = this.gitRepository.get();
             if (repository != null) {

@@ -2,7 +2,7 @@ package dev.railroadide.railroad.ide.ui.git.commit.changes;
 
 import dev.railroadide.railroad.localization.L18n;
 import dev.railroadide.railroad.project.Project;
-import dev.railroadide.railroad.vcs.git.FileChange;
+import dev.railroadide.railroad.vcs.git.status.GitFileChange;
 import javafx.event.ActionEvent;
 import javafx.scene.Node;
 import javafx.scene.control.ContextMenu;
@@ -14,9 +14,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Consumer;
 
-public record DirectoryItem(Project project, Path path, List<FileChange> changes,
+public record DirectoryItem(Project project, Path path, List<GitFileChange> changes,
                             String displayTitle) implements ChangeItem {
-    public DirectoryItem(Project project, Path path, List<FileChange> changes) {
+    public DirectoryItem(Project project, Path path, List<GitFileChange> changes) {
         this(project, path, changes, path.getFileName().toString());
     }
 

@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.util;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

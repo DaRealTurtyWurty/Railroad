@@ -1,5 +1,7 @@
 package dev.railroadide.railroad.vcs.git;
 
+import dev.railroadide.railroad.vcs.git.util.GitRepository;
+
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.TimeUnit;

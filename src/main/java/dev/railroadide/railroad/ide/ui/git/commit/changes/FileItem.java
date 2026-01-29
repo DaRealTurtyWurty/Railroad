@@ -1,7 +1,7 @@
 package dev.railroadide.railroad.ide.ui.git.commit.changes;
 
 import dev.railroadide.railroad.project.Project;
-import dev.railroadide.railroad.vcs.git.FileChange;
+import dev.railroadide.railroad.vcs.git.status.GitFileChange;
 import javafx.event.ActionEvent;
 import javafx.scene.Node;
 import javafx.scene.control.ContextMenu;
@@ -12,7 +12,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
 import java.util.StringJoiner;
 import java.util.function.Consumer;
 
-public record FileItem(Project project, FileChange change) implements ChangeItem {
+public record FileItem(Project project, GitFileChange change) implements ChangeItem {
     @Override
     public Node getIcon() {
         // TODO: Replace with some icon manager lookup

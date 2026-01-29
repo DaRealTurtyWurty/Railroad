@@ -1,6 +1,23 @@
 package dev.railroadide.railroad.vcs.git;
 
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
+import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
+import dev.railroadide.railroad.vcs.git.commit.GitCommitParser;
+import dev.railroadide.railroad.vcs.git.execution.GitExecutionException;
+import dev.railroadide.railroad.vcs.git.execution.GitProcessRunner;
+import dev.railroadide.railroad.vcs.git.execution.GitResult;
+import dev.railroadide.railroad.vcs.git.identity.GitIdentity;
+import dev.railroadide.railroad.vcs.git.identity.GitSigningStatus;
+import dev.railroadide.railroad.vcs.git.execution.GitOutputListener;
+import dev.railroadide.railroad.vcs.git.execution.progress.GitProgressEvent;
+import dev.railroadide.railroad.vcs.git.execution.progress.GitResultCaptureMode;
+import dev.railroadide.railroad.vcs.git.remote.GitRemote;
+import dev.railroadide.railroad.vcs.git.remote.GitRemoteParser;
+import dev.railroadide.railroad.vcs.git.remote.GitUpstream;
+import dev.railroadide.railroad.vcs.git.status.GitStatusParser;
+import dev.railroadide.railroad.vcs.git.status.GitRepoStatus;
+import dev.railroadide.railroad.vcs.git.util.GitRepository;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
@@ -17,9 +34,9 @@ public class GitClient {
         this.runner = runner;
     }
 
-    public RepoStatus getStatus(GitRepository repo) {
+    public GitRepoStatus getStatus(GitRepository repo) {
         GitCommand cmd = GitCommands.statusPorcelainV1Z(repo);
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.NULL_RECORDS);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.NULL_RECORDS);
 
         if (result.timedOut())
             throw new GitExecutionException("git status timed out");
@@ -35,7 +52,7 @@ public class GitClient {
 
     public Optional<GitRepository> detectRepository(Path path) {
         GitCommand isInsideCmd = GitCommands.revParseIsInsideWorkTree(path);
-        GitResult isInsideResult = runner.run(isInsideCmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult isInsideResult = runner.run(isInsideCmd, null, null, GitResultCaptureMode.TEXT_LINES);
         if (isInsideResult.timedOut()) {
             Railroad.LOGGER.warn("git {} timed out for path: {}", isInsideCmd.argsString(), path);
             return Optional.empty();
@@ -50,7 +67,7 @@ public class GitClient {
             return Optional.empty();
 
         GitCommand topLevelCmd = GitCommands.revParseShowTopLevel(path);
-        GitResult topLevelResult = runner.run(topLevelCmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult topLevelResult = runner.run(topLevelCmd, null, null, GitResultCaptureMode.TEXT_LINES);
         if (topLevelResult.timedOut()) {
             Railroad.LOGGER.warn("git {} timed out for path: {}", topLevelCmd.argsString(), path);
             return Optional.empty();
@@ -76,7 +93,7 @@ public class GitClient {
 
     public void commitChanges(GitRepository repo, GitCommitData commit, boolean pushAfterCommit) {
         GitCommand commitCmd = GitCommands.commit(repo, commit);
-        GitResult commitResult = runner.run(commitCmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult commitResult = runner.run(commitCmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (commitResult.timedOut())
             throw new GitExecutionException("git commit timed out");
@@ -101,7 +118,7 @@ public class GitClient {
 
     public List<GitRemote> getRemotes(GitRepository repo) {
         GitCommand cmd = GitCommands.remoteGetUrls(repo);
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git remote timed out");
@@ -117,7 +134,7 @@ public class GitClient {
 
     public Optional<GitUpstream> getUpstream(GitRepository repo) {
         GitCommand cmd = GitCommands.getUpstream(repo);
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git rev-parse timed out");
@@ -150,7 +167,7 @@ public class GitClient {
         GitCommand cmd = GitCommands.fetch(repo);
 
         GitOutputListener listener = GitListeners.withProgress(rawListener, progressListener, "Fetch");
-        GitResult result = runner.run(cmd, listener, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, listener, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git fetch timed out");
@@ -166,7 +183,7 @@ public class GitClient {
         GitCommand cmd = GitCommands.push(repo);
 
         GitOutputListener listener = GitListeners.withProgress(outputListener, progressListener, "Push");
-        GitResult result = runner.run(cmd, listener, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, listener, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git push timed out");
@@ -182,7 +199,7 @@ public class GitClient {
         GitCommand cmd = GitCommands.pull(repo);
 
         GitOutputListener listener = GitListeners.withProgress(outputListener, progressListener, "Pull");
-        GitResult result = runner.run(cmd, listener, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, listener, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git pull timed out");
@@ -196,7 +213,7 @@ public class GitClient {
 
     public String getUserName() {
         GitCommand cmd = GitCommands.getUserName();
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git config user.name timed out");
@@ -213,7 +230,7 @@ public class GitClient {
 
     public String getUserEmail() {
         GitCommand cmd = GitCommands.getUserEmail();
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git config user.email timed out");
@@ -230,7 +247,7 @@ public class GitClient {
 
     public String getCommitGpgSignSetting() {
         GitCommand cmd = GitCommands.getCommitGpgSign();
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git config commit.gpgSign timed out");
@@ -247,7 +264,7 @@ public class GitClient {
 
     public String getGpgFormatSetting() {
         GitCommand cmd = GitCommands.getGpgFormat();
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git config gpg.format timed out");
@@ -264,7 +281,7 @@ public class GitClient {
 
     public String getUserSigningKey() {
         GitCommand cmd = GitCommands.getUserSigningKey();
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git config user.signingkey timed out");
@@ -281,7 +298,7 @@ public class GitClient {
 
     public String getGpgProgramSetting() {
         GitCommand cmd = GitCommands.getGpgProgram();
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git config gpg.program timed out");
@@ -298,7 +315,7 @@ public class GitClient {
 
     public String getGitVersion() {
         GitCommand cmd = GitCommands.getGitVersion();
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_LINES);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
 
         if (result.timedOut())
             throw new GitExecutionException("git --version timed out");
@@ -321,16 +338,16 @@ public class GitClient {
         String userSigningKey = getUserSigningKey();
         String gpgProgram = getGpgProgramSetting();
 
-        SigningStatus signingStatus = SigningStatus.fromGitConfigValues(gpgSignSetting, gpgFormatSetting, userSigningKey, gpgProgram);
+        GitSigningStatus signingStatus = GitSigningStatus.fromGitConfigValues(gpgSignSetting, gpgFormatSetting, userSigningKey, gpgProgram);
 
         String gitVersion = getGitVersion();
 
         return new GitIdentity(userName, userEmail, signingStatus, gitVersion);
     }
 
-    public CommitPage getRecentCommits(GitRepository repo, @Nullable String cursor, int limit) {
+    public GitCommitPage getRecentCommits(GitRepository repo, @Nullable String cursor, int limit) {
         GitCommand cmd = GitCommands.getRecentCommits(repo, cursor, limit);
-        GitResult result = runner.run(cmd, null, null, ResultCaptureMode.TEXT_WHOLE);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_WHOLE);
 
         if (result.timedOut())
             throw new GitExecutionException("git log timed out");

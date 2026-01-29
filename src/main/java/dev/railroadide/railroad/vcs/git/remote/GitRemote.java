@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.remote;
 
 public record GitRemote(String name, String fetchUrl, String pushUrl, Protocol protocol) {
     public enum Protocol {

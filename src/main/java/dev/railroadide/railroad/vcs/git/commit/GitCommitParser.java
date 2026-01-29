@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.commit;
 
 import dev.railroadide.railroad.Railroad;
 import org.jspecify.annotations.NonNull;
@@ -11,9 +11,9 @@ public final class GitCommitParser {
     private GitCommitParser() {
     }
 
-    public static CommitPage parseCommits(String content, int limit) {
+    public static GitCommitPage parseCommits(String content, int limit) {
         if (content == null || content.isBlank())
-            return new CommitPage(Collections.emptyList(), null);
+            return new GitCommitPage(Collections.emptyList(), null);
 
         content = content.trim();
         String[] commits = content.split("\u001E");
@@ -36,7 +36,7 @@ public final class GitCommitParser {
         }
 
         String nextCursor = (commitList.size() == limit) ? commitList.getLast().hash() : null;
-        return new CommitPage(commitList, nextCursor);
+        return new GitCommitPage(commitList, nextCursor);
     }
 
     private static @NonNull GitCommit parseCommit(String[] fields) {

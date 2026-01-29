@@ -20,7 +20,7 @@ import dev.railroadide.railroad.settings.Settings;
 import dev.railroadide.railroad.utility.StringUtils;
 import dev.railroadide.railroad.vcs.git.GitClient;
 import dev.railroadide.railroad.vcs.git.GitManager;
-import dev.railroadide.railroad.vcs.git.GitProcessRunner;
+import dev.railroadide.railroad.vcs.git.execution.GitProcessRunner;
 import dev.railroadide.railroadpluginapi.events.ProjectAliasChangedEvent;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
