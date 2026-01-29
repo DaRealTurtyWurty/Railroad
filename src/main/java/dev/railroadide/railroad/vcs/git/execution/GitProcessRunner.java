@@ -1,5 +1,8 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.execution;
 
+import dev.railroadide.railroad.vcs.git.GitCommand;
+import dev.railroadide.railroad.vcs.git.execution.progress.GitCancellationToken;
+import dev.railroadide.railroad.vcs.git.execution.progress.GitResultCaptureMode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -28,7 +31,7 @@ public class GitProcessRunner {
         this.gitExecutable = gitExecutable;
     }
 
-    public GitResult run(GitCommand command, GitOutputListener listener, GitCancellationToken token, ResultCaptureMode captureMode) throws GitExecutionException {
+    public GitResult run(GitCommand command, GitOutputListener listener, GitCancellationToken token, GitResultCaptureMode captureMode) throws GitExecutionException {
         List<String> stdoutChunks = Collections.synchronizedList(new ArrayList<>());
         List<String> stderrChunks = Collections.synchronizedList(new ArrayList<>());
 
@@ -57,7 +60,7 @@ public class GitProcessRunner {
             Consumer<String> stdoutSink = line -> {
                 stdoutChunks.add(line);
                 if (listener != null && command.streamStdoutToListener()) {
-                    if (captureMode == ResultCaptureMode.NULL_RECORDS) {
+                    if (captureMode == GitResultCaptureMode.NULL_RECORDS) {
                         listener.onStdoutRecord(line);
                     } else {
                         listener.onStdout(line);
@@ -70,7 +73,7 @@ public class GitProcessRunner {
             );
 
             Future<?> stderrTask = ioPool.submit(() ->
-                readOutput(process.getErrorStream(), ResultCaptureMode.TEXT_LINES, line -> {
+                readOutput(process.getErrorStream(), GitResultCaptureMode.TEXT_LINES, line -> {
                     stderrChunks.add(line);
                     if (listener != null) {
                         listener.onStderr(line);
@@ -154,13 +157,13 @@ public class GitProcessRunner {
         }
     }
 
-    private static void readOutput(InputStream input, ResultCaptureMode captureMode, Consumer<String> onLine) {
-        if (captureMode == ResultCaptureMode.NULL_RECORDS) {
+    private static void readOutput(InputStream input, GitResultCaptureMode captureMode, Consumer<String> onLine) {
+        if (captureMode == GitResultCaptureMode.NULL_RECORDS) {
             readNullRecords(input, onLine);
             return;
         }
 
-        if (captureMode == ResultCaptureMode.TEXT_WHOLE) {
+        if (captureMode == GitResultCaptureMode.TEXT_WHOLE) {
             readWholeText(input, onLine);
             return;
         }

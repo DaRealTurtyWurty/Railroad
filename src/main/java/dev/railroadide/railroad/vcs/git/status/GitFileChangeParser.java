@@ -1,4 +1,6 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.status;
+
+import dev.railroadide.railroad.vcs.git.util.GitRepository;
 
 import java.nio.file.Path;
 
@@ -6,7 +8,7 @@ public final class GitFileChangeParser {
     private GitFileChangeParser() {
     }
 
-    public static FileChange parsePorcelainV1ZRecord(GitRepository repo, String record, String nextRecord) {
+    public static GitFileChange parsePorcelainV1ZRecord(GitRepository repo, String record, String nextRecord) {
         if (record == null || record.isEmpty())
             return null;
 
@@ -22,14 +24,14 @@ public final class GitFileChangeParser {
         boolean expectsSecondPath = (x == 'R' || x == 'C' || y == 'R' || y == 'C');
         Path repoRoot = repo.root();
         if (expectsSecondPath && nextRecord != null && !nextRecord.isEmpty()) {
-            return new FileChange(
+            return new GitFileChange(
                 repoRoot.resolve(nextRecord).normalize(),
                 repoRoot.resolve(filePath).normalize(),
                 x, y
             );
         }
 
-        return new FileChange(
+        return new GitFileChange(
             repoRoot.resolve(filePath).normalize(),
             x, y
         );

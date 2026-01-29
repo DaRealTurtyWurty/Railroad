@@ -4,9 +4,9 @@ import dev.railroadide.core.ui.RRGridPane;
 import dev.railroadide.core.ui.RRVBox;
 import dev.railroadide.core.ui.localized.LocalizedText;
 import dev.railroadide.railroad.project.Project;
-import dev.railroadide.railroad.vcs.git.GitIdentity;
+import dev.railroadide.railroad.vcs.git.identity.GitIdentity;
 import dev.railroadide.railroad.vcs.git.GitManager;
-import dev.railroadide.railroad.vcs.git.SigningStatus;
+import dev.railroadide.railroad.vcs.git.identity.GitSigningStatus;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.VPos;
@@ -112,7 +112,7 @@ public class GitOverviewIdentityPane extends RRVBox {
             } else {
                 String userName = identity.userName();
                 String userEmail = identity.email();
-                SigningStatus signingStatus = identity.signing();
+                GitSigningStatus signingStatus = identity.signing();
                 String gitVersion = identity.gitVersion();
 
                 userNameText.setText(userName != null ? userName : "Not Set");

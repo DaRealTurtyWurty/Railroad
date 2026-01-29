@@ -29,7 +29,7 @@ import dev.railroadide.railroad.theme.ThemeManager;
 import dev.railroadide.railroad.utility.ShutdownHooks;
 import dev.railroadide.railroad.utility.json.LocalDateTimeTypeAdapter;
 import dev.railroadide.railroad.utility.json.PathTypeAdapter;
-import dev.railroadide.railroad.vcs.git.GitUtils;
+import dev.railroadide.railroad.vcs.git.util.GitUtils;
 import dev.railroadide.railroad.vcs.RepositoryManager;
 import dev.railroadide.railroad.welcome.WelcomePane;
 import dev.railroadide.railroad.window.WindowBuilder;

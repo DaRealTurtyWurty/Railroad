@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.execution.progress;
 
 public sealed interface GitProgressEvent {
     record Message(String text) implements GitProgressEvent {}

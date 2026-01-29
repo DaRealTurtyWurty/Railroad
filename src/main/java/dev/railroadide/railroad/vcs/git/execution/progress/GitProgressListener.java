@@ -1,4 +1,6 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.execution.progress;
+
+import dev.railroadide.railroad.vcs.git.execution.GitOutputListener;
 
 import java.util.function.Consumer;
 

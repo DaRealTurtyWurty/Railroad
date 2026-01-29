@@ -2,7 +2,7 @@ package dev.railroadide.railroad.ide.ui.git.commit;
 
 import dev.railroadide.core.ui.*;
 import dev.railroadide.railroad.project.Project;
-import dev.railroadide.railroad.vcs.git.GitCommitData;
+import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
 
 public class GitCommitActionsPane extends RRVBox {
     private final Project project;

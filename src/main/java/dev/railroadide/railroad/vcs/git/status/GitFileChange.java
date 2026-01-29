@@ -1,14 +1,14 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.status;
 
 import java.nio.file.Path;
 
-public record FileChange(
+public record GitFileChange(
     Path path,
     Path oldPath,
     char indexStatus,
     char workTreeStatus
 ) {
-    public FileChange(Path path, char indexStatus, char workTreeStatus) {
+    public GitFileChange(Path path, char indexStatus, char workTreeStatus) {
         this(path, null, indexStatus, workTreeStatus);
     }
 

@@ -7,6 +7,10 @@ import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.utility.ShutdownHooks;
 import dev.railroadide.railroad.utility.StringUtils;
 import dev.railroadide.railroad.vcs.git.*;
+import dev.railroadide.railroad.vcs.git.remote.GitRemote;
+import dev.railroadide.railroad.vcs.git.remote.GitUpstream;
+import dev.railroadide.railroad.vcs.git.status.GitFileChange;
+import dev.railroadide.railroad.vcs.git.status.GitRepoStatus;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -198,7 +202,7 @@ public class GitOverviewHeaderPane extends RRVBox {
     }
 
     private void updateHeaderInfo(GitManager gitManager) {
-        RepoStatus status = gitManager.getRepoStatus();
+        GitRepoStatus status = gitManager.getRepoStatus();
         if (status == null) {
             repoNameText.setText("Unknown");
             repoStatusText.setText("Unknown");
@@ -216,7 +220,7 @@ public class GitOverviewHeaderPane extends RRVBox {
             conflictedChip.setCount(0);
             return;
         }
-        List<FileChange> changes = status.changes();
+        List<GitFileChange> changes = status.changes();
         boolean dirty = !changes.isEmpty();
 
         String repositoryName = gitManager.getGitRepository().root().getFileName().toString();
@@ -241,10 +245,10 @@ public class GitOverviewHeaderPane extends RRVBox {
         remoteNameText.setText(remoteName);
         remoteUrlText.setText(remoteUrl);
 
-        long staged = changes.stream().filter(FileChange::isStaged).count();
-        long unstaged = changes.stream().filter(FileChange::isUnstaged).count();
-        long untracked = changes.stream().filter(FileChange::isUntracked).count();
-        long conflicted = changes.stream().filter(FileChange::isConflict).count();
+        long staged = changes.stream().filter(GitFileChange::isStaged).count();
+        long unstaged = changes.stream().filter(GitFileChange::isUnstaged).count();
+        long untracked = changes.stream().filter(GitFileChange::isUntracked).count();
+        long conflicted = changes.stream().filter(GitFileChange::isConflict).count();
         stagedChip.setCount(staged);
         unstagedChip.setCount(unstaged);
         untrackedChip.setCount(untracked);

@@ -6,8 +6,8 @@ import dev.railroadide.core.ui.RRCheckBoxTreeView;
 import dev.railroadide.core.ui.localized.LocalizedText;
 import dev.railroadide.railroad.ide.ui.git.commit.changes.*;
 import dev.railroadide.railroad.project.Project;
-import dev.railroadide.railroad.vcs.git.FileChange;
-import dev.railroadide.railroad.vcs.git.GitRepository;
+import dev.railroadide.railroad.vcs.git.status.GitFileChange;
+import dev.railroadide.railroad.vcs.git.util.GitRepository;
 import javafx.application.Platform;
 import javafx.scene.control.TreeItem;
 
@@ -18,7 +18,7 @@ public class GitCommitChangesPane extends RRBorderPane {
     private final RRCheckBoxTreeView<ChangeItem> treeView = new RRCheckBoxTreeView<>();
     private final LocalizedText noChangesText = new LocalizedText("git.commit.changes.empty");
 
-    private List<FileChange> lastChanges = Collections.emptyList();
+    private List<GitFileChange> lastChanges = Collections.emptyList();
     private Path lastRepoRoot;
 
     public GitCommitChangesPane(Project project) {
@@ -29,7 +29,7 @@ public class GitCommitChangesPane extends RRBorderPane {
         treeView.setCellFactory(view -> new CommitChangeTreeCell());
 
         project.getGitManager().repoStatusProperty().addListener((observable, oldValue, newValue) -> {
-            List<FileChange> changes = newValue == null ? Collections.emptyList() : newValue.changes();
+            List<GitFileChange> changes = newValue == null ? Collections.emptyList() : newValue.changes();
             Platform.runLater(() -> setProjectChanges(project, changes));
         });
 
@@ -44,10 +44,10 @@ public class GitCommitChangesPane extends RRBorderPane {
         treeView.prefHeightProperty().bind(heightProperty());
     }
 
-    private void setProjectChanges(Project project, List<FileChange> changes) {
+    private void setProjectChanges(Project project, List<GitFileChange> changes) {
         GitRepository repository = project.getGitManager().getGitRepository();
         Path repoRoot = repository == null ? null : repository.root();
-        List<FileChange> safeChanges = changes == null ? Collections.emptyList() : List.copyOf(changes);
+        List<GitFileChange> safeChanges = changes == null ? Collections.emptyList() : List.copyOf(changes);
         if (isSameChanges(repoRoot, safeChanges))
             return;
 
@@ -62,9 +62,9 @@ public class GitCommitChangesPane extends RRBorderPane {
         var changesRoot = new CommitTreeItem(ChangesRootItem.INSTANCE);
         root.getChildren().add(changesRoot);
         Map<Path, CommitTreeItem> directories = new TreeMap<>(Comparator.comparing(Path::toString));
-        Map<Path, List<FileChange>> directoryChanges = new HashMap<>();
+        Map<Path, List<GitFileChange>> directoryChanges = new HashMap<>();
 
-        for (FileChange change : changes) {
+        for (GitFileChange change : changes) {
             Path relativePath = repository.root().relativize(change.path());
             Path parent = relativePath.getParent();
             if (parent == null) {
@@ -76,7 +76,7 @@ public class GitCommitChangesPane extends RRBorderPane {
             Path current = Path.of("");
             for (Path part : parent) {
                 current = current.resolve(part);
-                List<FileChange> changesForDir = directoryChanges.computeIfAbsent(current, ignored -> new ArrayList<>());
+                List<GitFileChange> changesForDir = directoryChanges.computeIfAbsent(current, ignored -> new ArrayList<>());
                 changesForDir.add(change);
 
                 CommitTreeItem directoryItem = directories.get(current);
@@ -120,11 +120,11 @@ public class GitCommitChangesPane extends RRBorderPane {
         }
     }
 
-    private boolean isSameChanges(Path repoRoot, List<FileChange> changes) {
+    private boolean isSameChanges(Path repoRoot, List<GitFileChange> changes) {
         return Objects.equals(lastRepoRoot, repoRoot) && Objects.equals(lastChanges, changes);
     }
 
-    public List<FileChange> getSelectedChanges() {
+    public List<GitFileChange> getSelectedChanges() {
         // TODO: Don't just get the first child, have a better way to access the changes root
         TreeItem<ChangeItem> root = treeView.getRoot().getChildren().getFirst();
         if (!(root instanceof RRCheckBoxTreeItem<ChangeItem> checkRoot))

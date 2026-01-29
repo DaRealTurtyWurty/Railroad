@@ -7,8 +7,8 @@ import dev.railroadide.core.ui.localized.LocalizedText;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.utility.ShutdownHooks;
 import dev.railroadide.railroad.utility.StringUtils;
-import dev.railroadide.railroad.vcs.git.CommitPage;
-import dev.railroadide.railroad.vcs.git.GitCommit;
+import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
+import dev.railroadide.railroad.vcs.git.commit.GitCommit;
 import dev.railroadide.railroad.vcs.git.GitManager;
 import javafx.application.Platform;
 import javafx.scene.Scene;
@@ -108,7 +108,7 @@ public class GitOverviewRecentCommitsPane extends RRListView<GitCommit> {
             return;
 
         gitManager.getRecentCommits(clamped).thenAccept(optCommits ->
-            optCommits.map(CommitPage::commits).ifPresent(commits ->
+            optCommits.map(GitCommitPage::commits).ifPresent(commits ->
                 Platform.runLater(() -> getItems().setAll(commits))));
     }
 

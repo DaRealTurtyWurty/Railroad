@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.vcs.git;
+package dev.railroadide.railroad.vcs.git.remote;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
