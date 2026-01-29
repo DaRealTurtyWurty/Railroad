@@ -51,6 +51,8 @@ public class GitOverviewRecentCommitsPane extends RRListView<GitCommit> {
         AtomicReference<ScheduledFuture<?>> future = new AtomicReference<>();
         sceneProperty().addListener((obs, oldScene, newScene) ->
             onSceneChanged(newScene, future, executor, gitManager));
+        gitManager.lastFetchTimestampProperty().addListener((observable, oldValue, newValue) ->
+            requestCommits(gitManager, Math.max(1, requestedCount.get())));
 
         ShutdownHooks.addHook(executor::shutdownNow);
     }
