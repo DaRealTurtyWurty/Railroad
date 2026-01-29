@@ -43,6 +43,7 @@ public class GitManager {
             this.active.set(true);
             startAutoRefresh();
             loadIdentity();
+            fetch();
         }, () -> {
             this.gitRepository.set(null);
             this.active.set(false);
