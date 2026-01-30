@@ -17,6 +17,7 @@ import dev.railroadide.railroad.ide.ui.IDEWelcomePane;
 import dev.railroadide.railroad.ide.ui.ImageViewerPane;
 import dev.railroadide.railroad.ide.ui.StatusBarPane;
 import dev.railroadide.railroad.ide.ui.git.commit.GitCommitPane;
+import dev.railroadide.railroad.ide.ui.git.diff.GitDiffPane;
 import dev.railroadide.railroad.ide.ui.git.overview.GitOverviewPane;
 import dev.railroadide.railroad.ide.ui.setup.IDEMenuBarFactory;
 import dev.railroadide.railroad.ide.ui.setup.PaneIconBarFactory;
@@ -75,6 +76,7 @@ public class IDESetup {
 
         var editorPane = new DetachableTabPane();
         editorPane.addTab("Welcome", new IDEWelcomePane());
+        editorPane.addTab("Git Diff", new GitDiffPane());
 
         var consolePane = new DetachableTabPane();
         consolePane.addTab("Console", new ConsolePane());
@@ -108,7 +110,7 @@ public class IDESetup {
             Map.of("Project", FontAwesomeSolid.FOLDER.getDescription(),
                 "Git Commit", FontAwesomeSolid.CODE_BRANCH.getDescription(),
                 "Git Overview", FontAwesomeSolid.HOME.getDescription()
-        )));
+            )));
 
         var bottomBar = new RRVBox();
         var bottomIcons = PaneIconBarFactory.create(
@@ -288,5 +290,4 @@ public class IDESetup {
 
         return Optional.empty();
     }
-
 }

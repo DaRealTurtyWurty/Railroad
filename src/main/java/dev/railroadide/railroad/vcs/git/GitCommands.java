@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.vcs.git;
 
 import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
+import dev.railroadide.railroad.vcs.git.diff.GitDiffMode;
 import dev.railroadide.railroad.vcs.git.status.GitFileChange;
 import dev.railroadide.railroad.vcs.git.util.GitRepository;
 import org.jetbrains.annotations.Nullable;
@@ -193,6 +194,34 @@ public final class GitCommands {
         if (cursor != null && !cursor.isBlank()) {
             builder.addArgs(cursor + "^");
         }
+
+        return builder.build();
+    }
+
+    public static GitCommand getUnstagedDiff(GitRepository repo, Path filePath, int contextLines) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(10, TimeUnit.SECONDS)
+            .addArgs("--no-pager", "diff", "--no-color", "--unified=%d".formatted(contextLines), "--", filePath.toString())
+            .build();
+    }
+
+    public static GitCommand getUnstagedDiff(GitRepository repo, Path filePath) {
+        return getUnstagedDiff(repo, filePath, 3);
+    }
+
+    public static GitCommand getDiff(GitRepository repo, GitFileChange change, GitDiffMode mode) {
+        GitCommand.Builder builder = GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(10, TimeUnit.SECONDS)
+            .addArgs("--no-pager", "diff", "--no-color");
+
+        switch (mode) {
+            case STAGED -> builder.addArgs("--cached");
+            case HEAD -> builder.addArgs("HEAD");
+        }
+
+        builder.addArgs("--", change.path());
 
         return builder.build();
     }

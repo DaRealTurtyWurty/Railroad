@@ -1,22 +1,26 @@
 package dev.railroadide.railroad.vcs.git;
 
 import dev.railroadide.railroad.Railroad;
-import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
+import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitParser;
+import dev.railroadide.railroad.vcs.git.diff.DiffBlob;
+import dev.railroadide.railroad.vcs.git.diff.DiffParser;
+import dev.railroadide.railroad.vcs.git.diff.GitDiffMode;
 import dev.railroadide.railroad.vcs.git.execution.GitExecutionException;
+import dev.railroadide.railroad.vcs.git.execution.GitOutputListener;
 import dev.railroadide.railroad.vcs.git.execution.GitProcessRunner;
 import dev.railroadide.railroad.vcs.git.execution.GitResult;
-import dev.railroadide.railroad.vcs.git.identity.GitIdentity;
-import dev.railroadide.railroad.vcs.git.identity.GitSigningStatus;
-import dev.railroadide.railroad.vcs.git.execution.GitOutputListener;
 import dev.railroadide.railroad.vcs.git.execution.progress.GitProgressEvent;
 import dev.railroadide.railroad.vcs.git.execution.progress.GitResultCaptureMode;
+import dev.railroadide.railroad.vcs.git.identity.GitIdentity;
+import dev.railroadide.railroad.vcs.git.identity.GitSigningStatus;
 import dev.railroadide.railroad.vcs.git.remote.GitRemote;
 import dev.railroadide.railroad.vcs.git.remote.GitRemoteParser;
 import dev.railroadide.railroad.vcs.git.remote.GitUpstream;
-import dev.railroadide.railroad.vcs.git.status.GitStatusParser;
+import dev.railroadide.railroad.vcs.git.status.GitFileChange;
 import dev.railroadide.railroad.vcs.git.status.GitRepoStatus;
+import dev.railroadide.railroad.vcs.git.status.GitStatusParser;
 import dev.railroadide.railroad.vcs.git.util.GitRepository;
 import org.jetbrains.annotations.Nullable;
 
@@ -359,5 +363,22 @@ public class GitClient {
             throw new GitExecutionException("git log failed: " + String.join("\n", result.stderr()));
 
         return GitCommitParser.parseCommits(result.readAllStdout(), limit);
+    }
+
+    public DiffBlob getDiff(GitRepository repo, GitFileChange change, GitDiffMode mode) {
+        GitCommand cmd = GitCommands.getDiff(repo, change, mode);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_WHOLE);
+
+        if (result.timedOut())
+            throw new GitExecutionException("git diff timed out");
+
+        if (result.cancelled())
+            throw new GitExecutionException("git diff was cancelled");
+
+        if (result.exitCode() != 0)
+            throw new GitExecutionException("git diff failed: " + String.join("\n", result.stderr()));
+
+        String diffText = result.readAllStdout();
+        return DiffParser.parseDiff(diffText);
     }
 }
