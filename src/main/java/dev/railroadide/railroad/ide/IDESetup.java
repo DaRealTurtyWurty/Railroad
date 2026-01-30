@@ -76,7 +76,9 @@ public class IDESetup {
 
         var editorPane = new DetachableTabPane();
         editorPane.addTab("Welcome", new IDEWelcomePane());
-        editorPane.addTab("Git Diff", new GitDiffPane());
+        var gitDiffPane = new GitDiffPane(project);
+        var gitDiffTab = editorPane.addTab("Git Diff", gitDiffPane);
+        gitDiffTab.textProperty().bind(gitDiffPane.titleProperty());
 
         var consolePane = new DetachableTabPane();
         consolePane.addTab("Console", new ConsolePane());
