@@ -3,11 +3,13 @@ package dev.railroadide.railroad.vcs.git;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.project.data.ProjectDataStore;
-import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
-import dev.railroadide.railroad.vcs.git.identity.GitIdentity;
+import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
 import dev.railroadide.railroad.vcs.git.execution.GitOutputListener;
+import dev.railroadide.railroad.vcs.git.execution.GitResult;
 import dev.railroadide.railroad.vcs.git.execution.progress.GitProgressEvent;
+import dev.railroadide.railroad.vcs.git.execution.progress.GitResultCaptureMode;
+import dev.railroadide.railroad.vcs.git.identity.GitIdentity;
 import dev.railroadide.railroad.vcs.git.remote.GitRemote;
 import dev.railroadide.railroad.vcs.git.remote.GitUpstream;
 import dev.railroadide.railroad.vcs.git.status.GitRepoStatus;
@@ -290,5 +292,33 @@ public class GitManager {
                 return Optional.empty();
             }
         }, executorService);
+    }
+
+    public Optional<String> getUnstagedDiff(Path filePath) {
+        GitRepository repository = this.gitRepository.get();
+        if (repository == null || filePath == null)
+            return Optional.empty();
+
+        Path repoRoot = repository.root().toAbsolutePath().normalize();
+        Path absoluteFile = filePath.toAbsolutePath().normalize();
+        if (!absoluteFile.startsWith(repoRoot))
+            return Optional.empty();
+
+        Path relativePath = repoRoot.relativize(absoluteFile);
+        GitCommand cmd = GitCommands.getUnstagedDiff(repository, relativePath);
+        GitResult result = gitClient.runner.run(cmd, null, null, GitResultCaptureMode.TEXT_WHOLE);
+
+        if (result.timedOut() || result.cancelled()) {
+            Railroad.LOGGER.warn("git diff was {} for path: {}", result.timedOut() ? "timed out" : "cancelled", filePath);
+            return Optional.empty();
+        }
+
+        if (result.exitCode() != 0) {
+            Railroad.LOGGER.warn("git diff failed for path {}: {}", filePath, String.join("\n", result.stderr()));
+            return Optional.empty();
+        }
+
+        String diffText = result.readAllStdout();
+        return Optional.of(diffText);
     }
 }
