@@ -3,6 +3,8 @@ package dev.railroadide.railroad.vcs.git;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.project.data.ProjectDataStore;
+import dev.railroadide.railroad.vcs.git.commit.CommitListMetadata;
+import dev.railroadide.railroad.vcs.git.commit.GitCommit;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
 import dev.railroadide.railroad.vcs.git.execution.GitOutputListener;
@@ -18,9 +20,9 @@ import dev.railroadide.railroad.vcs.git.util.GitSettings;
 import javafx.beans.property.*;
 
 import java.nio.file.Path;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 
 public class GitManager {
     private static final String SETTINGS_PATH = "vcs/git.json";
@@ -286,12 +288,17 @@ public class GitManager {
     public CompletableFuture<Optional<GitCommitPage>> getRecentCommits(int count) {
         return CompletableFuture.supplyAsync(() -> {
             GitRepository repository = this.gitRepository.get();
-            if (repository != null) {
-                return Optional.ofNullable(this.gitClient.getRecentCommits(repository, null, count));
-            } else {
-                return Optional.empty();
-            }
+            return repository != null
+                ? Optional.ofNullable(this.gitClient.getRecentCommits(repository, null, count))
+                : Optional.empty();
         }, executorService);
+    }
+
+    public CompletableFuture<CommitListMetadata> getCommitListMetadata() {
+        return CompletableFuture.supplyAsync(() -> new CommitListMetadata(
+            getHeadCommitHash(),
+            getTagsByCommit()
+        ), executorService);
     }
 
     public Optional<String> getUnstagedDiff(Path filePath) {
@@ -320,5 +327,222 @@ public class GitManager {
 
         String diffText = result.readAllStdout();
         return Optional.of(diffText);
+    }
+
+    public String getHeadCommitHash() {
+        GitRepository repository = this.gitRepository.get();
+        if (repository == null)
+            return null;
+
+        GitCommand cmd = GitCommands.getHeadCommitHash(repository);
+        GitResult result = gitClient.runner.run(cmd, null, null, GitResultCaptureMode.TEXT_WHOLE);
+
+        if (result.timedOut() || result.cancelled()) {
+            Railroad.LOGGER.warn("git rev-parse was {} for repository at: {}",
+                result.timedOut() ? "timed out" : "cancelled",
+                repository.root());
+            return null;
+        }
+
+        if (result.exitCode() != 0) {
+            Railroad.LOGGER.warn("git rev-parse failed for repository at {}: {}",
+                repository.root(),
+                String.join("\n", result.stderr()));
+            return null;
+        }
+
+        String commitHash = result.readAllStdout().trim();
+        return commitHash.isEmpty() ? null : commitHash;
+    }
+
+    public List<String> getTagsPointingToCommit(String hash) {
+        GitRepository repository = this.gitRepository.get();
+        if (repository == null)
+            return List.of();
+
+        GitCommand cmd = GitCommands.getTagsPointingToCommit(repository, hash);
+        GitResult result = gitClient.runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
+
+        if (result.timedOut() || result.cancelled()) {
+            Railroad.LOGGER.warn("git tag was {} for repository at: {}",
+                result.timedOut() ? "timed out" : "cancelled",
+                repository.root());
+            return List.of();
+        }
+
+        if (result.exitCode() != 0) {
+            Railroad.LOGGER.warn("git tag failed for repository at {}: {}",
+                repository.root(),
+                String.join("\n", result.stderr()));
+            return List.of();
+        }
+
+        String stdout = result.readAllStdout().trim();
+        if (stdout.isEmpty()) {
+            return List.of();
+        } else {
+            String[] tags = stdout.split("\n");
+            return List.of(tags);
+        }
+    }
+
+    public Map<String, List<String>> getTagsByCommit() {
+        GitRepository repository = this.gitRepository.get();
+        if (repository == null)
+            return Map.of();
+
+        GitCommand cmd = GitCommands.getAllTagsWithCommits(repository);
+        GitResult result = gitClient.runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
+
+        if (result.timedOut() || result.cancelled()) {
+            Railroad.LOGGER.warn("git show-ref was {} for repository at: {}",
+                result.timedOut() ? "timed out" : "cancelled",
+                repository.root());
+            return Map.of();
+        }
+
+        if (result.exitCode() != 0) {
+            Railroad.LOGGER.warn("git show-ref failed for repository at {}: {}",
+                repository.root(),
+                String.join("\n", result.stderr()));
+            return Map.of();
+        }
+
+        String stdout = result.readAllStdout().trim();
+        if (stdout.isEmpty())
+            return Map.of();
+
+        Map<String, String> tagToCommit = GitCommit.parseTagsToCommit(stdout);
+
+        Map<String, List<String>> tagsByCommit = new HashMap<>();
+        for (Map.Entry<String, String> entry : tagToCommit.entrySet()) {
+            tagsByCommit.computeIfAbsent(entry.getValue(), key -> new ArrayList<>()).add(entry.getKey());
+        }
+
+        return tagsByCommit;
+    }
+
+    public List<String> getAllBranches() {
+        GitRepository repository = this.gitRepository.get();
+        if (repository == null)
+            return List.of();
+
+        GitCommand cmd = GitCommands.getAllBranches(repository);
+        GitResult result = gitClient.runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
+
+        if (result.timedOut() || result.cancelled()) {
+            Railroad.LOGGER.warn("git branch was {} for repository at: {}",
+                result.timedOut() ? "timed out" : "cancelled",
+                repository.root());
+            return List.of();
+        }
+
+        if (result.exitCode() != 0) {
+            Railroad.LOGGER.warn("git branch failed for repository at {}: {}",
+                repository.root(),
+                String.join("\n", result.stderr()));
+            return List.of();
+        }
+
+        String stdout = result.readAllStdout().trim();
+        if (stdout.isEmpty()) {
+            return List.of();
+        } else {
+            String[] branches = stdout.split("\n");
+            return List.of(branches);
+        }
+    }
+
+    public List<GitAuthor> getAllAuthors(boolean includeEmail) {
+        GitRepository repository = this.gitRepository.get();
+        if (repository == null)
+            return List.of();
+
+        GitCommand cmd = GitCommands.getAllAuthors(repository, includeEmail);
+        GitResult result = gitClient.runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
+
+        if (result.timedOut() || result.cancelled()) {
+            Railroad.LOGGER.warn("git shortlog was {} for repository at: {}",
+                result.timedOut() ? "timed out" : "cancelled",
+                repository.root());
+            return List.of();
+        }
+
+        if (result.exitCode() != 0) {
+            Railroad.LOGGER.warn("git shortlog failed for repository at {}: {}",
+                repository.root(),
+                String.join("\n", result.stderr()));
+            return List.of();
+        }
+
+        String stdout = result.readAllStdout().trim();
+        if (stdout.isEmpty()) {
+            return List.of();
+        } else {
+            String[] lines = stdout.split("\n");
+            return GitAuthor.parseAuthorsFromShortlogLines(lines, includeEmail);
+        }
+    }
+
+    public void getAllCommits(Consumer<List<GitCommit>> onPage, Runnable onDone, int pageSize) {
+        executorService.submit(() -> {
+            try {
+                GitRepository repository = this.gitRepository.get();
+                if (repository == null)
+                    return;
+
+                boolean morePages = true;
+                String lastCommitHash = null;
+                while (morePages) {
+                    GitCommitPage page = this.gitClient.getRecentCommits(repository, lastCommitHash, pageSize);
+                    if (page != null && !page.commits().isEmpty()) {
+                        if (onPage != null) {
+                            onPage.accept(page.commits());
+                        }
+                        lastCommitHash = page.commits().getLast().hash();
+                        morePages = page.nextCursor() != null;
+                    } else {
+                        morePages = false;
+                    }
+                }
+            } finally {
+                if (onDone != null) {
+                    onDone.run();
+                }
+            }
+        });
+    }
+
+    public long getRepositoryCreationDate() {
+        GitRepository repository = this.gitRepository.get();
+        if (repository == null)
+            return 0L;
+
+        GitCommand cmd = GitCommands.getRepositoryCreationDate(repository);
+        GitResult result = gitClient.runner.run(cmd, null, null, GitResultCaptureMode.TEXT_WHOLE);
+
+        if (result.timedOut() || result.cancelled()) {
+            Railroad.LOGGER.warn("git rev-list was {} for repository at: {}",
+                result.timedOut() ? "timed out" : "cancelled",
+                repository.root());
+            return 0L;
+        }
+
+        if (result.exitCode() != 0) {
+            Railroad.LOGGER.warn("git rev-list failed for repository at {}: {}",
+                repository.root(),
+                String.join("\n", result.stderr()));
+            return 0L;
+        }
+
+        String stdout = result.readAllStdout().trim();
+        try {
+            return Long.parseLong(stdout);
+        } catch (NumberFormatException exception) {
+            Railroad.LOGGER.warn("Failed to parse repository creation date '{}' for repository at {}",
+                stdout,
+                repository.root());
+            return 0L;
+        }
     }
 }

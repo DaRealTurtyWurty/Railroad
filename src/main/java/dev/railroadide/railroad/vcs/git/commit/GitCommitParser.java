@@ -22,6 +22,7 @@ public final class GitCommitParser {
             if (commit.isBlank())
                 continue;
 
+            commit = commit.strip();
             String[] fields = commit.split("\u0000", -1);
             if (fields.length < 7) {
                 Railroad.LOGGER.warn("Malformed git commit entry: {}", commit);
@@ -40,7 +41,7 @@ public final class GitCommitParser {
     }
 
     private static @NonNull GitCommit parseCommit(String[] fields) {
-        String hash = fields[0];
+        String hash = fields[0].trim();
         if (hash.isBlank())
             throw new IllegalArgumentException("Commit hash cannot be blank");
 
@@ -55,9 +56,30 @@ public final class GitCommitParser {
         String authorEmail = fields[4];
         long authorTimestamp = Long.parseLong(fields[5]);
 
+        if (fields.length >= 10) {
+            String committerName = fields[6];
+            String committerEmail = fields[7];
+            long committerTimestamp = fields[8].isBlank() ? 0L : Long.parseLong(fields[8]);
+            String parentHashesRaw = fields[9];
+            String[] parentHashes = parentHashesRaw.isBlank() ? new String[0] : parentHashesRaw.split("\\s+");
+
+            return new GitCommit(
+                hash,
+                shortHash,
+                subject,
+                authorName,
+                authorEmail,
+                authorTimestamp,
+                committerName,
+                committerEmail,
+                committerTimestamp,
+                List.of(parentHashes),
+                null
+            );
+        }
+
         String parentHashesRaw = fields[6];
         String[] parentHashes = parentHashesRaw.isBlank() ? new String[0] : parentHashesRaw.split("\\s+");
-
         return new GitCommit(hash, shortHash, subject, authorName, authorEmail, authorTimestamp, parentHashes);
     }
 }

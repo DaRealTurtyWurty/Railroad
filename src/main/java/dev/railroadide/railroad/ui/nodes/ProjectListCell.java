@@ -1,8 +1,5 @@
 package dev.railroadide.railroad.ui.nodes;
 
-import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
-import org.kordamp.ikonli.javafx.FontIcon;
-
 import dev.railroadide.core.ui.RRButton;
 import dev.railroadide.core.ui.RRCard;
 import dev.railroadide.core.ui.styling.ButtonSize;
@@ -10,22 +7,20 @@ import dev.railroadide.core.ui.styling.ButtonVariant;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.project.facet.Facet;
-import dev.railroadide.railroad.utility.StringUtils;
+import dev.railroadide.railroad.utility.TimeFormatter;
 import io.github.palexdev.mfxcore.builders.InsetsBuilder;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
-import javafx.scene.control.ContextMenu;
-import javafx.scene.control.Label;
-import javafx.scene.control.ListCell;
-import javafx.scene.control.MenuItem;
+import javafx.scene.control.*;
 import javafx.scene.effect.DropShadow;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
-import javafx.scene.control.Tooltip;
+import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
+import org.kordamp.ikonli.javafx.FontIcon;
 
 /**
  * A modern list cell component for displaying project items in project lists.
@@ -116,7 +111,7 @@ public class ProjectListCell extends ListCell<Project> {
         super.updateItem(project, empty);
 
         // Always clear old tags, as cells are reused
-        facetTagsBox.getChildren().clear(); 
+        facetTagsBox.getChildren().clear();
 
         if (empty || project == null) {
             setText(null);
@@ -126,13 +121,13 @@ public class ProjectListCell extends ListCell<Project> {
             icon.setImage(project.getIcon());
             nameLabel.setText(project.getAlias());
             pathLabel.setText(project.getPathString());
-            lastOpenedLabel.setText(StringUtils.formatElapsed(project.getLastOpened()));
+            lastOpenedLabel.setText(TimeFormatter.formatElapsed(project.getLastOpened()));
 
             // Populate Facet Tags
             for (Facet<?> facet : project.getFacets()) {
                 if (facet != null && facet.getType() != null) {
                     // Use the FacetType's name for the tag
-                    Label tagLabel = new Label(facet.getType().name()); 
+                    Label tagLabel = new Label(facet.getType().name());
                     tagLabel.getStyleClass().add("project-list-facet-tag");
                     tagLabel.getStyleClass().add("facet-" + facet.getType().id());
                     String description = facet.getType().description();
@@ -146,4 +141,4 @@ public class ProjectListCell extends ListCell<Project> {
         }
     }
 
-} 
+}

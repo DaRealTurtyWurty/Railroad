@@ -189,10 +189,10 @@ public final class GitCommands {
                 "--first-parent",
                 "-n", String.valueOf(limit),
                 "--date=unix",
-                "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ae%x00%at%x00%P%x1e");
+                "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%P%x1e");
 
         if (cursor != null && !cursor.isBlank()) {
-            builder.addArgs(cursor + "^");
+            builder.addArgs("--skip=1", cursor.strip());
         }
 
         return builder.build();
@@ -224,5 +224,69 @@ public final class GitCommands {
         builder.addArgs("--", change.path());
 
         return builder.build();
+    }
+
+    public static GitCommand getHeadCommitHash(GitRepository repo) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("rev-parse", "HEAD")
+            .build();
+    }
+
+    public static GitCommand getTagsPointingToCommit(GitRepository repo, String hash) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("tag", "--points-at", hash)
+            .build();
+    }
+
+    public static GitCommand getAllTagsWithCommits(GitRepository repo) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("show-ref", "--tags", "-d")
+            .build();
+    }
+
+    public static GitCommand getAllBranches(GitRepository repo) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs("branch", "--all", "--no-color", "--format=%(refname:short)")
+            .build();
+    }
+
+    public static GitCommand getAllAuthors(GitRepository repo, boolean includeEmails) {
+        GitCommand.Builder builder = GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(1, TimeUnit.MINUTES)
+            .addArgs(
+                "--no-pager",
+                "shortlog",
+                "--summary",
+                "--numbered"
+            );
+        if (includeEmails) {
+            builder.addArgs("--email");
+        }
+        builder.addArgs("HEAD");
+        return builder.build();
+    }
+
+    public static GitCommand getRepositoryCreationDate(GitRepository repo) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(10, TimeUnit.SECONDS)
+            .addArgs(
+                "--no-pager",
+                "log",
+                "--reverse",
+                "--pretty=format:%at",
+                "--max-parents=0",
+                "-n", "1"
+            )
+            .build();
     }
 }

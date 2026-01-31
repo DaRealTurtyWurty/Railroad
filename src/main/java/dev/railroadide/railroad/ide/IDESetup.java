@@ -17,6 +17,7 @@ import dev.railroadide.railroad.ide.ui.IDEWelcomePane;
 import dev.railroadide.railroad.ide.ui.ImageViewerPane;
 import dev.railroadide.railroad.ide.ui.StatusBarPane;
 import dev.railroadide.railroad.ide.ui.git.commit.GitCommitPane;
+import dev.railroadide.railroad.ide.ui.git.commit.list.GitCommitListPane;
 import dev.railroadide.railroad.ide.ui.git.diff.GitDiffPane;
 import dev.railroadide.railroad.ide.ui.git.overview.GitOverviewPane;
 import dev.railroadide.railroad.ide.ui.setup.IDEMenuBarFactory;
@@ -71,6 +72,7 @@ public class IDESetup {
         leftPane.addTab("Project", new ProjectExplorerPane(project, root));
         leftPane.addTab("Git Commit", new GitCommitPane(project));
         leftPane.addTab("Git Overview", new GitOverviewPane(project));
+        leftPane.addTab("Git Commit List", new GitCommitListPane(project));
 
         var rightPane = new DetachableTabPane();
 
@@ -111,7 +113,8 @@ public class IDESetup {
             0,
             Map.of("Project", FontAwesomeSolid.FOLDER.getDescription(),
                 "Git Commit", FontAwesomeSolid.CODE_BRANCH.getDescription(),
-                "Git Overview", FontAwesomeSolid.HOME.getDescription()
+                "Git Overview", FontAwesomeSolid.HOME.getDescription(),
+                "Git Commit List", FontAwesomeSolid.LIST.getDescription()
             )));
 
         var bottomBar = new RRVBox();
