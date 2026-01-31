@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.vcs.git.execution;
 
+import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.vcs.git.GitCommand;
 import dev.railroadide.railroad.vcs.git.execution.progress.GitCancellationToken;
 import dev.railroadide.railroad.vcs.git.execution.progress.GitResultCaptureMode;
@@ -46,6 +47,7 @@ public class GitProcessRunner {
 
         try {
             String[] cmd = buildCommand(gitExecutable, command.arguments());
+            Railroad.LOGGER.debug("Executing git command: {}", String.join(" ", cmd));
             var processBuilder = new ProcessBuilder(cmd);
             if (command.workingDirectory() != null) {
                 processBuilder.directory(command.workingDirectory().toFile());

@@ -5,8 +5,8 @@ import dev.railroadide.core.ui.localized.LocalizedText;
 import dev.railroadide.core.ui.styling.ButtonVariant;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.utility.ShutdownHooks;
-import dev.railroadide.railroad.utility.StringUtils;
-import dev.railroadide.railroad.vcs.git.*;
+import dev.railroadide.railroad.utility.TimeFormatter;
+import dev.railroadide.railroad.vcs.git.GitManager;
 import dev.railroadide.railroad.vcs.git.remote.GitRemote;
 import dev.railroadide.railroad.vcs.git.remote.GitUpstream;
 import dev.railroadide.railroad.vcs.git.status.GitFileChange;
@@ -270,7 +270,7 @@ public class GitOverviewHeaderPane extends RRVBox {
         }
         upstreamBehindText.setText(Long.toString(status.behind()));
         upstreamAheadText.setText(Long.toString(status.ahead()));
-        upstreamFetchText.setText(StringUtils.formatElapsed(gitManager.getLastFetchTimestamp()));
+        upstreamFetchText.setText(TimeFormatter.formatElapsed(gitManager.getLastFetchTimestamp()));
     }
 
     private void configureChangeChips() {

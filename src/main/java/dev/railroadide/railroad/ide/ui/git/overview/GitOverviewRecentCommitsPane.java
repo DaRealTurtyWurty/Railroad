@@ -7,6 +7,7 @@ import dev.railroadide.core.ui.localized.LocalizedText;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.utility.ShutdownHooks;
 import dev.railroadide.railroad.utility.StringUtils;
+import dev.railroadide.railroad.utility.TimeFormatter;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
 import dev.railroadide.railroad.vcs.git.commit.GitCommit;
 import dev.railroadide.railroad.vcs.git.GitManager;
@@ -147,9 +148,9 @@ public class GitOverviewRecentCommitsPane extends RRListView<GitCommit> {
 
             long timestampEpochSeconds = commit.authorTimestampEpochSeconds();
             long timestampEpochMillis = timestampEpochSeconds * 1000L;
-            var timestampLabel = new Text(StringUtils.formatElapsed(timestampEpochMillis));
+            var timestampLabel = new Text(TimeFormatter.formatElapsed(timestampEpochMillis));
             timestampLabel.getStyleClass().add("commit-timestamp-label");
-            Tooltip.install(timestampLabel, new Tooltip(StringUtils.formatDateTime(timestampEpochMillis)));
+            Tooltip.install(timestampLabel, new Tooltip(TimeFormatter.formatDateTime(timestampEpochMillis)));
 
             leftVBox.getChildren().add(leftHBox);
             getChildren().add(leftVBox);
@@ -171,7 +172,7 @@ public class GitOverviewRecentCommitsPane extends RRListView<GitCommit> {
 
                 if (newScene != null) {
                     ScheduledFuture<?> future = executor.scheduleAtFixedRate(() -> {
-                        Platform.runLater(() -> timestampLabel.setText(StringUtils.formatElapsed(timestampEpochMillis)));
+                        Platform.runLater(() -> timestampLabel.setText(TimeFormatter.formatElapsed(timestampEpochMillis)));
                     }, 1, 1, TimeUnit.SECONDS);
                     futureRef.set(future);
                 }

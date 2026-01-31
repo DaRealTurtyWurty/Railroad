@@ -89,3 +89,188 @@
 .git-file-item-untracked > .git-commit-change-title-text, .git-file-item-ignored > .git-commit-change-title-text {
     -fx-fill: #728294;
 }
+
+/* Git commit list view styles */
+.git-commit-list-view-pane {
+    -fx-background-color: -color-bg-default;
+    -fx-background-insets: 0;
+    -fx-padding: 6px;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1px;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+}
+
+.git-commit-list-view-pane .list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.git-commit-list-view-pane .list-cell:filled {
+    -fx-padding: 6px 4px;
+}
+
+.git-commit-list-view-pane .list-cell:filled:selected .git-commit-cell-pane {
+    -fx-background-color: -color-bg-emphasis;
+    -fx-border-color: -color-border-default;
+}
+
+.git-commit-list-view-pane .list-cell:filled:hover .git-commit-cell-pane {
+    -fx-background-color: -color-bg-subtle;
+    -fx-border-color: -color-border-muted;
+}
+
+.git-commit-cell-pane {
+    -fx-background-color: -color-bg-default;
+    -fx-background-radius: 10px;
+    -fx-border-radius: 10px;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 1px;
+    -fx-padding: 10px 12px;
+    -fx-spacing: 12px;
+}
+
+.git-commit-cell-pane .background-2,
+.git-commit-cell-pane .git-commit-icon-pane,
+.git-commit-cell-pane .git-commit-details-pane,
+.git-commit-cell-pane .git-commit-timestamp-pane,
+.git-commit-cell-pane .git-commit-tags-pane {
+    -fx-background-color: transparent;
+}
+
+.git-commit-icon-pane {
+    -fx-alignment: top-center;
+    -fx-padding: 4px 2px 0 2px;
+}
+
+.git-commit-icon-circle {
+    -fx-fill: -color-accent-emphasis;
+    -fx-stroke: -color-bg-default;
+    -fx-stroke-width: 2px;
+}
+
+.git-commit-icon-merge {
+    -fx-fill: -color-accent-muted;
+    -fx-stroke: -color-accent-emphasis;
+    -fx-stroke-width: 2px;
+}
+
+.git-commit-icon-revert {
+    -fx-fill: -color-warning-muted;
+    -fx-stroke: -color-warning-emphasis;
+    -fx-stroke-width: 2px;
+}
+
+.git-commit-icon-squash {
+    -fx-fill: -color-success-muted;
+    -fx-stroke: -color-success-emphasis;
+    -fx-stroke-width: 2px;
+}
+
+.git-commit-icon-initial {
+    -fx-fill: -color-accent-subtle;
+    -fx-stroke: -color-accent-emphasis;
+    -fx-stroke-width: 2px;
+}
+
+.git-commit-details-pane {
+    -fx-spacing: 6px;
+}
+
+.git-commit-message {
+    -fx-fill: -color-fg-default;
+    -fx-font-size: 13px;
+    -fx-font-weight: 600;
+}
+
+.git-commit-subheading-hbox {
+    -fx-alignment: center-left;
+}
+
+.git-commit-author {
+    -fx-fill: -color-fg-muted;
+    -fx-font-size: 11px;
+}
+
+.git-commit-hash {
+    -fx-fill: -color-fg-subtle;
+    -fx-font-size: 11px;
+    -fx-font-family: "JetBrains Mono", "Fira Code", "Consolas", "Monospaced";
+}
+
+.git-commit-separator {
+    -fx-fill: -color-fg-subtle;
+    -fx-opacity: 0.7;
+}
+
+.git-commit-tags-pane {
+    -fx-alignment: center-left;
+    -fx-hgap: 6px;
+    -fx-vgap: 4px;
+}
+
+.git-commit-tag {
+    -fx-text-fill: -color-accent-emphasis;
+    -fx-font-size: 10px;
+    -fx-background-color: -color-accent-muted;
+    -fx-padding: 2px 8px;
+    -fx-background-radius: 10px;
+    -fx-border-radius: 10px;
+    -fx-border-color: -color-accent-subtle;
+    -fx-border-width: 1px;
+    -fx-alignment: center;
+}
+
+.git-commit-timestamp-pane {
+    -fx-alignment: top-left;
+    -fx-padding: 2px 0 0 8px;
+}
+
+.git-commit-timestamp-text {
+    -fx-fill: -color-fg-subtle;
+    -fx-font-size: 10px;
+}
+
+.git-commit-list-loading-spinner {
+    -fx-pref-width: 36px;
+    -fx-pref-height: 36px;
+    -mfx-progress-color: -color-accent-emphasis;
+}
+
+/* Git commit list header styles */
+.git-commit-list-header-pane {
+    -fx-background-color: linear-gradient(to bottom, -color-bg-subtle, -color-bg-default);
+    -fx-border-color: -color-border-subtle;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 12px 12px 10px 12px;
+    -fx-spacing: 10px;
+}
+
+.git-commit-search-container {
+    -fx-background-color: -color-bg-default;
+    -fx-border-color: -color-border-muted;
+    -fx-border-width: 1px;
+    -fx-border-radius: 10px;
+    -fx-background-radius: 10px;
+    -fx-padding: 8px 10px;
+    -fx-spacing: 6px;
+}
+
+.git-commit-search-label {
+    -fx-fill: -color-fg-muted;
+    -fx-font-size: 10px;
+    -fx-text-transform: uppercase;
+    -fx-letter-spacing: 0.4px;
+}
+
+.git-commit-search-field {
+    -fx-background-color: -color-bg-default;
+    -fx-border-color: -color-border-subtle;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+    -fx-padding: 6px 8px;
+}
+
+.git-commit-search-field {
+    -fx-prompt-text-fill: -color-fg-subtle;
+}
