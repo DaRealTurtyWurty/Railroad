@@ -7,6 +7,7 @@ import dev.railroadide.railroad.vcs.git.commit.CommitListMetadata;
 import dev.railroadide.railroad.vcs.git.commit.GitCommit;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
+import dev.railroadide.railroad.vcs.git.diff.GitAdditionsDeletions;
 import dev.railroadide.railroad.vcs.git.execution.GitOutputListener;
 import dev.railroadide.railroad.vcs.git.execution.GitResult;
 import dev.railroadide.railroad.vcs.git.execution.progress.GitProgressEvent;
@@ -544,5 +545,26 @@ public class GitManager {
                 repository.root());
             return 0L;
         }
+    }
+
+    public List<GitAdditionsDeletions> getAdditionsDeletions(String commitHash) {
+        GitRepository repository = this.gitRepository.get();
+        if (repository == null)
+            return List.of();
+
+        return this.gitClient.getAdditionsDeletions(repository, commitHash);
+    }
+
+    public GitCommit getCommitWithBody(GitCommit commit) {
+        GitRepository repository = this.gitRepository.get();
+        if (repository == null || commit == null)
+            return commit;
+
+        if (commit.body() != null && !commit.body().isEmpty())
+            return commit;
+
+        String message = this.gitClient.getCommitMessage(repository, commit.hash());
+        message = message.substring(message.indexOf('\n') + 1).strip(); // Remove the first line (summary)
+        return GitCommit.withBody(commit, message);
     }
 }

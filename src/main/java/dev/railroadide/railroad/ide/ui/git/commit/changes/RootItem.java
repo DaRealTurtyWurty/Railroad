@@ -1,9 +1,9 @@
 package dev.railroadide.railroad.ide.ui.git.commit.changes;
 
 import dev.railroadide.railroad.project.Project;
-import javafx.event.ActionEvent;
 import javafx.scene.Node;
 import javafx.scene.control.ContextMenu;
+import javafx.scene.input.MouseEvent;
 
 import java.util.function.Consumer;
 
@@ -36,7 +36,7 @@ public class RootItem implements ChangeItem {
     }
 
     @Override
-    public Consumer<ActionEvent> getDoubleClickHandler() {
+    public Consumer<MouseEvent> getDoubleClickHandler() {
         return null;
     }
 

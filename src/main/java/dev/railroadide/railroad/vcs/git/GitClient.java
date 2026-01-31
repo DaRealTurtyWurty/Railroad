@@ -4,9 +4,7 @@ import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitData;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitPage;
 import dev.railroadide.railroad.vcs.git.commit.GitCommitParser;
-import dev.railroadide.railroad.vcs.git.diff.DiffBlob;
-import dev.railroadide.railroad.vcs.git.diff.DiffParser;
-import dev.railroadide.railroad.vcs.git.diff.GitDiffMode;
+import dev.railroadide.railroad.vcs.git.diff.*;
 import dev.railroadide.railroad.vcs.git.execution.GitExecutionException;
 import dev.railroadide.railroad.vcs.git.execution.GitOutputListener;
 import dev.railroadide.railroad.vcs.git.execution.GitProcessRunner;
@@ -380,5 +378,54 @@ public class GitClient {
 
         String diffText = result.readAllStdout();
         return DiffParser.parseDiff(diffText);
+    }
+
+    public DiffBlob getUnstagedDiff(GitRepository repo, Path filePath) {
+        GitCommand cmd = GitCommands.getUnstagedDiff(repo, filePath);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_WHOLE);
+
+        if (result.timedOut())
+            throw new GitExecutionException("git diff timed out");
+
+        if (result.cancelled())
+            throw new GitExecutionException("git diff was cancelled");
+
+        if (result.exitCode() != 0)
+            throw new GitExecutionException("git diff failed: " + String.join("\n", result.stderr()));
+
+        String diffText = result.readAllStdout();
+        return DiffParser.parseDiff(diffText);
+    }
+
+    public List<GitAdditionsDeletions> getAdditionsDeletions(GitRepository repo, String hash) {
+        GitCommand cmd = GitCommands.getAdditionsDeletions(repo, hash);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_LINES);
+
+        if (result.timedOut())
+            throw new GitExecutionException("git show timed out");
+
+        if (result.cancelled())
+            throw new GitExecutionException("git show was cancelled");
+
+        if (result.exitCode() != 0)
+            throw new GitExecutionException("git show failed: " + String.join("\n", result.stderr()));
+
+        return GitAdditionsDeletionsParser.parseAdditionsDeletions(result.stdout());
+    }
+
+    public String getCommitMessage(GitRepository repo, String hash) {
+        GitCommand cmd = GitCommands.getCommitMessage(repo, hash);
+        GitResult result = runner.run(cmd, null, null, GitResultCaptureMode.TEXT_WHOLE);
+
+        if (result.timedOut())
+            throw new GitExecutionException("git log timed out");
+
+        if (result.cancelled())
+            throw new GitExecutionException("git log was cancelled");
+
+        if (result.exitCode() != 0)
+            throw new GitExecutionException("git log failed: " + String.join("\n", result.stderr()));
+
+        return result.readAllStdout();
     }
 }

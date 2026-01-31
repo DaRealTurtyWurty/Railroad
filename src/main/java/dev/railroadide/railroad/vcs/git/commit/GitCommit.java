@@ -58,4 +58,20 @@ public record GitCommit(
         }
         return tagToCommit;
     }
+
+    public static GitCommit withBody(GitCommit commit, String body) {
+        return new GitCommit(
+            commit.hash,
+            commit.shortHash,
+            commit.subject,
+            commit.authorName,
+            commit.authorEmail,
+            commit.authorTimestampEpochSeconds,
+            commit.committerName,
+            commit.committerEmail,
+            commit.committerTimestampEpochSeconds,
+            commit.parentHashes,
+            body
+        );
+    }
 }

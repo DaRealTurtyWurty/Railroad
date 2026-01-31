@@ -1,20 +1,12 @@
 package dev.railroadide.railroad.ide.ui.git.commit.changes;
 
-import com.panemu.tiwulfx.control.dock.DetachableTabPane;
 import dev.railroadide.core.ui.RRCheckBoxTreeCell;
 import dev.railroadide.core.ui.RRHBox;
 import dev.railroadide.core.ui.RRStackPane;
-import dev.railroadide.railroad.ide.IDESetup;
-import dev.railroadide.railroad.ide.ui.git.diff.GitDiffPane;
 import javafx.scene.Node;
-import javafx.scene.Parent;
-import javafx.scene.control.Tab;
 import javafx.scene.text.Text;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 public class CommitChangeTreeCell extends RRCheckBoxTreeCell<ChangeItem> {
     private final RRHBox container = new RRHBox(8);
@@ -84,68 +76,12 @@ public class CommitChangeTreeCell extends RRCheckBoxTreeCell<ChangeItem> {
             setCustomContent(container);
 
             setOnMouseClicked(event -> {
-                if (event.getClickCount() == 2 && !event.isConsumed() && item instanceof FileItem fileItem) {
-                    openDiffForFile(fileItem);
-                    event.consume();
+                if (event.getClickCount() == 2 && !event.isConsumed()) {
+                    if (item.getDoubleClickHandler() != null) {
+                        item.getDoubleClickHandler().accept(event);
+                    }
                 }
             });
         }
-    }
-
-    private void openDiffForFile(FileItem fileItem) {
-        if (getScene() == null || getScene().getRoot() == null)
-            return;
-
-        Parent root = getScene().getRoot();
-        Optional<DiffTabLocation> existing = findExistingDiffTab(root);
-        DetachableTabPane tabPane = existing.map(DiffTabLocation::tabPane)
-            .or(() -> IDESetup.findBestPaneForFiles(root))
-            .orElse(null);
-        if (tabPane == null)
-            return;
-
-        Tab diffTab = existing.map(DiffTabLocation::tab).orElseGet(() -> {
-            GitDiffPane diffPane = new GitDiffPane(fileItem.project());
-            Tab created = tabPane.addTab("Git Diff", diffPane);
-            created.textProperty().bind(diffPane.titleProperty());
-            return created;
-        });
-
-        tabPane.getSelectionModel().select(diffTab);
-        GitDiffPane diffPane = (GitDiffPane) diffTab.getContent();
-        if (!diffTab.textProperty().isBound()) {
-            diffTab.textProperty().bind(diffPane.titleProperty());
-        }
-        diffPane.setFilePath(fileItem.change().path());
-    }
-
-    private Optional<DiffTabLocation> findExistingDiffTab(Parent parent) {
-        for (DetachableTabPane pane : collectTabPanes(parent)) {
-            Optional<Tab> diffTab = pane.getTabs().stream()
-                .filter(tab -> tab.getContent() instanceof GitDiffPane)
-                .findFirst();
-            if (diffTab.isPresent())
-                return Optional.of(new DiffTabLocation(pane, diffTab.get()));
-        }
-
-        return Optional.empty();
-    }
-
-    private List<DetachableTabPane> collectTabPanes(Parent parent) {
-        List<DetachableTabPane> panes = new ArrayList<>();
-        if (parent instanceof DetachableTabPane tabPane) {
-            panes.add(tabPane);
-        }
-
-        for (Node child : parent.getChildrenUnmodifiable()) {
-            if (child instanceof Parent childParent) {
-                panes.addAll(collectTabPanes(childParent));
-            }
-        }
-
-        return panes;
-    }
-
-    private record DiffTabLocation(DetachableTabPane tabPane, Tab tab) {
     }
 }

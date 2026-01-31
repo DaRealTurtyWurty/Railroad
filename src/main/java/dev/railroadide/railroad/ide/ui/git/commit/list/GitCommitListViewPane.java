@@ -1,9 +1,12 @@
 package dev.railroadide.railroad.ide.ui.git.commit.list;
 
+import com.panemu.tiwulfx.control.dock.DetachableTabPane;
 import dev.railroadide.core.ui.*;
 import dev.railroadide.core.ui.localized.LocalizedText;
+import dev.railroadide.railroad.ide.IDESetup;
+import dev.railroadide.railroad.ide.ui.git.commit.details.GitCommitDetailsPane;
+import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.utility.TimeFormatter;
-import dev.railroadide.railroad.vcs.git.GitManager;
 import dev.railroadide.railroad.vcs.git.commit.GitCommit;
 import io.github.palexdev.materialfx.controls.MFXProgressSpinner;
 import javafx.application.Platform;
@@ -11,9 +14,14 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
+import javafx.scene.control.Tab;
 import javafx.scene.control.Tooltip;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -21,15 +29,13 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.Polygon;
 import javafx.scene.text.Text;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 public class GitCommitListViewPane extends RRListView<GitCommit> {
     private static final String PLACEHOLDER_EMPTY_KEY = "railroad.git.commit.list.placeholder.empty";
@@ -47,7 +53,7 @@ public class GitCommitListViewPane extends RRListView<GitCommit> {
     private volatile String searchFilter = "";
     private volatile boolean loadingCommits = true;
 
-    public GitCommitListViewPane(GitManager gitManager) {
+    public GitCommitListViewPane(Project project) {
         super();
 
         getStyleClass().add("git-commit-list-view-pane");
@@ -56,13 +62,35 @@ public class GitCommitListViewPane extends RRListView<GitCommit> {
         var loadingContainer = new RRStackPane(loadingSpinner);
         loadingContainer.setAlignment(Pos.CENTER);
         setPlaceholder(loadingContainer);
-        setCellFactory(param -> new GitCommitListCell());
-        gitManager.getCommitListMetadata().thenAccept(metadata -> Platform.runLater(() -> {
+        setCellFactory(param -> new GitCommitListCell(event -> {
+            if (event.getTarget() instanceof Node node) {
+                GitCommitListCell cell = traverseToParentOfType(node, GitCommitListCell.class);
+                if (cell == null || cell.getItem() == null)
+                    return;
+
+                Scene scene = cell.getScene();
+                GitCommit commit = cell.getItem();
+                openDetailsForCommit(scene, project, commit);
+            }
+        }));
+        project.getGitManager().getCommitListMetadata().thenAccept(metadata -> Platform.runLater(() -> {
             headCommitHash = metadata.headCommitHash();
             tagsByCommit = metadata.tagsByCommit();
             refresh();
         }));
-        gitManager.getAllCommits(this::handleCommitsPage, () -> Platform.runLater(this::handleCommitsDone), 200);
+        project.getGitManager().getAllCommits(this::handleCommitsPage, () -> Platform.runLater(this::handleCommitsDone), 200);
+    }
+
+    private static <T extends Node> T traverseToParentOfType(Node node, Class<T> parentType) {
+        Node current = node;
+        while (current != null) {
+            if (parentType.isInstance(current))
+                return parentType.cast(current);
+
+            current = current.getParent();
+        }
+
+        return null;
     }
 
     private void handleCommitsPage(List<GitCommit> commits) {
@@ -139,8 +167,75 @@ public class GitCommitListViewPane extends RRListView<GitCommit> {
         return committerSeconds > 0L ? committerSeconds : commit.authorTimestampEpochSeconds();
     }
 
+    private void openDetailsForCommit(Scene scene, Project project, GitCommit commit) {
+        if (scene == null || scene.getRoot() == null)
+            return;
+
+        Parent root = scene.getRoot();
+        Optional<CommitDetailsTabLocation> existing = findExistingDetailsTab(root);
+        DetachableTabPane tabPane = existing.map(CommitDetailsTabLocation::tabPane)
+            .or(() -> IDESetup.findBestPaneForFiles(root))
+            .orElse(null);
+        if (tabPane == null)
+            return;
+
+        Tab detailsTab = existing.map(CommitDetailsTabLocation::tab).orElseGet(() -> {
+            var detailsPane = new GitCommitDetailsPane(project);
+            Tab created = tabPane.addTab(GitCommitDetailsPane.DEFAULT_TITLE, detailsPane);
+            created.textProperty().bind(detailsPane.titleProperty());
+            return created;
+        });
+
+        tabPane.getSelectionModel().select(detailsTab);
+        GitCommitDetailsPane detailsPane = (GitCommitDetailsPane) detailsTab.getContent();
+        if (!detailsTab.textProperty().isBound()) {
+            detailsTab.textProperty().bind(detailsPane.titleProperty());
+        }
+        detailsPane.setCommit(commit);
+    }
+
+    private Optional<CommitDetailsTabLocation> findExistingDetailsTab(Parent parent) {
+        for (DetachableTabPane pane : collectTabPanes(parent)) {
+            Optional<Tab> detailsTab = pane.getTabs().stream()
+                .filter(tab -> tab.getContent() instanceof GitCommitDetailsPane)
+                .findFirst();
+            if (detailsTab.isPresent())
+                return Optional.of(new CommitDetailsTabLocation(pane, detailsTab.get()));
+        }
+
+        return Optional.empty();
+    }
+
+    private List<DetachableTabPane> collectTabPanes(Parent parent) {
+        List<DetachableTabPane> panes = new ArrayList<>();
+        if (parent instanceof DetachableTabPane tabPane) {
+            panes.add(tabPane);
+        }
+
+        for (Node child : parent.getChildrenUnmodifiable()) {
+            if (child instanceof Parent childParent) {
+                panes.addAll(collectTabPanes(childParent));
+            }
+        }
+
+        return panes;
+    }
+
+    private record CommitDetailsTabLocation(DetachableTabPane tabPane, Tab tab) {
+    }
+
     private class GitCommitListCell extends ListCell<GitCommit> {
         private final GitCommitCellPane cellPane = new GitCommitCellPane();
+
+        public GitCommitListCell(Consumer<MouseEvent> doubleClickHandler) {
+            setOnMouseClicked(event -> {
+                if (event.getClickCount() == 2 && !event.isConsumed()) {
+                    if (doubleClickHandler != null) {
+                        doubleClickHandler.accept(event);
+                    }
+                }
+            });
+        }
 
         @Override
         protected void updateItem(GitCommit item, boolean empty) {
@@ -158,7 +253,7 @@ public class GitCommitListViewPane extends RRListView<GitCommit> {
 
     private class GitCommitCellPane extends RRHBox {
         private final GitCommitIconPane icon;
-        private final GitCommitDetailsPane details;
+        private final GitCommitMiniDetailsPane details;
         private final GitCommitTimestampPane timestamp;
 
         public GitCommitCellPane() {
@@ -168,7 +263,7 @@ public class GitCommitListViewPane extends RRListView<GitCommit> {
             icon = new GitCommitIconPane();
             icon.getStyleClass().add("git-commit-icon-pane");
 
-            details = new GitCommitDetailsPane();
+            details = new GitCommitMiniDetailsPane();
             details.getStyleClass().add("git-commit-details-pane");
 
             timestamp = new GitCommitTimestampPane();
@@ -267,7 +362,7 @@ public class GitCommitListViewPane extends RRListView<GitCommit> {
         }
     }
 
-    private class GitCommitDetailsPane extends RRVBox {
+    private class GitCommitMiniDetailsPane extends RRVBox {
         private final Text message = new Text();
         private final Text author = new Text();
         private final Text hash = new Text();
@@ -276,7 +371,7 @@ public class GitCommitListViewPane extends RRListView<GitCommit> {
         private final Tooltip authorTooltip = new Tooltip();
         private final Tooltip hashTooltip = new Tooltip();
 
-        public GitCommitDetailsPane() {
+        public GitCommitMiniDetailsPane() {
             super(2);
             getStyleClass().add("git-commit-details-pane");
 

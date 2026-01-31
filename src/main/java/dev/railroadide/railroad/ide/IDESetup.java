@@ -17,6 +17,7 @@ import dev.railroadide.railroad.ide.ui.IDEWelcomePane;
 import dev.railroadide.railroad.ide.ui.ImageViewerPane;
 import dev.railroadide.railroad.ide.ui.StatusBarPane;
 import dev.railroadide.railroad.ide.ui.git.commit.GitCommitPane;
+import dev.railroadide.railroad.ide.ui.git.commit.details.GitCommitDetailsPane;
 import dev.railroadide.railroad.ide.ui.git.commit.list.GitCommitListPane;
 import dev.railroadide.railroad.ide.ui.git.diff.GitDiffPane;
 import dev.railroadide.railroad.ide.ui.git.overview.GitOverviewPane;
@@ -78,9 +79,14 @@ public class IDESetup {
 
         var editorPane = new DetachableTabPane();
         editorPane.addTab("Welcome", new IDEWelcomePane());
+
         var gitDiffPane = new GitDiffPane(project);
         var gitDiffTab = editorPane.addTab("Git Diff", gitDiffPane);
         gitDiffTab.textProperty().bind(gitDiffPane.titleProperty());
+
+        var gitCommitDetailsPane = new GitCommitDetailsPane(project);
+        var gitCommitDetailsTab = editorPane.addTab("Git Commit Details", gitCommitDetailsPane);
+        gitCommitDetailsTab.textProperty().bind(gitCommitDetailsPane.titleProperty());
 
         var consolePane = new DetachableTabPane();
         consolePane.addTab("Console", new ConsolePane());

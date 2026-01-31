@@ -3,9 +3,9 @@ package dev.railroadide.railroad.ide.ui.git.commit.changes;
 import dev.railroadide.railroad.localization.L18n;
 import dev.railroadide.railroad.project.Project;
 import dev.railroadide.railroad.vcs.git.status.GitFileChange;
-import javafx.event.ActionEvent;
 import javafx.scene.Node;
 import javafx.scene.control.ContextMenu;
+import javafx.scene.input.MouseEvent;
 import org.jspecify.annotations.NonNull;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 import org.kordamp.ikonli.javafx.FontIcon;
@@ -52,7 +52,7 @@ public record DirectoryItem(Project project, Path path, List<GitFileChange> chan
     }
 
     @Override
-    public Consumer<ActionEvent> getDoubleClickHandler() {
+    public Consumer<MouseEvent> getDoubleClickHandler() {
         return event -> {
 
         };

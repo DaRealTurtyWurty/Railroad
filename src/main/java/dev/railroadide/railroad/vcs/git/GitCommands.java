@@ -289,4 +289,32 @@ public final class GitCommands {
             )
             .build();
     }
+
+    public static GitCommand getAdditionsDeletions(GitRepository repo, String hash) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(10, TimeUnit.SECONDS)
+            .addArgs(
+                "--no-pager",
+                "show",
+                "--pretty=format:",
+                "--numstat",
+                hash
+            )
+            .build();
+    }
+
+    public static GitCommand getCommitMessage(GitRepository repo, String hash) {
+        return GitCommand.builder()
+            .workingDirectory(repo)
+            .timeout(5, TimeUnit.SECONDS)
+            .addArgs(
+                "--no-pager",
+                "log",
+                "-n", "1",
+                "--format=%B",
+                hash
+            )
+            .build();
+    }
 }

@@ -13,11 +13,10 @@ public class GitCommitListPane extends RRVBox {
         super();
         getStyleClass().add("git-commit-list-pane");
 
-        GitManager gitManager = project.getGitManager();
-        this.commitListView = new GitCommitListViewPane(gitManager);
+        this.commitListView = new GitCommitListViewPane(project);
         this.commitListView.getStyleClass().add("git-commit-list-view");
 
-        this.header = new GitCommitListHeaderPane(gitManager, this.commitListView);
+        this.header = new GitCommitListHeaderPane(project.getGitManager(), this.commitListView);
         this.header.getStyleClass().add("git-commit-list-header-pane");
 
         getChildren().addAll(this.header, this.commitListView);
