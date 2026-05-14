@@ -2,6 +2,8 @@ package dev.railroadide.railroad;
 
 import com.google.gson.Gson;
 import dev.railroadide.logger.Logger;
+import dev.railroadide.railroad.browser.BrowserService;
+import dev.railroadide.railroad.browser.impl.CeffxBrowserService;
 import dev.railroadide.railroad.ide.DefaultDocumentEditorStateService;
 import dev.railroadide.railroad.ide.DefaultIDEStateService;
 import dev.railroadide.railroad.localization.L18n;
@@ -75,6 +77,8 @@ public class Services {
 
     public static final DefaultProjectCreationPipelineService PROJECT_CREATION_PIPELINE = new DefaultProjectCreationPipelineService();
 
+    public static final BrowserService BROWSER_SERVICE = new CeffxBrowserService();
+
     /**
      * Retrieves a service instance by its class type.
      *
@@ -107,6 +111,8 @@ public class Services {
             return (T) PROJECT_SERVICE_REGISTRY;
         } else if (serviceClass == ProjectCreationPipelineService.class) {
             return (T) PROJECT_CREATION_PIPELINE;
+        } else if (serviceClass == BrowserService.class) {
+            return (T) BROWSER_SERVICE;
         }
 
         throw new IllegalArgumentException("Service " + serviceClass.getName() + " is not available.");
