@@ -13,11 +13,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class DebugService {
     private final AtomicReference<JdiDebugSession> activeSession = new AtomicReference<>();
-    private final SourceResolver sourceResolver;
-
-    public DebugService(SourceResolver sourceResolver) {
-        this.sourceResolver = sourceResolver;
-    }
 
     public Optional<JdiDebugSession> getActiveSession() {
         return Optional.ofNullable(activeSession.get());
@@ -25,21 +20,21 @@ public final class DebugService {
 
     public CompletableFuture<JdiDebugSession> startSession(
         DebugEndpoint endpoint,
-        Collection<SourceBreakpoint> breakpoints
+        SourceResolver sourceResolver,
+        Collection<SourceBreakpoint> breakpoints,
+        DebugSessionListener listener
     ) {
-        JdiDebugSession session = new JdiDebugSession(
+        var session = new JdiDebugSession(
             endpoint,
             sourceResolver,
-            breakpoints
-        );
+            breakpoints);
 
-        if (!activeSession.compareAndSet(null, session)) {
+        session.addListener(listener);
+
+        if (!activeSession.compareAndSet(null, session))
             return CompletableFuture.failedFuture(
                 new IllegalStateException(
-                    "A debugging session is already active"
-                )
-            );
-        }
+                    "A debugging session is already active"));
 
         session.addListener(event -> {
             if (event instanceof DebugSessionEvent.Terminated) {
@@ -48,7 +43,7 @@ public final class DebugService {
         });
 
         return session.attach()
-            .thenApply(ignored -> session)
+            .thenApply(_ -> session)
             .whenComplete((result, throwable) -> {
                 if (throwable != null) {
                     activeSession.compareAndSet(session, null);

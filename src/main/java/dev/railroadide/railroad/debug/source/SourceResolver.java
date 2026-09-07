@@ -35,8 +35,7 @@ public final class SourceResolver {
 
         return dependencySources.resolve(
             runtimePath,
-            location.declaringType().name()
-        );
+            location.declaringType().name());
     }
 
     private String getRuntimeSourcePath(Location location) {
@@ -48,7 +47,7 @@ public final class SourceResolver {
         try {
             String sourceName = location.sourceName();
             String className = location.declaringType().name();
-            int lastDot = sourceName.lastIndexOf('.');
+            int lastDot = className.lastIndexOf('.');
             if (lastDot == -1)
                 return sourceName;
 

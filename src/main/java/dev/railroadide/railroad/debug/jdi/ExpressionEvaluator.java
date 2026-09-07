@@ -22,8 +22,7 @@ public final class ExpressionEvaluator {
                 value = resolveMember(
                     frame,
                     value,
-                    member
-                );
+                    member);
 
                 continue;
             }
@@ -35,8 +34,7 @@ public final class ExpressionEvaluator {
 
                 value = resolveIndex(
                     value,
-                    index
-                );
+                    index);
 
                 continue;
             }

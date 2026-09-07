@@ -1,12 +1,22 @@
 package dev.railroadide.railroad.ide.runconfig.defaults;
 
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.Services;
+import dev.railroadide.railroad.debug.breakpoint.SourceBreakpoint;
+import dev.railroadide.railroad.debug.jdi.JdiDebugSession;
+import dev.railroadide.railroad.debug.model.DebugEndpoint;
+import dev.railroadide.railroad.debug.model.DebugFrame;
+import dev.railroadide.railroad.debug.model.DebugSessionEvent;
+import dev.railroadide.railroad.debug.source.DebugSource;
+import dev.railroadide.railroad.debug.source.DependencySourceIndex;
+import dev.railroadide.railroad.debug.source.SourceResolver;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationType;
 import dev.railroadide.railroad.ide.runconfig.defaults.data.JavaApplicationRunConfigurationData;
 import dev.railroadide.railroad.java.JDK;
 import dev.railroadide.railroad.java.JDKManager;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
+import dev.railroadide.railroad.project.facet.FacetManager;
 import javafx.scene.paint.Color;
 import org.jetbrains.annotations.UnknownNullability;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
@@ -19,8 +29,10 @@ import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -42,7 +54,7 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
         Project project,
         RunConfiguration<JavaApplicationRunConfigurationData> configuration
     ) {
-        return execute(project, configuration, false).whenComplete((unused, throwable) -> {
+        return execute(project, configuration, false).whenComplete((_, throwable) -> {
             if (throwable != null) {
                 Railroad.LOGGER.error("Failed to start run session for configuration: {}",
                     configuration.data().getName(), throwable);
@@ -55,12 +67,20 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
         Project project,
         RunConfiguration<JavaApplicationRunConfigurationData> configuration
     ) {
-        return execute(project, configuration, true).whenComplete((unused, throwable) -> {
+        return execute(project, configuration, true).whenComplete((_, throwable) -> {
             if (throwable != null) {
                 Railroad.LOGGER.error("Failed to start debug session for configuration: {}",
                     configuration.data().getName(), throwable);
             }
         });
+    }
+
+    @Override
+    public boolean isDebuggingSupported(
+        Project project,
+        RunConfiguration<JavaApplicationRunConfigurationData> configuration
+    ) {
+        return true;
     }
 
     @Override
@@ -104,10 +124,10 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
     ) {
         JavaApplicationRunConfigurationData data = configuration.data();
         final JDK jdk = data.getJdk();
-        final String mainClass = data.getMainClass();
+        final String mainClass = normalizeMainClass(data.getMainClass());
         final Path workingDirectory = data.getWorkingDirectory();
         final boolean buildBeforeRun = data.isBuildBeforeRun();
-        final String[] classpathEntries = data.getClasspathEntries();
+        final String[] classpathEntries = sanitizeClasspathEntries(data.getClasspathEntries());
         final String[] programArguments = data.getProgramArguments();
         final String[] vmOptions = data.getVmOptions();
         final Map<String, String> environmentVariables = data.getEnvironmentVariables() == null
@@ -120,6 +140,10 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
         if (mainClass == null || mainClass.isBlank())
             return CompletableFuture.failedFuture(new IllegalStateException("Main class is not specified"));
 
+        if (classpathEntries.length == 0)
+            return CompletableFuture.failedFuture(new IllegalStateException(
+                "Classpath is empty. Add compiled output directories to the Java application run configuration."));
+
         if (workingDirectory == null)
             return CompletableFuture.failedFuture(new IllegalStateException("Working directory is not specified"));
 
@@ -129,10 +153,20 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
 
         CompletableFuture<Void> buildFuture = CompletableFuture.completedFuture(null);
         if (buildBeforeRun) {
-            buildFuture = project.build(jdk).thenCompose(closeGradleConnection -> {
-                closeGradleConnection.run();
-                return CompletableFuture.completedFuture((Void) null);
-            }).exceptionally(throwable -> {
+            if (project.hasFacet(FacetManager.GRADLE) || project.hasFacet(FacetManager.MAVEN)) {
+                buildFuture = project.build(jdk).thenCompose(closeBuildConnection -> {
+                    closeBuildConnection.run();
+                    return CompletableFuture.completedFuture((Void) null);
+                });
+            } else {
+                buildFuture = CompletableFuture.runAsync(() -> compilePlainJavaProject(
+                    project,
+                    jdk,
+                    workingDirectory,
+                    classpathEntries));
+            }
+
+            buildFuture = buildFuture.exceptionally(throwable -> {
                 System.err.println("Build failed: " + throwable.getMessage());
                 throw new IllegalStateException("Build failed before running application", throwable);
             });
@@ -143,6 +177,8 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
                 final int debugPort = debug ? findFreePort() : -1;
                 String[] command = buildCommand(jdk, mainClass, classpathEntries, programArguments, vmOptions, debug,
                     debugPort);
+                Railroad.LOGGER.debug("Running Java application '{}' with command: {}", configuration.data().getName(),
+                    String.join(" ", command));
                 ProcessBuilder builder = new ProcessBuilder(command)
                     .directory(workingDirectory.toFile())
                     .redirectOutput(ProcessBuilder.Redirect.PIPE)
@@ -158,9 +194,29 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
                 new ProcessOutputHandler(process, configuration.data().getName()).run();
 
                 if (debug && debugPort > 0) {
-                    // TODO: trigger IDE debugger attachment here
-                    Railroad.LOGGER.debug("DEBUG: IDE should attach debugger to port {} for configuration: {}",
-                        debugPort, configuration.data().getName());
+                    SourceResolver sourceResolver = createSourceResolver(project);
+
+                    var breakpoint = new SourceBreakpoint(
+                        UUID.randomUUID(),
+                        new DebugSource.FileSource(
+                            project.getPath()
+                                .resolve("src/main/java/com/example/Main.java")),
+                        12,
+                        true);
+                    List<SourceBreakpoint> breakpoints = List.of(breakpoint);
+
+                    Services.DEBUG_SERVICE.startSession(
+                        new DebugEndpoint("127.0.0.1", debugPort),
+                        sourceResolver,
+                        breakpoints,
+                        this::handleDebugEvent).exceptionally(throwable -> {
+                            Railroad.LOGGER.error(
+                                "Failed to attach debugger to {}",
+                                configuration.data().getName(),
+                                throwable);
+
+                            return null;
+                        });
                 }
 
                 process.onExit().thenAccept(p -> {
@@ -177,6 +233,139 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
                 throw new IllegalStateException("Failed to start Jar Application process", exception);
             }
         }));
+    }
+
+    private static void compilePlainJavaProject(
+        Project project,
+        JDK jdk,
+        Path workingDirectory,
+        String[] classpathEntries
+    ) {
+        Path sourceRoot = project.getPath().resolve("src/main/java").toAbsolutePath().normalize();
+        if (!Files.isDirectory(sourceRoot))
+            throw new IllegalStateException("Java source root does not exist: " + sourceRoot);
+
+        List<Path> sources;
+        try (var paths = Files.walk(sourceRoot)) {
+            sources = paths
+                .filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().endsWith(".java"))
+                .toList();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to scan Java source files", exception);
+        }
+
+        if (sources.isEmpty())
+            throw new IllegalStateException("No Java source files found under " + sourceRoot);
+
+        Path outputDirectory = resolveClasspathPath(classpathEntries[0], workingDirectory);
+        if (Files.exists(outputDirectory) && !Files.isDirectory(outputDirectory))
+            throw new IllegalStateException(
+                "The first classpath entry must be the compiled output directory: " + outputDirectory);
+
+        try {
+            Files.createDirectories(outputDirectory);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to create Java output directory: " + outputDirectory, exception);
+        }
+
+        String javacExecutableName = JDKManager.JAVA_EXECUTABLE_NAME.endsWith(".exe")
+            ? "javac.exe"
+            : "javac";
+        Path javacExecutable = jdk.path().resolve("bin").resolve(javacExecutableName);
+        if (!Files.isRegularFile(javacExecutable))
+            throw new IllegalStateException("Selected JDK does not contain javac: " + javacExecutable);
+
+        List<String> command = new ArrayList<>();
+        command.add(javacExecutable.toString());
+        command.add("-g");
+        command.add("-d");
+        command.add(outputDirectory.toString());
+        command.add("-classpath");
+        command.add(Arrays.stream(classpathEntries)
+            .map(entry -> resolveClasspathPath(entry, workingDirectory).toString())
+            .reduce((left, right) -> left + File.pathSeparator + right)
+            .orElse(outputDirectory.toString()));
+        sources.forEach(source -> command.add(source.toString()));
+
+        Railroad.LOGGER.debug("Compiling plain Java project with command: {}", String.join(" ", command));
+
+        try {
+            Process process = new ProcessBuilder(command)
+                .directory(workingDirectory.toFile())
+                .redirectErrorStream(true)
+                .start();
+
+            var compilerOutput = new StringBuilder();
+            try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!compilerOutput.isEmpty()) {
+                        compilerOutput.append(System.lineSeparator());
+                    }
+                    compilerOutput.append(line);
+                }
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0)
+                throw new IllegalStateException("javac exited with code " + exitCode +
+                    (compilerOutput.isEmpty() ? "" : System.lineSeparator() + compilerOutput));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Java compilation was interrupted", exception);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to run javac", exception);
+        }
+    }
+
+    private static Path resolveClasspathPath(String entry, Path workingDirectory) {
+        Path path = Path.of(entry);
+        return (path.isAbsolute() ? path : workingDirectory.resolve(path)).toAbsolutePath().normalize();
+    }
+
+    // TODO: temporary
+    private SourceResolver createSourceResolver(Project project) {
+        Path root = project.getPath();
+
+        return new SourceResolver(
+            List.of(
+                root.resolve("src/main/java"),
+                root.resolve("src/test/java")),
+            DependencySourceIndex.EMPTY);
+    }
+
+    // TODO: temporary
+    private void handleDebugEvent(DebugSessionEvent event) {
+        Railroad.LOGGER.debug("Debugger event: {}", event);
+
+        if (event instanceof DebugSessionEvent.Suspended suspended) {
+            JdiDebugSession session = Services.DEBUG_SERVICE
+                .getActiveSession()
+                .orElseThrow();
+
+            session.threads().thenAccept(threads -> {
+                Railroad.LOGGER.debug("Threads: {}", threads);
+
+                long threadId = suspended.threadId();
+
+                session.stackFrames(threadId).thenAccept(frames -> {
+                    Railroad.LOGGER.debug(
+                        "Frames: {}",
+                        frames);
+
+                    if (frames.isEmpty())
+                        return;
+
+                    DebugFrame frame = frames.getFirst();
+
+                    session.variables(frame.id())
+                        .thenAccept(variables -> Railroad.LOGGER.debug(
+                            "Variables: {}",
+                            variables));
+                });
+            });
+        }
     }
 
     private static String[] buildCommand(
@@ -199,7 +388,12 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
         if (debug) {
             if (debugPort <= 0)
                 throw new IllegalStateException("Debug port must be provided when debug mode is enabled.");
-            command.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=%d".formatted(debugPort));
+
+            command.add(
+                "-agentlib:jdwp=transport=dt_socket," +
+                    "server=y," +
+                    "suspend=y," +
+                    "address=127.0.0.1:%d".formatted(debugPort));
         }
 
         command.addAll(List.of(vm));
@@ -213,12 +407,37 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
         return command.toArray(new String[0]);
     }
 
+    private static String[] sanitizeClasspathEntries(String[] classpathEntries) {
+        if (classpathEntries == null || classpathEntries.length == 0)
+            return new String[0];
+
+        return Arrays.stream(classpathEntries)
+            .map(entry -> entry == null ? "" : entry.strip())
+            .filter(entry -> !entry.isBlank())
+            .toArray(String[]::new);
+    }
+
     private static int findFreePort() {
         try (var socket = new ServerSocket(0)) {
             return socket.getLocalPort();
         } catch (IOException exception) {
             throw new RuntimeException("Failed to find a free port for debugging", exception);
         }
+    }
+
+    private static String normalizeMainClass(String mainClass) {
+        if (mainClass == null)
+            return null;
+
+        String normalized = mainClass.strip();
+        if (normalized.toLowerCase().startsWith("src.main.java.")) {
+            normalized = normalized.substring("src.main.java.".length());
+        }
+        if (normalized.toLowerCase().endsWith(".java")) {
+            normalized = normalized.substring(0, normalized.length() - ".java".length());
+        }
+
+        return normalized;
     }
 
     private record ProcessOutputHandler(Process process, String name) implements Runnable {

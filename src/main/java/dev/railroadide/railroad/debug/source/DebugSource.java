@@ -25,14 +25,14 @@ public sealed interface DebugSource {
 
         @Override
         public Optional<String> classPattern(List<Path> paths) {
-            Path absolute =  file.toAbsolutePath().normalize();
+            Path absolute = file.toAbsolutePath().normalize();
             for (Path root : paths) {
-                if(!absolute.startsWith(root))
+                if (!absolute.startsWith(root))
                     continue;
 
-                Path relative = absolute.relativize(root);
+                Path relative = root.relativize(absolute);
                 String className = relative.toString().replace(File.separatorChar, '.');
-                if(!className.endsWith(".java"))
+                if (!className.endsWith(".java"))
                     continue;
 
                 className = className.substring(0, className.length() - ".java".length());

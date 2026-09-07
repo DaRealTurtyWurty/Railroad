@@ -2,6 +2,7 @@ package dev.railroadide.railroad;
 
 import com.google.gson.Gson;
 import dev.railroadide.logger.Logger;
+import dev.railroadide.railroad.debug.DebugService;
 import dev.railroadide.railroad.ide.DefaultDocumentEditorStateService;
 import dev.railroadide.railroad.ide.DefaultIDEStateService;
 import dev.railroadide.railroad.ide.DefaultWorkspaceService;
@@ -153,6 +154,8 @@ public class Services {
      */
     public static final UIManager UI_MANAGER = new UIManager();
 
+    public static final DebugService DEBUG_SERVICE = new DebugService();
+
     /**
      * Retrieves a service instance by its class type.
      *
@@ -193,6 +196,8 @@ public class Services {
             return (T) PROJECT_LANGUAGE_INDEX_SERVICE;
         else if (serviceClass == UIManager.class)
             return (T) UI_MANAGER;
+        else if (serviceClass == DebugService.class)
+            return (T) DEBUG_SERVICE;
 
         throw new IllegalArgumentException("Service " + serviceClass.getName() + " is not available.");
     }

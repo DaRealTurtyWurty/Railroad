@@ -50,14 +50,13 @@ public final class BreakpointManager {
             request.addSourceNameFilter(sourceName.get());
         } else {
             Optional<String> classPattern = sourceResolver.classPatternFor(breakpoint.definition.source());
-            if (classPattern.isEmpty()) {
+            if (classPattern.isEmpty())
                 /*
                  * Better to leave it pending than install an
                  * unfiltered SUSPEND_ALL ClassPrepareRequest
                  * for every class loaded by the JVM.
                  */
                 return;
-            }
 
             request.addClassFilter(classPattern.get());
         }
@@ -78,8 +77,7 @@ public final class BreakpointManager {
 
         tryBind(
             breakpoint,
-            event.referenceType()
-        );
+            event.referenceType());
     }
 
     public void remove(UUID breakpointId) {

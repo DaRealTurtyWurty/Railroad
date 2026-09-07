@@ -29,19 +29,17 @@ public final class VariableInspector {
             variables.add(createVariable(
                 "this",
                 thisObject.referenceType().name(),
-                thisObject
-            ));
+                thisObject));
         }
 
         try {
             List<LocalVariable> localVariables = frame.visibleVariables();
-            Map<LocalVariable, Value> localVariableValues = new HashMap<>();
+            Map<LocalVariable, Value> localVariableValues = frame.getValues(localVariables);
             for (LocalVariable localVariable : localVariables) {
                 variables.add(createVariable(
                     localVariable.name(),
                     localVariable.typeName(),
-                    localVariableValues.get(localVariable)
-                ));
+                    localVariableValues.get(localVariable)));
             }
         } catch (AbsentInformationException _) {
             /*
@@ -58,9 +56,7 @@ public final class VariableInspector {
                     createVariable(
                         "arg" + index,
                         typeOf(arguments.get(index)),
-                        arguments.get(index)
-                    )
-                );
+                        arguments.get(index)));
             }
         }
 
@@ -74,8 +70,7 @@ public final class VariableInspector {
                 declaredType,
                 "null",
                 0,
-                0
-            );
+                0);
 
         long childrenReference = 0;
         int indexedChildren = 0;
@@ -92,8 +87,7 @@ public final class VariableInspector {
             declaredType,
             formatValue(value),
             childrenReference,
-            indexedChildren
-        );
+            indexedChildren);
     }
 
     private long storeReference(Value value) {
@@ -126,11 +120,9 @@ public final class VariableInspector {
             Value value = values.get(i);
 
             variables.add(createVariable(
-                    "[" + (actualStart + i) + "]",
-                    typeOf(value),
-                    value
-                )
-            );
+                "[" + (actualStart + i) + "]",
+                typeOf(value),
+                value));
         }
 
         return variables;
@@ -143,9 +135,7 @@ public final class VariableInspector {
             .filter(field -> !field.isStatic())
             .sorted(
                 Comparator.comparing(
-                    Field::name
-                )
-            )
+                    Field::name))
             .toList();
 
         Map<Field, Value> values = object.getValues(fields);
@@ -153,11 +143,9 @@ public final class VariableInspector {
 
         for (Field field : fields) {
             variables.add(createVariable(
-                    field.name(),
-                    field.typeName(),
-                    values.get(field)
-                )
-            );
+                field.name(),
+                field.typeName(),
+                values.get(field)));
         }
 
         return variables;
@@ -182,8 +170,7 @@ public final class VariableInspector {
             }
             case BooleanValue booleanValue -> {
                 return Boolean.toString(
-                    booleanValue.value()
-                );
+                    booleanValue.value());
             }
             case ByteValue number -> {
                 return Byte.toString(number.value());
@@ -213,8 +200,7 @@ public final class VariableInspector {
                 return object.referenceType().name()
                     + "@"
                     + Long.toHexString(
-                    object.uniqueID()
-                );
+                        object.uniqueID());
             }
             default -> {
             }

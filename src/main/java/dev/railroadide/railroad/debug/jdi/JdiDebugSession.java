@@ -6,7 +6,6 @@ import com.sun.jdi.request.EventRequest;
 import com.sun.jdi.request.EventRequestManager;
 import com.sun.jdi.request.StepRequest;
 import dev.railroadide.railroad.debug.DebugSessionListener;
-import dev.railroadide.railroad.debug.JdiConnections;
 import dev.railroadide.railroad.debug.breakpoint.BreakpointManager;
 import dev.railroadide.railroad.debug.breakpoint.SourceBreakpoint;
 import dev.railroadide.railroad.debug.model.*;
@@ -43,7 +42,11 @@ public final class JdiDebugSession {
     private VariableInspector variableInspector;
     private ExpressionEvaluator expressionEvaluator;
 
-    public JdiDebugSession(DebugEndpoint endpoint, SourceResolver sourceResolver, Collection<SourceBreakpoint> initialBreakpoints) {
+    public JdiDebugSession(
+        DebugEndpoint endpoint,
+        SourceResolver sourceResolver,
+        Collection<SourceBreakpoint> initialBreakpoints
+    ) {
         this.endpoint = endpoint;
         this.sourceResolver = sourceResolver;
         this.initialBreakpoints = initialBreakpoints;
@@ -52,15 +55,14 @@ public final class JdiDebugSession {
     public CompletableFuture<Void> attach() {
         return submit(() -> {
             changeState(DebugSessionState.ATTACHING);
-            vm = JdiConnections.attach(endpoint.port());
+            vm = JdiConnections.attach(endpoint.host(), endpoint.port());
             changeState(DebugSessionState.CONFIGURING);
 
             variableInspector = new VariableInspector();
             expressionEvaluator = new ExpressionEvaluator();
             breakpointManager = new BreakpointManager(
                 vm,
-                sourceResolver
-            );
+                sourceResolver);
 
             for (SourceBreakpoint breakpoint : initialBreakpoints) {
                 breakpointManager.add(breakpoint);
@@ -113,15 +115,13 @@ public final class JdiDebugSession {
                 null,
                 true,
                 selectedThread,
-                threads
-            );
+                threads);
 
             variableInspector.beginSuspension(generation);
             changeState(DebugSessionState.SUSPENDED);
             fireEvent(new DebugSessionEvent.Suspended(
                 DebugStopReason.PAUSE,
-                selectedThread == null ? -1 : selectedThread.uniqueID()
-            ));
+                selectedThread == null ? -1 : selectedThread.uniqueID()));
 
             return null;
         });
@@ -170,8 +170,7 @@ public final class JdiDebugSession {
                     thread.uniqueID(),
                     thread.name(),
                     thread.status(),
-                    thread.isSuspended()
-                ))
+                    thread.isSuspended()))
                 .toList();
         });
     }
@@ -185,7 +184,7 @@ public final class JdiDebugSession {
 
             List<DebugFrame> debugFrames = new ArrayList<>(frames.size());
 
-            long generation = suspensionGeneration.incrementAndGet();
+            long generation = suspendedContext.generation();
             for (int index = 0; index < frames.size(); index++) {
                 StackFrame frame = frames.get(index);
                 Location location = frame.location();
@@ -199,12 +198,10 @@ public final class JdiDebugSession {
                     new DebugFrameId(
                         generation,
                         threadId,
-                        index
-                    ),
+                        index),
                     name,
                     source,
-                    location.lineNumber()
-                ));
+                    location.lineNumber()));
             }
 
             return debugFrames;
@@ -225,8 +222,7 @@ public final class JdiDebugSession {
             return variableInspector.expand(
                 reference,
                 start,
-                count
-            );
+                count);
         });
     }
 
@@ -236,16 +232,14 @@ public final class JdiDebugSession {
 
             Value value = expressionEvaluator.evaluate(
                 frame,
-                expression
-            );
+                expression);
 
             return variableInspector.createVariable(
                 expression,
                 value == null
                     ? "null"
                     : value.type().name(),
-                value
-            );
+                value);
         });
     }
 
@@ -279,7 +273,7 @@ public final class JdiDebugSession {
 
             try {
                 vm.exit(0);
-            } catch (VMDisconnectedException ignored) {
+            } catch (VMDisconnectedException _) {
             }
 
             finishTerminated();
@@ -346,6 +340,7 @@ public final class JdiDebugSession {
         fireEvent(new DebugSessionEvent.Resumed());
     }
 
+    // TODO: configurable
     private void addStepFilters(StepRequest request) {
         request.addClassExclusionFilter("java.*");
         request.addClassExclusionFilter("javax.*");
@@ -370,7 +365,7 @@ public final class JdiDebugSession {
 
     private void requireState(@Nullable DebugSessionState state) {
         if (this.state != state)
-            throw new IllegalStateException("Expected debugger state " + this.state + " but got " + state);
+            throw new IllegalStateException("Expected debugger state " + state + " but got " + this.state);
     }
 
     private void startEventReader() {
@@ -378,8 +373,7 @@ public final class JdiDebugSession {
 
         eventReaderThread = new Thread(
             this::pollForEvents,
-            "RailroadDebugEvents"
-        );
+            "RailroadDebugEvents");
         eventReaderThread.setDaemon(true);
         eventReaderThread.start();
     }
@@ -424,7 +418,7 @@ public final class JdiDebugSession {
                             changeState(DebugSessionState.RUNNING);
                         }
                     }
-                    case VMDeathEvent _, VMDisconnectEvent _ -> terminate = true;
+                    case VMDeathEvent _,VMDisconnectEvent _ -> terminate = true;
                     case null, default -> {
                     }
                 }
@@ -439,8 +433,7 @@ public final class JdiDebugSession {
                 suspendFromEvent(
                     eventSet,
                     stopThread,
-                    stopReason
-                );
+                    stopReason);
             } else {
                 eventSet.resume();
                 if (state == DebugSessionState.CONFIGURING) {
@@ -450,8 +443,7 @@ public final class JdiDebugSession {
         } catch (Throwable throwable) {
             fireEvent(new DebugSessionEvent.Error(
                 "Debugger event processing failed",
-                throwable
-            ));
+                throwable));
 
             try {
                 eventSet.resume();
@@ -469,15 +461,13 @@ public final class JdiDebugSession {
             eventSet,
             false,
             eventThread,
-            threads
-        );
+            threads);
 
         variableInspector.beginSuspension(generation);
         changeState(DebugSessionState.SUSPENDED);
         fireEvent(new DebugSessionEvent.Suspended(
             reason,
-            eventThread.uniqueID()
-        ));
+            eventThread.uniqueID()));
     }
 
     private Map<Long, ThreadReference> captureThreads(ThreadReference eventThread) {
@@ -517,7 +507,13 @@ public final class JdiDebugSession {
 
     private <T> CompletableFuture<T> submit(Callable<T> task) {
         CompletableFuture<T> future = new CompletableFuture<>();
-        commandExecutor.submit(task);
+        commandExecutor.submit(() -> {
+            try {
+                future.complete(task.call());
+            } catch (Throwable throwable) {
+                future.completeExceptionally(throwable);
+            }
+        });
         return future;
     }
 }

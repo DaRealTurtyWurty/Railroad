@@ -123,9 +123,14 @@ public class DetectedJdkListPane extends RRVBox {
             JDK.Brand brand = item.brand();
             Node iconView = null;
             if (brand.isImage()) {
-                try {
-                    var image = new Image(AppResources.getResourceAsStream(brand.getImagePath()), 20, 20, true, true);
-                    iconView = new ImageView(image);
+                try (var stream = AppResources.getResourceAsStream(brand.getImagePath())) {
+                    var image = new Image(stream, 20, 20, true, true);
+                    if (image.isError()) {
+                        Railroad.LOGGER.error("Failed to load image icon for JDK brand {}", brand.name(),
+                            image.getException());
+                    } else {
+                        iconView = new ImageView(image);
+                    }
                 } catch (Exception exception) {
                     Railroad.LOGGER.error("Failed to load image icon for JDK brand {}", brand.name(), exception);
                 }
