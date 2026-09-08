@@ -156,7 +156,7 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
             if (project.hasFacet(FacetManager.GRADLE) || project.hasFacet(FacetManager.MAVEN)) {
                 buildFuture = project.build(jdk).thenCompose(closeBuildConnection -> {
                     closeBuildConnection.run();
-                    return CompletableFuture.completedFuture((Void) null);
+                    return CompletableFuture.completedFuture(null);
                 });
             } else {
                 buildFuture = CompletableFuture.runAsync(() -> compilePlainJavaProject(
