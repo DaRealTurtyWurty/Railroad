@@ -32,7 +32,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -196,19 +195,11 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
                 if (debug && debugPort > 0) {
                     SourceResolver sourceResolver = createSourceResolver(project);
 
-                    var breakpoint = new SourceBreakpoint(
-                        UUID.randomUUID(),
-                        new DebugSource.FileSource(
-                            project.getPath()
-                                .resolve("src/main/java/com/example/Main.java")),
-                        12,
-                        true);
-                    List<SourceBreakpoint> breakpoints = List.of(breakpoint);
-
                     Services.DEBUG_SERVICE.startSession(
                         new DebugEndpoint("127.0.0.1", debugPort),
                         sourceResolver,
-                        breakpoints,
+                        Services.BREAKPOINT_SERVICE,
+                        breakpoint -> belongsToProject(project, breakpoint),
                         this::handleDebugEvent).exceptionally(throwable -> {
                             Railroad.LOGGER.error(
                                 "Failed to attach debugger to {}",
@@ -233,6 +224,15 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
                 throw new IllegalStateException("Failed to start Jar Application process", exception);
             }
         }));
+    }
+
+    private boolean belongsToProject(Project project, SourceBreakpoint breakpoint) {
+        if (!(breakpoint.source() instanceof DebugSource.FileSource(Path breakpointFile)))
+            return false;
+
+        Path projectRoot = project.getPath().toAbsolutePath().normalize();
+        Path file = breakpointFile.toAbsolutePath().normalize();
+        return file.startsWith(projectRoot);
     }
 
     private static void compilePlainJavaProject(

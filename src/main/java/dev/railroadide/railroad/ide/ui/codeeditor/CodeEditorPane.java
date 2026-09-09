@@ -25,9 +25,6 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
-import javafx.scene.layout.ColumnConstraints;
-import javafx.scene.layout.GridPane;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Text;
@@ -137,7 +134,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         signaturePopupContainer.getChildren().add(signatureTextFlow);
         signaturePopup.getContent().add(signaturePopupContainer);
 
-        configureParagraphGraphics();
+        configureGutter();
 
         installSyntaxHighlighting();
         if (supportsDiagnostics()) {
@@ -172,47 +169,33 @@ public abstract class CodeEditorPane extends TextEditorPane {
         super.close();
     }
 
-    // region Paragraph Graphics
-    private void configureParagraphGraphics() {
-        setParagraphGraphicFactory(this::createParagraphGraphic);
+    // region Gutter
+    private void configureGutter() {
+        getGutter().setLineNumberFactory(line -> {
+            var label = new Label(String.format("%4d", line));
+            label.setTextAlignment(TextAlignment.RIGHT);
+            label.setTextFill(Color.LIGHTGRAY);
+            return label;
+        });
+        getGutter().addColumn(new GutterColumn("diagnostics", 12, this::createDiagnosticMarker));
     }
 
-    private Node createParagraphGraphic(int line) {
-        var grid = new GridPane();
-        grid.setHgap(5);
-        grid.getStyleClass().add("ide-code-editor-grid");
+    private @Nullable Node createDiagnosticMarker(int line) {
+        Diagnostic.Kind severity = lineSeverity.get(line);
+        if (severity == null)
+            return null;
 
-        var numberColumn = new ColumnConstraints();
-        numberColumn.setHgrow(Priority.ALWAYS);
+        FontAwesomeSolid iconType = severity == Diagnostic.Kind.ERROR
+            ? FontAwesomeSolid.CIRCLE_EXCLAMATION
+            : FontAwesomeSolid.TRIANGLE_EXCLAMATION;
+        Color color = severity == Diagnostic.Kind.ERROR ? Color.RED : Color.YELLOW;
 
-        var iconColumn = new ColumnConstraints();
-        iconColumn.setPrefWidth(12);
-        iconColumn.setHgrow(Priority.NEVER);
-
-        grid.getColumnConstraints().addAll(numberColumn, iconColumn);
-
-        var label = new Label(String.format("%4d", line + 1));
-        label.setTextAlignment(TextAlignment.RIGHT);
-        label.setTextFill(Color.LIGHTGRAY);
-        grid.add(label, 0, 0);
-
-        Diagnostic.Kind severity = lineSeverity.get(line + 1);
-        if (severity != null) {
-            FontAwesomeSolid iconType = severity == Diagnostic.Kind.ERROR
-                ? FontAwesomeSolid.CIRCLE_EXCLAMATION
-                : FontAwesomeSolid.TRIANGLE_EXCLAMATION;
-            Color color = severity == Diagnostic.Kind.ERROR ? Color.RED : Color.YELLOW;
-
-            var icon = new MFXFontIcon(iconType, 12, color);
-            grid.add(icon, 1, 0);
-
-            String tooltipText = lineDiagnosticMessages.getOrDefault(
-                line + 1,
-                severity == Diagnostic.Kind.ERROR ? "Error" : "Warning");
-            Tooltip.install(icon, new Tooltip(tooltipText));
-        }
-
-        return grid;
+        var icon = new MFXFontIcon(iconType, 12, color);
+        String tooltipText = lineDiagnosticMessages.getOrDefault(
+            line,
+            severity == Diagnostic.Kind.ERROR ? "Error" : "Warning");
+        Tooltip.install(icon, new Tooltip(tooltipText));
+        return icon;
     }
     // endregion
 
@@ -282,7 +265,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         applyEditorStyles();
         restoreBracketHighlight();
         if (lineDecorationsChanged) {
-            requestLayout();
+            getGutter().refresh();
         }
     }
 

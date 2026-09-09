@@ -3,6 +3,7 @@ package dev.railroadide.railroad;
 import com.google.gson.Gson;
 import dev.railroadide.logger.Logger;
 import dev.railroadide.railroad.debug.DebugService;
+import dev.railroadide.railroad.debug.breakpoint.BreakpointService;
 import dev.railroadide.railroad.ide.DefaultDocumentEditorStateService;
 import dev.railroadide.railroad.ide.DefaultIDEStateService;
 import dev.railroadide.railroad.ide.DefaultWorkspaceService;
@@ -156,6 +157,8 @@ public class Services {
 
     public static final DebugService DEBUG_SERVICE = new DebugService();
 
+    public static final BreakpointService BREAKPOINT_SERVICE = new BreakpointService();
+
     /**
      * Retrieves a service instance by its class type.
      *
@@ -198,6 +201,8 @@ public class Services {
             return (T) UI_MANAGER;
         else if (serviceClass == DebugService.class)
             return (T) DEBUG_SERVICE;
+        else if (serviceClass == BreakpointService.class)
+            return (T) BREAKPOINT_SERVICE;
 
         throw new IllegalArgumentException("Service " + serviceClass.getName() + " is not available.");
     }

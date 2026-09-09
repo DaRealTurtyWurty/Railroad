@@ -23,7 +23,6 @@ import javafx.util.Pair;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.fxmisc.richtext.CodeArea;
-import org.fxmisc.richtext.LineNumberFactory;
 import org.fxmisc.richtext.model.PlainTextChange;
 import org.reactfx.Subscription;
 
@@ -69,6 +68,9 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
     protected volatile Path filePath;
     @Getter
     protected final String languageId;
+
+    @Getter
+    private final EditorGutter gutter;
 
     private final AtomicReference<String> lastSavedText = new AtomicReference<>("");
     private final AtomicReference<String> pendingSnapshot = new AtomicReference<>("");
@@ -117,7 +119,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         saved.bind(saveState.isEqualTo(EditorSaveState.CLEAN));
         saveFailed.bind(saveState.isEqualTo(EditorSaveState.ERROR));
 
-        setParagraphGraphicFactory(LineNumberFactory.get(this));
+        gutter = new EditorGutter(this);
         setMouseOverTextDelay(Duration.ofMillis(500));
 
         loadInitialContent();
@@ -513,6 +515,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
                     StandardOpenOption.TRUNCATE_EXISTING);
 
                 filePath = normalizedPath;
+                JavaFXUtils.runOnApplicationThread(gutter::refresh);
                 pendingExternalText = null;
                 closeExternalChangeDialog();
                 backingFileMissing = false;
@@ -686,6 +689,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
             }
 
             filePath = normalizedPath;
+            JavaFXUtils.runOnApplicationThread(gutter::refresh);
             pendingExternalText = null;
             closeExternalChangeDialog();
             backingFileMissing = false;

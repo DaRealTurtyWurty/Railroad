@@ -290,6 +290,28 @@ public final class JdiDebugSession {
         listeners.remove(listener);
     }
 
+    public CompletableFuture<Void> addBreakpoint(SourceBreakpoint breakpoint) {
+        return submit(() -> {
+            breakpointManager.add(breakpoint);
+            return null;
+        });
+    }
+
+    public CompletableFuture<Void> removeBreakpoint(UUID breakpointId) {
+        return submit(() -> {
+            breakpointManager.remove(breakpointId);
+            return null;
+        });
+    }
+
+    public CompletableFuture<Void> updateBreakpoint(SourceBreakpoint breakpoint) {
+        return submit(() -> {
+            breakpointManager.remove(breakpoint.id());
+            breakpointManager.add(breakpoint);
+            return null;
+        });
+    }
+
     private void handleDisconnect() {
         finishTerminated();
     }
