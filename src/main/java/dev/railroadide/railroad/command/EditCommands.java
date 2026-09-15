@@ -39,6 +39,20 @@ public final class EditCommands {
      * Pastes into the focused input.
      */
     public static final Command<Void> PASTE = register("paste", KeyCode.V);
+    /**
+     * Opens find for the focused component.
+     */
+    public static final Command<Void> FIND = register("find", KeyCode.F);
+    /**
+     * Placeholder for replace support. The command remains disabled until replace is implemented.
+     */
+    public static final Command<Void> REPLACE = CommandRegistry.register(new Command<>("railroad:edit_replace",
+        "railroad.menu.edit.replace",
+        c -> enabled("replace", target(c)),
+        c -> execute("replace", target(c), c),
+        List.of(new KeybindData(KeyCode.H,
+            new KeyCombination.Modifier[]{KeyCombination.SHORTCUT_DOWN})),
+        Void.class));
 
     private static Node target(CommandContext<?> context) {
         Node focus = context.source() == null || context.source().getScene() == null
@@ -59,11 +73,16 @@ public final class EditCommands {
             List.of(new KeybindData(key, new KeyCombination.Modifier[]{KeyCombination.SHORTCUT_DOWN})), Void.class));
     }
 
+    @SuppressWarnings("DuplicatedCode")
     private static boolean enabled(String action, Node target) {
         if (target instanceof ProjectExplorerPane pane) {
-            var command = explorerCommand(action);
+            if (action.equals("find"))
+                return true;
+
+            Command<ExplorerTarget> command = explorerCommand(action);
             return command != null && command.canExecute(CommandContext.withArgument(null, pane, pane.commandTarget()));
         }
+
         if (target instanceof TextInputControl text)
             return switch (action) {
                 case "undo" -> text.isEditable() && text.isUndoable();
@@ -71,8 +90,10 @@ public final class EditCommands {
                 case "copy" -> text.getSelection().getLength() > 0;
                 case "cut" -> text.isEditable() && text.getSelection().getLength() > 0;
                 case "paste" -> text.isEditable() && Clipboard.getSystemClipboard().hasString();
+                case "find" -> true;
                 default -> false;
             };
+
         if (target instanceof TextEditorPane text)
             return switch (action) {
                 case "undo" -> text.isEditable() && text.isUndoAvailable();
@@ -96,9 +117,13 @@ public final class EditCommands {
 
     private static void execute(String action, Node target, CommandContext<Void> context) {
         if (target instanceof ProjectExplorerPane pane) {
+            if (action.equals("find")) {
+                pane.openFind();
+                return;
+            }
+
             CommandDispatcher.execute(explorerCommand(action),
                 CommandContext.withArgument(context.project(), pane, pane.commandTarget()));
-
         } else if (target instanceof TextInputControl text) {
             switch (action) {
                 case "undo" -> text.undo();
@@ -107,13 +132,15 @@ public final class EditCommands {
                 case "copy" -> text.copy();
                 case "paste" -> text.paste();
             }
-        } else if (target instanceof TextEditorPane text) {
+        } else if (target instanceof TextEditorPane editor) {
             switch (action) {
-                case "undo" -> text.undo();
-                case "redo" -> text.redo();
-                case "cut" -> text.cut();
-                case "copy" -> text.copy();
-                case "paste" -> text.paste();
+                case "undo" -> editor.undo();
+                case "redo" -> editor.redo();
+                case "cut" -> editor.cut();
+                case "copy" -> editor.copy();
+                case "paste" -> editor.paste();
+                case "find" -> editor.openFind();
+                case "replace" -> editor.openReplace();
             }
         }
     }

@@ -110,10 +110,11 @@ public final class IDEMenuBarFactory {
         var pasteItem = CommandMenuItems.create(EditCommands.PASTE, () -> CommandContext.forProject(project, menuBar));
         pasteItem.setGraphic(new FontIcon(FontAwesomeSolid.PASTE));
 
-        var findItem = new LocalizedMenuItem("railroad.menu.edit.find");
+        var findItem = CommandMenuItems.create(EditCommands.FIND, () -> CommandContext.forProject(project, menuBar));
         findItem.setGraphic(new FontIcon(FontAwesomeSolid.SEARCH));
 
-        var replaceItem = new LocalizedMenuItem("railroad.menu.edit.replace");
+        var replaceItem = CommandMenuItems.create(EditCommands.REPLACE,
+            () -> CommandContext.forProject(project, menuBar));
         replaceItem.setGraphic(new FontIcon(FontAwesomeSolid.SEARCH_PLUS));
 
         var toolWindowsMenu = createToolWindowsMenu(project, menuBar, workspaceActions);

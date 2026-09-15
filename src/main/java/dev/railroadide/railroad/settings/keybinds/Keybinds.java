@@ -114,6 +114,21 @@ public class Keybinds {
      * Configurable shortcut for the edit paste command.
      */
     public static final Keybind EDIT_PASTE = registerIDECommand(EditCommands.PASTE);
+    /**
+     * Configurable shortcut for find in the focused component.
+     */
+    public static final Keybind FIND = KeybindHandler.registerCommand(
+        EditCommands.FIND,
+        GENERAL,
+        Map.of(
+            IDE,
+            action -> CommandContext.forProject(
+                Railroad.PROJECT_MANAGER.getOpenProject(),
+                action.target()),
+            PROJECT_EXPLORER,
+            action -> CommandContext.forProject(
+                Railroad.PROJECT_MANAGER.getOpenProject(),
+                action.target())));
 
     /**
      * Configurable shortcut for the new file command.

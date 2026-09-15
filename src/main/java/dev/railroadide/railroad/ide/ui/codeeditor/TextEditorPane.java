@@ -1007,4 +1007,20 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         updateFontSizeClass();
         event.consume();
     }
+
+    /**
+     * Requests that this editor display its find controls.
+     * Currently retained as a no-op entry point until the editor search UI is implemented.
+     */
+    public void openFind() {
+        // NO-OP
+    }
+
+    /**
+     * Requests that this editor display its replace controls.
+     * Currently retained as a no-op entry point until the editor replace UI is implemented.
+     */
+    public void openReplace() {
+        // NO-OP
+    }
 }

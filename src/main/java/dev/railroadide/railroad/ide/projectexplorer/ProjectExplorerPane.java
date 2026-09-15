@@ -72,6 +72,9 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
     private final StringProperty messageProperty = new SimpleStringProperty();
     private final TreeView<PathItem> treeView = new TreeView<>();
     private final TextField searchField;
+    private final TextField popupSearchField;
+    private final RRButton searchButton;
+    private final ContextMenu searchMenu;
     private final ShutdownHooks.Registration shutdownRegistration;
     private boolean closed;
     private final BiConsumer<Boolean, Boolean> compactPackagesListener = (_, _) -> Platform.runLater(() -> {
@@ -102,6 +105,9 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
 
         this.searchField = new RRTextField("railroad.ide.project_explorer.search_field");
         this.searchField.getStyleClass().add("rr-search-field");
+        this.popupSearchField = new RRTextField("railroad.ide.project_explorer.search_field");
+        this.searchButton = new RRButton("", FontAwesomeSolid.SEARCH);
+        this.searchMenu = new ContextMenu(new CustomMenuItem(this.popupSearchField, false));
 
         var header = createModernHeader(project);
 
@@ -225,6 +231,24 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
      */
     public void openSelectedItemInTerminal() {
         selectedTreeItem().ifPresent(selectedItem -> FileUtils.openInTerminal(selectedItem.getValue().getPath()));
+    }
+
+    /**
+     * Opens the explorer's filename search and focuses its input.
+     */
+    public void openFind() {
+        TextField target;
+        if (searchField.isVisible()) {
+            searchMenu.hide();
+            target = searchField;
+        } else {
+            if (!searchMenu.isShowing()) {
+                searchMenu.show(searchButton, Side.BOTTOM, 0, 0);
+            }
+            target = popupSearchField;
+        }
+        target.requestFocus();
+        target.selectAll();
     }
 
     /**
@@ -429,7 +453,6 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
         HBox.setHgrow(actionButtons, Priority.NEVER);
         actionButtons.setMinWidth(HBox.USE_PREF_SIZE);
 
-        var searchButton = new RRButton("", FontAwesomeSolid.SEARCH);
         searchButton.setVariant(ButtonVariant.GHOST);
         searchButton.setButtonSize(ButtonSize.SMALL);
         searchButton.getStyleClass().add("project-explorer-button");
@@ -437,16 +460,11 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
         searchButton.setTooltip(searchTooltip);
         searchButton.accessibleTextProperty().bind(searchTooltip.textProperty());
 
-        var popupSearch = new RRTextField("railroad.ide.project_explorer.search_field");
-        popupSearch.getStyleClass().add("project-explorer-search-field");
-        popupSearch.textProperty().bindBidirectional(searchField.textProperty());
-        popupSearch.prefWidthProperty().bind(searchField.fontProperty().map(font -> font.getSize() * 20));
-        popupSearch.setMinWidth(TextField.USE_PREF_SIZE);
-        var searchMenu = new ContextMenu(new CustomMenuItem(popupSearch, false));
-        searchButton.setOnAction(_ -> {
-            searchMenu.show(searchButton, Side.BOTTOM, 0, 0);
-            popupSearch.requestFocus();
-        });
+        popupSearchField.getStyleClass().add("project-explorer-search-field");
+        popupSearchField.textProperty().bindBidirectional(searchField.textProperty());
+        popupSearchField.prefWidthProperty().bind(searchField.fontProperty().map(font -> font.getSize() * 20));
+        popupSearchField.setMinWidth(TextField.USE_PREF_SIZE);
+        searchButton.setOnAction(_ -> openFind());
         searchMenu.setOnHidden(_ -> searchButton.requestFocus());
         sceneProperty().addListener((_, _, scene) -> {
             if (scene == null) {

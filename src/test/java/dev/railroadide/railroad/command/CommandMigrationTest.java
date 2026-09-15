@@ -68,7 +68,7 @@ public class CommandMigrationTest {
     }
 
     @Test
-    public void builtinsHaveLocalizedNamesAndNoFindReplaceImplementation() throws Exception {
+    public void builtinsHaveLocalizedNames() throws Exception {
         Commands.initialize();
         for (String language : List.of("en_us", "ru_ru")) {
             Set<String> keys = new HashSet<>();
@@ -86,9 +86,24 @@ public class CommandMigrationTest {
                 }
             }
         }
-        assertTrue(CommandRegistry.find("railroad:edit_find").isEmpty());
-        assertTrue(CommandRegistry.find("railroad:edit_replace").isEmpty());
         assertNotEquals(Commands.REOPEN_CLOSED_EDITOR_TAB.defaultShortcuts().getFirst().getKeyCodeCombination(),
             Commands.toggleDockItem(IDEDockItem.TERMINAL).defaultShortcuts().getFirst().getKeyCodeCombination());
+    }
+
+    @Test
+    public void findCommandHasExpectedRegistrationAndShortcut() {
+        Commands.initialize();
+        assertSame(EditCommands.FIND, CommandRegistry.find("railroad:edit_find").orElseThrow());
+        assertEquals(KeyCode.F,
+            EditCommands.FIND.defaultShortcuts().getFirst().getKeyCodeCombination().getCode());
+    }
+
+    @Test
+    public void replaceCommandIsRegisteredAsDisabledStub() {
+        Commands.initialize();
+        assertSame(EditCommands.REPLACE, CommandRegistry.find("railroad:edit_replace").orElseThrow());
+        assertFalse(EditCommands.REPLACE.canExecute(CommandContext.forProject(null, null)));
+        assertEquals(KeyCode.H,
+            EditCommands.REPLACE.defaultShortcuts().getFirst().getKeyCodeCombination().getCode());
     }
 }
