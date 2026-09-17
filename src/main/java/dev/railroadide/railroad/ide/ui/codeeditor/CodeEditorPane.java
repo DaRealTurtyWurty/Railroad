@@ -26,7 +26,6 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.StackPane;
-import javafx.scene.paint.Color;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextAlignment;
 import javafx.scene.text.TextFlow;
@@ -174,7 +173,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         getGutter().setLineNumberFactory(line -> {
             var label = new Label(String.format("%4d", line));
             label.setTextAlignment(TextAlignment.RIGHT);
-            label.setTextFill(Color.LIGHTGRAY);
+            label.getStyleClass().add("editor-line-number");
             return label;
         });
         getGutter().addColumn(new GutterColumn("diagnostics", 12, this::createDiagnosticMarker));
@@ -188,9 +187,11 @@ public abstract class CodeEditorPane extends TextEditorPane {
         FontAwesomeSolid iconType = severity == Diagnostic.Kind.ERROR
             ? FontAwesomeSolid.CIRCLE_EXCLAMATION
             : FontAwesomeSolid.TRIANGLE_EXCLAMATION;
-        Color color = severity == Diagnostic.Kind.ERROR ? Color.RED : Color.YELLOW;
 
-        var icon = new MFXFontIcon(iconType, 12, color);
+        var icon = new MFXFontIcon(iconType, 12);
+        icon.getStyleClass().add(severity == Diagnostic.Kind.ERROR
+            ? "editor-diagnostic-error"
+            : "editor-diagnostic-warning");
         String tooltipText = lineDiagnosticMessages.getOrDefault(
             line,
             severity == Diagnostic.Kind.ERROR ? "Error" : "Warning");
@@ -740,7 +741,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         if (position < 0 || position >= getLength())
             return;
 
-        List<String> styles = new ArrayList<>(getStyleAtPosition(position));
+        List<String> styles = new ArrayList<>(getStyleOfChar(position));
         if (!styles.contains("bracket-highlight")) {
             styles.add("bracket-highlight");
         }
@@ -752,7 +753,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         if (position < 0 || position >= getLength())
             return;
 
-        List<String> styles = new ArrayList<>(getStyleAtPosition(position));
+        List<String> styles = new ArrayList<>(getStyleOfChar(position));
         if (styles.remove("bracket-highlight")) {
             setStyle(position, position + 1, styles);
         }
