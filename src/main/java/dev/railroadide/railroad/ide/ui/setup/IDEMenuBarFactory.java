@@ -4,6 +4,7 @@ import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.command.*;
 import dev.railroadide.railroad.ide.WorkspaceMode;
 import dev.railroadide.railroad.ide.WorkspaceModeController;
+import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.ui.IDEDockItem;
 import dev.railroadide.railroad.ide.ui.IDEWorkspaceActions;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
@@ -41,10 +42,10 @@ public final class IDEMenuBarFactory {
     /**
      * Builds the project menu bar with editor, workspace, and tool actions.
      *
-     * @param project project whose files and workspace are being displayed
+     * @param project            project whose files and workspace are being displayed
      * @param viewModeController controller exposing workspace mode state and availability
-     * @param viewModeRequester callback for requesting a workspace mode change
-     * @param workspaceActions workspace navigation and tool-window actions
+     * @param viewModeRequester  callback for requesting a workspace mode change
+     * @param workspaceActions   workspace navigation and tool-window actions
      * @return configured IDE menu bar
      */
     public static MenuBar create(
@@ -245,6 +246,16 @@ public final class IDEMenuBarFactory {
 
         var runMenu = new LocalizedMenu("railroad.menu.run");
         runMenu.getItems().addAll(runItem, debugItem, stopItem);
+        runMenu.getItems().add(new SeparatorMenuItem());
+        for (Command<RunConfiguration<?>> command : List.of(
+            RunCommands.RESUME,
+            RunCommands.PAUSE,
+            RunCommands.STEP_OVER,
+            RunCommands.STEP_INTO,
+            RunCommands.STEP_OUT
+        )) {
+            runMenu.getItems().add(CommandMenuItems.create(command, () -> CommandContext.forProject(project, menuBar)));
+        }
         runMenu.getStyleClass().add("rr-menu");
 
         var toolsMenu = new LocalizedMenu("railroad.menu.tools");

@@ -656,6 +656,11 @@ railroad.menu.run=Run
 railroad.menu.run.run=Run
 railroad.menu.run.debug=Debug
 railroad.menu.run.stop=Stop
+railroad.menu.run.resume=Resume
+railroad.menu.run.pause=Pause
+railroad.menu.run.step_over=Step Over
+railroad.menu.run.step_into=Step Into
+railroad.menu.run.step_out=Step Out
 
 railroad.menu.tools=Tools
 railroad.menu.tools.settings=Settings

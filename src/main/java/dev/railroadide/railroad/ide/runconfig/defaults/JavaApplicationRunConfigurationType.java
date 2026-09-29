@@ -28,18 +28,29 @@ import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Launches Java main classes for run or debug sessions and tracks their processes.
  */
 public class JavaApplicationRunConfigurationType extends RunConfigurationType<JavaApplicationRunConfigurationData> {
-    private final Map<RunConfiguration<?>, Process> runningProcesses = new ConcurrentHashMap<>();
+    private final Map<UUID, List<Execution>> executions = new ConcurrentHashMap<>();
+
+    private static final class Execution {
+        private final CompletableFuture<Void> completion = new CompletableFuture<>();
+        private Process process;
+        private volatile boolean stopped;
+
+        private synchronized void stop() {
+            stopped = true;
+            if (process != null) {
+                process.destroy();
+            }
+        }
+    }
 
     /**
      * Creates the Java application type with its localized label and application icon.
@@ -87,19 +98,16 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
         Project project,
         RunConfiguration<JavaApplicationRunConfigurationData> configuration
     ) {
-        Process process = runningProcesses.get(configuration);
-        if (process != null && process.isAlive()) {
-            process.destroy();
-            process.onExit().thenRun(() -> runningProcesses.remove(configuration));
-        }
-
-        return CompletableFuture.completedFuture(null);
+        var running = List.copyOf(executions.getOrDefault(configuration.uuid(), List.of()));
+        running.forEach(Execution::stop);
+        return CompletableFuture.allOf(running.stream()
+            .map(execution -> execution.completion.handle((_, _) -> null))
+            .toArray(CompletableFuture[]::new));
     }
 
     @Override
     public boolean isRunning(Project project, RunConfiguration<JavaApplicationRunConfigurationData> configuration) {
-        Process process = runningProcesses.get(configuration);
-        return process != null && process.isAlive();
+        return !executions.getOrDefault(configuration.uuid(), List.of()).isEmpty();
     }
 
     @Override
@@ -150,80 +158,115 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
             return CompletableFuture.failedFuture(new IllegalStateException(
                 "Working directory does not exist or is not a directory: " + workingDirectory));
 
+        var execution = new Execution();
+        executions.compute(configuration.uuid(), (_, running) -> {
+            if (running == null) {
+                running = new CopyOnWriteArrayList<>();
+            }
+            running.add(execution);
+            return running;
+        });
         CompletableFuture<Void> buildFuture = CompletableFuture.completedFuture(null);
-        if (buildBeforeRun) {
-            if (project.hasFacet(FacetManager.GRADLE) || project.hasFacet(FacetManager.MAVEN)) {
-                buildFuture = project.build(jdk).thenCompose(closeBuildConnection -> {
-                    closeBuildConnection.run();
-                    return CompletableFuture.completedFuture(null);
+        try {
+            if (buildBeforeRun) {
+                if (project.hasFacet(FacetManager.GRADLE) || project.hasFacet(FacetManager.MAVEN)) {
+                    buildFuture = project.build(jdk).thenCompose(closeBuildConnection -> {
+                        closeBuildConnection.run();
+                        return CompletableFuture.completedFuture(null);
+                    });
+                } else {
+                    buildFuture = CompletableFuture.runAsync(() -> compilePlainJavaProject(
+                        project,
+                        jdk,
+                        workingDirectory,
+                        classpathEntries));
+                }
+
+                buildFuture = buildFuture.exceptionally(throwable -> {
+                    System.err.println("Build failed: " + throwable.getMessage());
+                    throw new IllegalStateException("Build failed before running application", throwable);
                 });
-            } else {
-                buildFuture = CompletableFuture.runAsync(() -> compilePlainJavaProject(
-                    project,
-                    jdk,
-                    workingDirectory,
-                    classpathEntries));
             }
 
-            buildFuture = buildFuture.exceptionally(throwable -> {
-                System.err.println("Build failed: " + throwable.getMessage());
-                throw new IllegalStateException("Build failed before running application", throwable);
-            });
-        }
+            buildFuture.thenCompose(_ -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        final int debugPort = debug ? findFreePort() : -1;
+                        String[] command = buildCommand(jdk, mainClass, classpathEntries, programArguments, vmOptions,
+                            debug,
+                            debugPort);
+                        Railroad.LOGGER.debug("Running Java application '{}' with command: {}",
+                            configuration.data().getName(),
+                            String.join(" ", command));
+                        ProcessBuilder builder = new ProcessBuilder(command)
+                            .directory(workingDirectory.toFile())
+                            .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                            .redirectError(ProcessBuilder.Redirect.PIPE);
+                        if (!environmentVariables.isEmpty()) {
+                            builder.environment().putAll(environmentVariables);
+                        }
 
-        return buildFuture.thenCompose(_ -> CompletableFuture.supplyAsync(() -> {
-            try {
-                final int debugPort = debug ? findFreePort() : -1;
-                String[] command = buildCommand(jdk, mainClass, classpathEntries, programArguments, vmOptions, debug,
-                    debugPort);
-                Railroad.LOGGER.debug("Running Java application '{}' with command: {}", configuration.data().getName(),
-                    String.join(" ", command));
-                ProcessBuilder builder = new ProcessBuilder(command)
-                    .directory(workingDirectory.toFile())
-                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                    .redirectError(ProcessBuilder.Redirect.PIPE);
-                if (!environmentVariables.isEmpty()) {
-                    builder.environment().putAll(environmentVariables);
-                }
+                        Process process;
+                        synchronized (execution) {
+                            if (execution.stopped)
+                                return CompletableFuture.<Void>completedFuture(null);
+                            process = builder.start();
+                            execution.process = process;
+                        }
 
-                Process process = builder.start();
-                runningProcesses.put(configuration, process);
+                        // Start consuming output (must be done asynchronously)
+                        new ProcessOutputHandler(process, configuration.data().getName()).run();
 
-                // Start consuming output (must be done asynchronously)
-                new ProcessOutputHandler(process, configuration.data().getName()).run();
+                        CompletableFuture<JdiDebugSession> attachment = CompletableFuture.completedFuture(null);
+                        if (debug && debugPort > 0) {
+                            SourceResolver sourceResolver = createSourceResolver(project);
 
-                if (debug && debugPort > 0) {
-                    SourceResolver sourceResolver = createSourceResolver(project);
+                            attachment = project.getDebuggingManager().startSession(
+                                new DebugEndpoint("127.0.0.1", debugPort),
+                                sourceResolver,
+                                Services.BREAKPOINT_SERVICE,
+                                breakpoint -> belongsToProject(project, breakpoint),
+                                this::handleDebugEvent);
+                            attachment.whenComplete((_, failure) -> {
+                                if (failure != null) {
+                                    process.destroy();
+                                }
+                            });
+                        }
 
-                    Services.DEBUG_SERVICE.startSession(
-                        new DebugEndpoint("127.0.0.1", debugPort),
-                        sourceResolver,
-                        Services.BREAKPOINT_SERVICE,
-                        breakpoint -> belongsToProject(project, breakpoint),
-                        this::handleDebugEvent).exceptionally(throwable -> {
-                            Railroad.LOGGER.error(
-                                "Failed to attach debugger to {}",
-                                configuration.data().getName(),
-                                throwable);
+                        var connection = attachment;
+                        return process.onExit()
+                            .thenCompose(p -> connection.thenCompose(
+                                session -> session == null ? CompletableFuture.completedFuture(null) : session.detach()))
+                            .thenRun(() -> {
+                                if (process.exitValue() != 0 && !execution.stopped) {
+                                    Railroad.LOGGER.error("Application process exited with code: {}", process.exitValue());
+                                } else {
+                                    Railroad.LOGGER.debug("Application process finished successfully.");
+                                }
+                            });
 
-                            return null;
-                        });
-                }
-
-                process.onExit().thenAccept(p -> {
-                    runningProcesses.remove(configuration);
-                    if (p.exitValue() != 0) {
-                        Railroad.LOGGER.error("Application process exited with code: {}", p.exitValue());
-                    } else {
-                        Railroad.LOGGER.debug("Application process finished successfully.");
+                    } catch (IOException exception) {
+                        throw new IllegalStateException("Failed to start Java Application process", exception);
                     }
-                });
+                })).thenCompose(future -> future)
+                .whenComplete((_, failure) -> finishExecution(configuration, execution, failure));
+        } catch (Throwable failure) {
+            finishExecution(configuration, execution, failure);
+        }
+        return execution.completion;
+    }
 
-                return null;
-            } catch (IOException exception) {
-                throw new IllegalStateException("Failed to start Jar Application process", exception);
-            }
-        }));
+    private void finishExecution(RunConfiguration<?> configuration, Execution execution, Throwable failure) {
+        executions.computeIfPresent(configuration.uuid(), (_, running) -> {
+            running.remove(execution);
+            return running.isEmpty() ? null : running;
+        });
+        if (failure == null) {
+            execution.completion.complete(null);
+        } else {
+            execution.stop();
+            execution.completion.completeExceptionally(failure);
+        }
     }
 
     private boolean belongsToProject(Project project, SourceBreakpoint breakpoint) {

@@ -29,6 +29,7 @@ import org.reactfx.Subscription;
 import java.io.IOException;
 import java.nio.file.*;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.*;
@@ -98,7 +99,6 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
     private volatile boolean discardChangesOnClose;
     private boolean closed;
     private final Object saveLock = new Object();
-    // Guarded by saveLock. Saving is suspended until the FX thread resolves this snapshot.
     private String pendingExternalText;
     private String displayedExternalText;
     private ExternalChangeDialog externalChangeDialog;
@@ -106,9 +106,47 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
     private int fontSizeIndex = 5;
 
     /**
+     * Reveals and highlights a suspended debugger location on the JavaFX thread.
+     *
+     * @param line one-based source line; out-of-range lines are ignored
+     */
+    public void showExecutionLine(int line) {
+        clearExecutionLine();
+        if (closed || line < 1 || line > getParagraphs().size())
+            return;
+
+        int paragraph = line - 1;
+        // Unfold enclosing regions so the execution location is actually visible.
+        for (int index = 0; index <= paragraph; index++) {
+            if (isFolded(index)) {
+                unfoldParagraphs(Math.max(0, index - 1));
+            }
+        }
+
+        List<String> styles = new ArrayList<>(getParagraph(paragraph).getParagraphStyle());
+        styles.add("debug-execution-line");
+        setParagraphStyle(paragraph, styles);
+        moveTo(paragraph, 0);
+        requestFollowCaret();
+        requestFocus();
+    }
+
+    /**
+     * Clears debugger highlighting without changing the caret or other paragraph styles.
+     */
+    public void clearExecutionLine() {
+        for (int index = 0; index < getParagraphs().size(); index++) {
+            var styles = new ArrayList<>(getParagraph(index).getParagraphStyle());
+            if (styles.remove("debug-execution-line")) {
+                setParagraphStyle(index, styles);
+            }
+        }
+    }
+
+    /**
      * Creates a file editor, loads its initial contents, and configures saving and file watching.
      *
-     * @param item file to open in the editor
+     * @param item       file to open in the editor
      * @param languageId identifier of the document language
      */
     public TextEditorPane(Path item, String languageId) {
@@ -536,7 +574,9 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         }
     }
 
-    /** Prevents disposal from retrying a save after the user explicitly chose Discard. */
+    /**
+     * Prevents disposal from retrying a save after the user explicitly chose Discard.
+     */
     public void discardChangesOnClose() {
         synchronized (saveLock) {
             discardChangesOnClose = true;
@@ -718,7 +758,9 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         }
     }
 
-    /** Marks a deleted backing file without discarding the editor's in-memory text. */
+    /**
+     * Marks a deleted backing file without discarding the editor's in-memory text.
+     */
     public void markBackingFileDeleted() {
         synchronized (saveLock) {
             if (closed)
