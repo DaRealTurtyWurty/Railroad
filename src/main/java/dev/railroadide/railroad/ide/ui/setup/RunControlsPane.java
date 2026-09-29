@@ -123,7 +123,7 @@ public final class RunControlsPane extends RRHBox {
         button.managedProperty().bind(button.visibleProperty());
         CommandButtons.bind(button, command, () -> CommandContext.forProject(project, this),
             debugging.activeProperty(), debugging.pausedProperty(), debugging.getCommandPending(),
-            debugging.getState());
+            debugging.getState(), debugging.selectedThreadProperty());
         return button;
     }
 

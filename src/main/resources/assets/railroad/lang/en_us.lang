@@ -1267,3 +1267,13 @@ railroad.project.creation.status.creating.subtitle=Setting up %s
 railroad.project.creation.status.logs=Build output
 railroad.project.creation.status.task=Preparing project?
 railroad.project.creation.cancel.tooltip=Cancel project creation
+
+railroad.ide.dock_item.debugger=Debugger
+railroad.debugger.threads=Threads
+railroad.debugger.call_stack=Call Stack
+railroad.debugger.variables=Variables
+railroad.debugger.watches=Watches
+railroad.debugger.no_threads=Pause execution to inspect threads
+railroad.debugger.no_frames=No stack frames available
+railroad.debugger.add_watch=Add watch
+railroad.debugger.remove_watch=Remove watch

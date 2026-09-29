@@ -233,7 +233,7 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
                             });
                         }
 
-                        var connection = attachment;
+                        CompletableFuture<JdiDebugSession> connection = attachment;
                         return process.onExit()
                             .thenCompose(p -> connection.thenCompose(
                                 session -> session == null ? CompletableFuture.completedFuture(null) : session.detach()))

@@ -50,6 +50,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javafx.scene.Parent;
+import javafx.util.Subscription;
 
 /**
  * Hosts a project workspace, coordinating editor groups, docked tools, modes, and window lifecycles.
@@ -1280,6 +1281,7 @@ public final class IDEPane extends RRBorderPane implements AutoCloseable, IDEWor
     }
 
     private void disposeOwnedContent() {
+        debuggerDockSubscription.unsubscribe();
         Set<Tab> tabsToDispose = new LinkedHashSet<>(ownedTabs);
         dockTabsByMode.values().forEach(tabsToDispose::addAll);
         editorPanesByMode.values().forEach(pane -> tabsToDispose.addAll(pane.getTabs()));
@@ -1305,6 +1307,8 @@ public final class IDEPane extends RRBorderPane implements AutoCloseable, IDEWor
         focusOwnersByMode.clear();
     }
 
+    private Subscription debuggerDockSubscription = Subscription.EMPTY;
+
     private DetachableTabPane createBottomPane() {
         var pane = new DetachableTabPane();
         pane.getStyleClass().add("ide-tool-dock");
@@ -1312,7 +1316,14 @@ public final class IDEPane extends RRBorderPane implements AutoCloseable, IDEWor
         trackOwnedTabs(pane);
         pane.getTabs().addAll(
             createDockTab(IDEDockItem.CONSOLE, IDEDockItem.DockPosition.BOTTOM),
-            createDockTab(IDEDockItem.TERMINAL, IDEDockItem.DockPosition.BOTTOM));
+            createDockTab(IDEDockItem.TERMINAL, IDEDockItem.DockPosition.BOTTOM),
+            createDockTab(IDEDockItem.DEBUGGER, IDEDockItem.DockPosition.BOTTOM));
+        debuggerDockSubscription = project.getDebuggingManager().pausedProperty().subscribe((_, paused) -> {
+            if (paused && Services.IDE_STATE.getCurrentProject() == project
+                && !isDockItemActive(IDEDockItem.DEBUGGER)) {
+                toggleDockItem(IDEDockItem.DEBUGGER);
+            }
+        });
 
         assignWhileAttached(UIIds.IDE.IDE_BOTTOM_DOCK, pane);
         return pane;

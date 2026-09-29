@@ -8,6 +8,6 @@ public record DebugVariable(
     int indexedChildren
 ) {
     public boolean hasChildren() {
-        return indexedChildren > 0;
+        return childrenReference > 0;
     }
 }
