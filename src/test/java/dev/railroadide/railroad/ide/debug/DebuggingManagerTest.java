@@ -15,9 +15,9 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class DebuggingManagerTest {
+public class DebuggingManagerTest {
     @BeforeAll
-    static void startJavaFx() throws Exception {
+    public static void startJavaFx() throws Exception {
         var started = new CountDownLatch(1);
         try {
             Platform.startup(started::countDown);
@@ -28,7 +28,7 @@ class DebuggingManagerTest {
     }
 
     @Test
-    void resumeAndTerminationClearInspectionButRetainWatches() throws Exception {
+    public void resumeAndTerminationClearInspectionButRetainWatches() throws Exception {
         onFxThread(() -> {
             for (DebugSessionEvent event : new DebugSessionEvent[]{
                 new DebugSessionEvent.StateChanged(DebugSessionState.SUSPENDED, DebugSessionState.RUNNING),
@@ -65,7 +65,7 @@ class DebuggingManagerTest {
     }
 
     @Test
-    void oldSessionCannotClearNewSessionAndUnsuspendedThreadCannotStep() throws Exception {
+    public void oldSessionCannotClearNewSessionAndUnsuspendedThreadCannotStep() throws Exception {
         onFxThread(() -> {
             var manager = new DebuggingManager(null);
             var current = new CompletableFuture<JdiDebugSession>();
@@ -88,7 +88,7 @@ class DebuggingManagerTest {
     }
 
     @Test
-    void objectReferencesAreExpandableWithoutIndexedChildren() {
+    public void objectReferencesAreExpandableWithoutIndexedChildren() {
         assertTrue(new DebugVariable("player", "Player", "Player@53", 7, 0).hasChildren());
         assertFalse(new DebugVariable("count", "int", "12", 0, 0).hasChildren());
     }

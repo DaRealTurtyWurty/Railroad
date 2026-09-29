@@ -19,10 +19,12 @@ import lombok.Getter;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -71,6 +73,18 @@ public final class DebuggingManager {
         Predicate<SourceBreakpoint> filter,
         DebugSessionListener listener
     ) {
+        return startSession(endpoint, resolver, breakpoints, filter, listener, Duration.ofSeconds(5), () -> false);
+    }
+
+    public synchronized CompletableFuture<JdiDebugSession> startSession(
+        DebugEndpoint endpoint,
+        SourceResolver resolver,
+        BreakpointService breakpoints,
+        Predicate<SourceBreakpoint> filter,
+        DebugSessionListener listener,
+        Duration timeout,
+        BooleanSupplier cancelled
+    ) {
         if (connection != null)
             return CompletableFuture.failedFuture(new IllegalStateException("This project is already debugging"));
         var pending = new CompletableFuture<JdiDebugSession>();
@@ -78,7 +92,7 @@ public final class DebuggingManager {
         Services.DEBUG_SERVICE.startSession(endpoint, resolver, breakpoints, filter, event -> {
             Platform.runLater(() -> acceptEvent(pending, event));
             listener.onDebugEvent(event);
-        }).whenComplete((session, failure) -> {
+        }, timeout, cancelled).whenComplete((session, failure) -> {
             if (failure == null) {
                 pending.complete(session);
             } else {

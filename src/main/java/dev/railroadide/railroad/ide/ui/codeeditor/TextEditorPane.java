@@ -146,7 +146,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
     /**
      * Creates a file editor, loads its initial contents, and configures saving and file watching.
      *
-     * @param item       file to open in the editor
+     * @param item file to open in the editor
      * @param languageId identifier of the document language
      */
     public TextEditorPane(Path item, String languageId) {

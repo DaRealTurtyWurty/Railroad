@@ -189,66 +189,66 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
             }
 
             buildFuture.thenCompose(_ -> CompletableFuture.supplyAsync(() -> {
-                    try {
-                        final int debugPort = debug ? findFreePort() : -1;
-                        String[] command = buildCommand(jdk, mainClass, classpathEntries, programArguments, vmOptions,
-                            debug,
-                            debugPort);
-                        Railroad.LOGGER.debug("Running Java application '{}' with command: {}",
-                            configuration.data().getName(),
-                            String.join(" ", command));
-                        ProcessBuilder builder = new ProcessBuilder(command)
-                            .directory(workingDirectory.toFile())
-                            .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                            .redirectError(ProcessBuilder.Redirect.PIPE);
-                        if (!environmentVariables.isEmpty()) {
-                            builder.environment().putAll(environmentVariables);
-                        }
-
-                        Process process;
-                        synchronized (execution) {
-                            if (execution.stopped)
-                                return CompletableFuture.<Void>completedFuture(null);
-                            process = builder.start();
-                            execution.process = process;
-                        }
-
-                        // Start consuming output (must be done asynchronously)
-                        new ProcessOutputHandler(process, configuration.data().getName()).run();
-
-                        CompletableFuture<JdiDebugSession> attachment = CompletableFuture.completedFuture(null);
-                        if (debug && debugPort > 0) {
-                            SourceResolver sourceResolver = createSourceResolver(project);
-
-                            attachment = project.getDebuggingManager().startSession(
-                                new DebugEndpoint("127.0.0.1", debugPort),
-                                sourceResolver,
-                                Services.BREAKPOINT_SERVICE,
-                                breakpoint -> belongsToProject(project, breakpoint),
-                                this::handleDebugEvent);
-                            attachment.whenComplete((_, failure) -> {
-                                if (failure != null) {
-                                    process.destroy();
-                                }
-                            });
-                        }
-
-                        CompletableFuture<JdiDebugSession> connection = attachment;
-                        return process.onExit()
-                            .thenCompose(p -> connection.thenCompose(
-                                session -> session == null ? CompletableFuture.completedFuture(null) : session.detach()))
-                            .thenRun(() -> {
-                                if (process.exitValue() != 0 && !execution.stopped) {
-                                    Railroad.LOGGER.error("Application process exited with code: {}", process.exitValue());
-                                } else {
-                                    Railroad.LOGGER.debug("Application process finished successfully.");
-                                }
-                            });
-
-                    } catch (IOException exception) {
-                        throw new IllegalStateException("Failed to start Java Application process", exception);
+                try {
+                    final int debugPort = debug ? findFreePort() : -1;
+                    String[] command = buildCommand(jdk, mainClass, classpathEntries, programArguments, vmOptions,
+                        debug,
+                        debugPort);
+                    Railroad.LOGGER.debug("Running Java application '{}' with command: {}",
+                        configuration.data().getName(),
+                        String.join(" ", command));
+                    ProcessBuilder builder = new ProcessBuilder(command)
+                        .directory(workingDirectory.toFile())
+                        .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                        .redirectError(ProcessBuilder.Redirect.PIPE);
+                    if (!environmentVariables.isEmpty()) {
+                        builder.environment().putAll(environmentVariables);
                     }
-                })).thenCompose(future -> future)
+
+                    Process process;
+                    synchronized (execution) {
+                        if (execution.stopped)
+                            return CompletableFuture.<Void>completedFuture(null);
+                        process = builder.start();
+                        execution.process = process;
+                    }
+
+                    // Start consuming output (must be done asynchronously)
+                    new ProcessOutputHandler(process, configuration.data().getName()).run();
+
+                    CompletableFuture<JdiDebugSession> attachment = CompletableFuture.completedFuture(null);
+                    if (debug && debugPort > 0) {
+                        SourceResolver sourceResolver = createSourceResolver(project);
+
+                        attachment = project.getDebuggingManager().startSession(
+                            new DebugEndpoint("127.0.0.1", debugPort),
+                            sourceResolver,
+                            Services.BREAKPOINT_SERVICE,
+                            breakpoint -> belongsToProject(project, breakpoint),
+                            this::handleDebugEvent);
+                        attachment.whenComplete((_, failure) -> {
+                            if (failure != null) {
+                                process.destroy();
+                            }
+                        });
+                    }
+
+                    CompletableFuture<JdiDebugSession> connection = attachment;
+                    return process.onExit()
+                        .thenCompose(p -> connection.thenCompose(
+                            session -> session == null ? CompletableFuture.completedFuture(null) : session.detach()))
+                        .thenRun(() -> {
+                            if (process.exitValue() != 0 && !execution.stopped) {
+                                Railroad.LOGGER.error("Application process exited with code: {}", process.exitValue());
+                            } else {
+                                Railroad.LOGGER.debug("Application process finished successfully.");
+                            }
+                        });
+
+                } catch (IOException exception) {
+                    throw new IllegalStateException("Failed to start Java Application process", exception);
+                }
+            })).thenCompose(future -> future)
                 .whenComplete((_, failure) -> finishExecution(configuration, execution, failure));
         } catch (Throwable failure) {
             finishExecution(configuration, execution, failure);

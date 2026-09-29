@@ -14,9 +14,11 @@ import dev.railroadide.railroad.debug.source.SourceResolver;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 
 public final class JdiDebugSession {
     private final DebugEndpoint endpoint;
@@ -33,6 +35,7 @@ public final class JdiDebugSession {
     private final List<DebugSessionListener> listeners = new CopyOnWriteArrayList<>();
     private final AtomicLong suspensionGeneration = new AtomicLong();
 
+    private volatile boolean stopRequested;
     private volatile VirtualMachine vm;
     private volatile boolean eventReaderRunning;
     private volatile Thread eventReaderThread;
@@ -53,9 +56,14 @@ public final class JdiDebugSession {
     }
 
     public CompletableFuture<Void> attach() {
+        return attach(Duration.ofSeconds(5), () -> false);
+    }
+
+    public CompletableFuture<Void> attach(Duration timeout, BooleanSupplier cancelled) {
         return submit(() -> {
             changeState(DebugSessionState.ATTACHING);
-            vm = JdiConnections.attach(endpoint.host(), endpoint.port());
+            vm = JdiConnections.attach(endpoint.host(), endpoint.port(), timeout,
+                () -> stopRequested || cancelled.getAsBoolean());
             changeState(DebugSessionState.CONFIGURING);
 
             variableInspector = new VariableInspector();
@@ -244,6 +252,7 @@ public final class JdiDebugSession {
     }
 
     public CompletableFuture<Void> detach() {
+        stopRequested = true;
         return submit(() -> {
             eventReaderRunning = false;
 
@@ -265,6 +274,7 @@ public final class JdiDebugSession {
     }
 
     public CompletableFuture<Void> terminate() {
+        stopRequested = true;
         return submit(() -> {
             if (state == DebugSessionState.TERMINATED)
                 return null;
@@ -272,7 +282,9 @@ public final class JdiDebugSession {
             changeState(DebugSessionState.TERMINATING);
 
             try {
-                vm.exit(0);
+                if (vm != null) {
+                    vm.exit(0);
+                }
             } catch (VMDisconnectedException _) {
             }
 

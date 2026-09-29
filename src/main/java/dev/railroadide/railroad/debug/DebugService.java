@@ -1,21 +1,23 @@
 package dev.railroadide.railroad.debug;
 
 import dev.railroadide.railroad.Railroad;
-import dev.railroadide.railroad.debug.breakpoint.SourceBreakpoint;
 import dev.railroadide.railroad.debug.breakpoint.BreakpointEvent;
 import dev.railroadide.railroad.debug.breakpoint.BreakpointListener;
 import dev.railroadide.railroad.debug.breakpoint.BreakpointService;
+import dev.railroadide.railroad.debug.breakpoint.SourceBreakpoint;
 import dev.railroadide.railroad.debug.jdi.JdiDebugSession;
 import dev.railroadide.railroad.debug.model.DebugEndpoint;
 import dev.railroadide.railroad.debug.model.DebugSessionEvent;
 import dev.railroadide.railroad.debug.source.SourceResolver;
 import org.jspecify.annotations.Nullable;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 public final class DebugService {
@@ -31,7 +33,8 @@ public final class DebugService {
         Collection<SourceBreakpoint> breakpoints,
         DebugSessionListener listener
     ) {
-        return startSession(endpoint, sourceResolver, breakpoints, listener, null, _ -> true);
+        return startSession(endpoint, sourceResolver, breakpoints, listener, null, _ -> true, Duration.ofSeconds(5),
+            () -> false);
     }
 
     /**
@@ -53,9 +56,23 @@ public final class DebugService {
         Predicate<SourceBreakpoint> breakpointFilter,
         DebugSessionListener listener
     ) {
+        return startSession(endpoint, sourceResolver, breakpointService, breakpointFilter, listener,
+            Duration.ofSeconds(5), () -> false);
+    }
+
+    public CompletableFuture<JdiDebugSession> startSession(
+        DebugEndpoint endpoint,
+        SourceResolver sourceResolver,
+        BreakpointService breakpointService,
+        Predicate<SourceBreakpoint> breakpointFilter,
+        DebugSessionListener listener,
+        Duration timeout,
+        BooleanSupplier cancelled
+    ) {
         synchronized (breakpointService) {
             var snapshot = breakpointService.getAll().stream().filter(breakpointFilter).toList();
-            return startSession(endpoint, sourceResolver, snapshot, listener, breakpointService, breakpointFilter);
+            return startSession(endpoint, sourceResolver, snapshot, listener, breakpointService, breakpointFilter,
+                timeout, cancelled);
         }
     }
 
@@ -65,7 +82,9 @@ public final class DebugService {
         Collection<SourceBreakpoint> breakpoints,
         DebugSessionListener listener,
         @Nullable BreakpointService breakpointService,
-        Predicate<SourceBreakpoint> breakpointFilter
+        Predicate<SourceBreakpoint> breakpointFilter,
+        Duration timeout,
+        BooleanSupplier cancelled
     ) {
         var session = new JdiDebugSession(
             endpoint,
@@ -93,7 +112,7 @@ public final class DebugService {
             }
         });
 
-        return session.attach()
+        return session.attach(timeout, cancelled)
             .thenApply(_ -> session)
             .whenComplete((result, throwable) -> {
                 if (throwable != null) {
