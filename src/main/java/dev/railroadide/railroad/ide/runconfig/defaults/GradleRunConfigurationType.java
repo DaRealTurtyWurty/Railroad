@@ -5,8 +5,7 @@ import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.debug.jdi.JdiDebugSession;
 import dev.railroadide.railroad.debug.model.DebugEndpoint;
 import dev.railroadide.railroad.debug.source.DebugSource;
-import dev.railroadide.railroad.debug.source.DependencySourceIndex;
-import dev.railroadide.railroad.debug.source.SourceResolver;
+import dev.railroadide.railroad.debug.source.ProjectSourceResolver;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationType;
 import dev.railroadide.railroad.ide.runconfig.defaults.data.GradleRunConfigurationData;
@@ -291,7 +290,7 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
             if (debug && !execution.ended) {
                 Path root = project.getPath().toAbsolutePath().normalize();
                 execution.attachment = project.getDebuggingManager().startSession(
-                    new DebugEndpoint("127.0.0.1", port), createSourceResolver(root),
+                    new DebugEndpoint("127.0.0.1", port), ProjectSourceResolver.create(root),
                     Services.BREAKPOINT_SERVICE,
                     breakpoint -> breakpoint.source() instanceof DebugSource.FileSource(Path file)
                         && file.toAbsolutePath().normalize().startsWith(root),
@@ -303,15 +302,6 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
                     }
                 });
             }
-        }
-    }
-
-    private static SourceResolver createSourceResolver(Path root) throws IOException {
-        // Include conventional source sets in subprojects as well as the root project.
-        try (var paths = Files.find(root, 12, (path, attributes) -> attributes.isDirectory()
-            && (path.endsWith(Path.of("src", "main", "java"))
-                || path.endsWith(Path.of("src", "test", "java"))))) {
-            return new SourceResolver(paths.toList(), DependencySourceIndex.EMPTY);
         }
     }
 

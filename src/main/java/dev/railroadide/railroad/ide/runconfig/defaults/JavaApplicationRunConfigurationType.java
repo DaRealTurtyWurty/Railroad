@@ -5,10 +5,8 @@ import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.debug.breakpoint.SourceBreakpoint;
 import dev.railroadide.railroad.debug.jdi.JdiDebugSession;
 import dev.railroadide.railroad.debug.model.DebugEndpoint;
-import dev.railroadide.railroad.debug.model.DebugFrame;
-import dev.railroadide.railroad.debug.model.DebugSessionEvent;
 import dev.railroadide.railroad.debug.source.DebugSource;
-import dev.railroadide.railroad.debug.source.DependencySourceIndex;
+import dev.railroadide.railroad.debug.source.ProjectSourceResolver;
 import dev.railroadide.railroad.debug.source.SourceResolver;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationType;
@@ -28,6 +26,7 @@ import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -209,7 +208,7 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
                     synchronized (execution) {
                         if (execution.stopped)
                             return CompletableFuture.<Void>completedFuture(null);
-                        process = builder.start();
+                        process = startProcess(builder);
                         execution.process = process;
                     }
 
@@ -218,14 +217,17 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
 
                     CompletableFuture<JdiDebugSession> attachment = CompletableFuture.completedFuture(null);
                     if (debug && debugPort > 0) {
-                        SourceResolver sourceResolver = createSourceResolver(project);
+                        SourceResolver sourceResolver = ProjectSourceResolver.create(project.getPath());
 
                         attachment = project.getDebuggingManager().startSession(
                             new DebugEndpoint("127.0.0.1", debugPort),
                             sourceResolver,
                             Services.BREAKPOINT_SERVICE,
                             breakpoint -> belongsToProject(project, breakpoint),
-                            this::handleDebugEvent);
+                            _ -> {
+                            },
+                            Duration.ofSeconds(5),
+                            () -> execution.stopped || !process.isAlive());
                         attachment.whenComplete((_, failure) -> {
                             if (failure != null) {
                                 process.destroy();
@@ -367,48 +369,15 @@ public class JavaApplicationRunConfigurationType extends RunConfigurationType<Ja
         return (path.isAbsolute() ? path : workingDirectory.resolve(path)).toAbsolutePath().normalize();
     }
 
-    // TODO: temporary
-    private SourceResolver createSourceResolver(Project project) {
-        Path root = project.getPath();
-
-        return new SourceResolver(
-            List.of(
-                root.resolve("src/main/java"),
-                root.resolve("src/test/java")),
-            DependencySourceIndex.EMPTY);
-    }
-
-    // TODO: temporary
-    private void handleDebugEvent(DebugSessionEvent event) {
-        Railroad.LOGGER.debug("Debugger event: {}", event);
-
-        if (event instanceof DebugSessionEvent.Suspended suspended) {
-            JdiDebugSession session = Services.DEBUG_SERVICE
-                .getActiveSession()
-                .orElseThrow();
-
-            session.threads().thenAccept(threads -> {
-                Railroad.LOGGER.debug("Threads: {}", threads);
-
-                long threadId = suspended.threadId();
-
-                session.stackFrames(threadId).thenAccept(frames -> {
-                    Railroad.LOGGER.debug(
-                        "Frames: {}",
-                        frames);
-
-                    if (frames.isEmpty())
-                        return;
-
-                    DebugFrame frame = frames.getFirst();
-
-                    session.variables(frame.id())
-                        .thenAccept(variables -> Railroad.LOGGER.debug(
-                            "Variables: {}",
-                            variables));
-                });
-            });
-        }
+    /**
+     * Starts the configured child JVM.
+     *
+     * @param builder command, environment and working directory for the child
+     * @return launched process
+     * @throws IOException if the child cannot be started
+     */
+    protected Process startProcess(ProcessBuilder builder) throws IOException {
+        return builder.start();
     }
 
     private static String[] buildCommand(
