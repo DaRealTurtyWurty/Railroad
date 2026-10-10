@@ -13,6 +13,9 @@
 
 ## Setup
 
+The build downloads `dev.railroadide.quality` version `1.0.0` from
+`https://maven.railroadide.dev/releases`. No separate plugin checkout is required.
+
 1. Clone the repository.
 
    ```sh
@@ -121,9 +124,9 @@ Run the formatter before committing Java, CSS, Groovy, or Gradle script changes:
 Formatting is ratcheted from `HEAD` by default, so only changed and untracked files are touched.
 CSS files under `src` use Prettier (requires Node.js and npm); Groovy files under `src` and Gradle scripts in the project root, `gradle`, and
 `src` use Groovy-Eclipse. Both use four-space indentation, trim trailing whitespace, and end files with a newline.
-CSS settings live in `build.gradle` and preserve spaces around selector combinators such as `>`.
+CSS settings live in the `railroad-quality-plugin` sources and preserve spaces around selector combinators such as `>`.
 The wide CSS print width keeps long selectors inline because JavaFX rejects line breaks before `>`.
-Groovy settings live in `config/format/railroad-groovy.properties`.
+Groovy settings live in the plugin's `src/main/resources/dev/railroadide/quality/railroad-groovy.properties`.
 Gradle templates under `templates` are excluded because they contain template directives.
 
 For Java, this applies Railroad's syntax-aware style rules first, followed by the Eclipse JDT formatter.
@@ -163,7 +166,7 @@ To intentionally reformat every supported source file instead of only current ch
 ```
 
 The canonical whitespace and wrapping settings are stored in
-`config/format/railroad-eclipse-formatter.xml`. Structural rules and their tests live under `src/formatter/java` and
+the plugin's `src/main/resources/dev/railroadide/quality/railroad-eclipse-formatter.xml`. Structural rules and their tests live under its `src/main/java/dev/railroadide/railroad/formatter` and
 `src/test/java/dev/railroadide/railroad/formatter`, respectively.
 
 ## Javadoc coverage
@@ -202,12 +205,11 @@ with incomplete coverage, so it can be used while improving documentation. Neith
 requires its dependencies; invalid Java syntax fails report generation. `javadocCoverageCheck` is opt-in and is not
 attached to `check`, since the existing documentation is not yet complete.
 
-Run the coverage tool's focused tests with `./gradlew javadocCoverageTest` (also included in `check`). The implementation,
-report assets, and tests live in `src/javadocCoverageTool` and `src/javadocCoverageTest`; Gradle wiring is in
-`gradle/javadoc-coverage.gradle`. Both Java source sets are included in `format` and `formatCheck`, including the
-semantic style rules and Spotless checks.
+The implementation, report assets, and tests live in the standalone `railroad-quality-plugin`
+repository. Run `./gradlew test validatePlugins` there to test the quality tools.
+Railroad uses the published plugin; its `check` task runs the application's own tests.
 
-The HTML layout lives in `src/javadocCoverageTool/resources/dev/railroadide/railroad/docs/report.ftlh`, rendered with
+The HTML layout lives in the plugin's `src/main/resources/dev/railroadide/railroad/docs/report.ftlh`, rendered with
 FreeMarker and automatic HTML escaping. Edit that template to change the report structure; `report.css` and `report.js`
 are embedded verbatim so the output remains a single self-contained HTML file. FreeMarker is a coverage-tool dependency
 and is not added to the application.
