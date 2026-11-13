@@ -1,19 +1,19 @@
 package dev.railroadide.railroad.ide.language.impl.index;
 
-import java.util.function.BooleanSupplier;
-import java.util.function.BiFunction;
-
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.project.*;
 import dev.railroadide.railroad.ide.sst.request.api.FeatureRequestContext;
 import dev.railroadide.railroad.ide.sst.request.api.RequestContext;
+
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiFunction;
+import java.util.function.BooleanSupplier;
 
 /** Builds reusable Java analysis inputs exclusively from captured documents and configuration. */
 public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
@@ -242,7 +242,16 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
             totals.hitCount(), totals.missCount(), totals.evictionCount());
     }
 
-    /** Bounded cache occupancy and cumulative counters; explicit clearing is not an eviction. */
+    /**
+     * Bounded cache occupancy and cumulative counters; explicit clearing is not an eviction.
+     *
+     * @param workspaces  number of retained workspace analysis results
+     * @param sourceFiles number of retained source revision indexes
+     * @param binaries    number of retained binary configuration indexes
+     * @param hits        cumulative successful lookups across all three caches
+     * @param misses      cumulative lookups without a retained entry across all three caches
+     * @param evictions   cumulative automatic entry removals across all three caches
+     */
     public record CacheUsage(long workspaces, long sourceFiles, long binaries, long hits, long misses, long evictions) {
     }
 

@@ -33,7 +33,11 @@ public final class ProviderExecutor implements AutoCloseable {
         }
     }
 
-    /** @return the application-owned executor, closed by application shutdown */
+    /**
+     * Returns the shared provider execution boundary for the application.
+     *
+     * @return the application-owned executor, closed by application shutdown
+     */
     public static ProviderExecutor shared() {
         return Shared.INSTANCE;
     }
@@ -321,13 +325,21 @@ public final class ProviderExecutor implements AutoCloseable {
         }
     }
 
-    /** @return immutable provider aggregates in provider-identity order */
+    /**
+     * Takes a snapshot of execution measurements for each retained provider.
+     *
+     * @return immutable provider aggregates in provider-identity order
+     */
     public synchronized List<ProviderHealth> health() {
         return providers.values().stream().map(Measurements::snapshot)
             .sorted(Comparator.comparing(ProviderHealth::providerId)).toList();
     }
 
-    /** @return immutable slow, timed-out, failed, or rejected provider diagnostics */
+    /**
+     * Returns provider measurement snapshots that contain execution warnings, ordered by provider identity.
+     *
+     * @return immutable slow, timed-out, failed, or rejected provider diagnostics
+     */
     public List<ProviderHealth> diagnostics() {
         return health().stream().filter(ProviderHealth::hasWarnings).toList();
     }
