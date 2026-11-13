@@ -11,6 +11,13 @@ import java.util.List;
  * @param items completion candidates
  */
 public record CompletionResult(int replacementStart, List<CompletionItem> items) {
+    /**
+     * Creates a result with an immutable copy of the completion candidates.
+     *
+     * @param replacementStart inclusive UTF-16 replacement offset, or -1 only when there are no candidates
+     * @param items non-null completion candidates to copy
+     * @throws IllegalArgumentException if the offset is below -1 or is -1 with nonempty candidates
+     */
     public CompletionResult {
         items = List.copyOf(items);
         if (replacementStart < -1 || replacementStart == -1 && !items.isEmpty())

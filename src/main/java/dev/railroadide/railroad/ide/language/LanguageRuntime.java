@@ -16,11 +16,23 @@ public final class LanguageRuntime implements AutoCloseable {
     private boolean closed;
     private long registrationRevision;
 
-    /** Changes whenever the set of provider registrations changes. */
+    /**
+     * Changes whenever the set of provider registrations changes.
+     *
+     * @return the current registration revision
+     */
     public synchronized long registrationRevision() {
         return registrationRevision;
     }
 
+    /**
+     * Registers a language contribution under an owner for later cleanup.
+     *
+     * @param owner nonblank identity of the plugin or host owning the contribution
+     * @param contribution language descriptor and session factory
+     * @throws IllegalStateException if this runtime is closed
+     * @throws IllegalArgumentException if the descriptor is invalid or its language ID is already registered
+     */
     public void register(String owner, LanguageContribution contribution) {
         registerOwned(owner, contribution);
     }
@@ -52,7 +64,12 @@ public final class LanguageRuntime implements AutoCloseable {
         return registration;
     }
 
-    /** Discovers only this loader's services. Failed batches roll back their own registrations. */
+    /**
+     * Discovers only this loader's services. Failed batches roll back their own registrations.
+     *
+     * @param owner identity that owns the discovered contributions
+     * @param loader class loader whose own language services are loaded
+     */
     public void discover(String owner, ClassLoader loader) {
         List<Registration> added = new ArrayList<>();
         try {
@@ -77,17 +94,33 @@ public final class LanguageRuntime implements AutoCloseable {
         }
     }
 
+    /**
+     * Looks up a registered language by its namespaced identity.
+     *
+     * @param id language to look up
+     * @return the contribution, or empty if unregistered
+     */
     public synchronized Optional<LanguageContribution> get(LanguageId id) {
         Registration registration = registrations.get(id);
         return registration == null ? Optional.empty() : Optional.of(registration.contribution);
     }
 
+    /**
+     * Takes a snapshot of all registered language contributions.
+     *
+     * @return an immutable list ordered by language ID
+     */
     public synchronized List<LanguageContribution> all() {
         return registrations.values().stream().sorted(Comparator.comparing(Registration::id))
             .map(Registration::contribution).toList();
     }
 
-    /** Order is priority, match specificity, language ID, then owner; loading order never matters. */
+    /**
+     * Order is priority, match specificity, language ID, then owner; loading order never matters.
+     *
+     * @param input file path and bounded content prefix to match
+     * @return the highest-ranked matching contribution, or empty if none matches
+     */
     public Optional<LanguageContribution> find(LanguageMatchInput input) {
         List<Registration> candidates;
         synchronized (this) {
@@ -113,6 +146,12 @@ public final class LanguageRuntime implements AutoCloseable {
             .map(match -> match.registration.contribution).findFirst();
     }
 
+    /**
+     * Matches a file using its name and a bounded content prefix. Unreadable content falls back to filename matching.
+     *
+     * @param path file to recognize
+     * @return the highest-ranked matching contribution, or empty if none matches
+     */
     public Optional<LanguageContribution> find(Path path) {
         byte[] prefix = new byte[0];
         if (Files.isRegularFile(path)) {
@@ -125,6 +164,18 @@ public final class LanguageRuntime implements AutoCloseable {
         return find(new LanguageMatchInput(path, prefix));
     }
 
+    /**
+     * Returns an active session for the project, language, and dialect, creating one when needed. The runtime owns the
+     * returned session.
+     *
+     * @param project project owning the language services
+     * @param id registered language identity
+     * @param dialect dialect identifier, or an empty string for the default dialect
+     * @return the shared active language session
+     * @throws IllegalArgumentException if the language is not registered
+     * @throws java.util.concurrent.CancellationException if the runtime is closed or ownership ends during creation
+     * @throws IllegalStateException if the created session does not expose the declared capabilities
+     */
     public LanguageSession session(Project project, LanguageId id, String dialect) {
         Objects.requireNonNull(project, "project");
         Objects.requireNonNull(dialect, "dialect");
@@ -173,6 +224,8 @@ public final class LanguageRuntime implements AutoCloseable {
      * Ends the project's current sessions, including pending creations. A subsequent explicit session
      * lookup reopens ownership; hosts must stop new requests when their project closes. Previously
      * returned capability handles remain permanently cancelled.
+     *
+     * @param project project whose current sessions should be closed
      */
     public void closeProject(Project project) {
         Map<SessionKey, LanguageSession> removed;
@@ -182,6 +235,11 @@ public final class LanguageRuntime implements AutoCloseable {
         closeSessions(removed == null ? List.of() : removed.values());
     }
 
+    /**
+     * Removes all contributions belonging to an owner and closes their project sessions.
+     *
+     * @param owner owner identity used during registration
+     */
     public void unregisterOwner(String owner) {
         List<Registration> removed;
         synchronized (this) {
@@ -203,6 +261,11 @@ public final class LanguageRuntime implements AutoCloseable {
             throw failure;
     }
 
+    /**
+     * Removes a language and closes its project sessions; an unregistered ID has no effect.
+     *
+     * @param id language to unregister
+     */
     public void unregister(LanguageId id) {
         Registration registration;
         synchronized (this) {
@@ -231,6 +294,10 @@ public final class LanguageRuntime implements AutoCloseable {
         closeSessions(removed);
     }
 
+    /**
+     * Removes all registrations and closes all project sessions. An open runtime can subsequently accept new
+     * registrations.
+     */
     public void clear() {
         List<LanguageSession> removed;
         synchronized (this) {

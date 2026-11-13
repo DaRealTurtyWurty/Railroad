@@ -25,6 +25,18 @@ public record SignatureHelp(
     String returnType,
     boolean varargs
 ) {
+    /**
+     * Creates a signature snapshot with an immutable copy of its formal parameters.
+     *
+     * @param ownerQualified fully qualified name of the declaring type
+     * @param ownerDisplay declaring type name formatted for display
+     * @param methodName method or constructor name
+     * @param parameters formal parameters in declaration order
+     * @param activeParameter zero-based index of the argument at the caret
+     * @param constructor whether this is a constructor signature
+     * @param returnType return type formatted for display
+     * @param varargs whether variable-arity arguments are accepted
+     */
     public SignatureHelp {
         parameters = List.copyOf(parameters);
     }

@@ -42,16 +42,30 @@ import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnaps
  *
  * @param project project being analyzed
  * @param projectIndex shared symbol index, or null to resolve it from the project
+ * @param analysis captures Java analysis for the request workspace and cancellation controls
  */
 public record JavaDiagnosticsProvider(
     Project project,
     @Nullable JavaSymbolIndex projectIndex,
     Function<RequestContext, JavaWorkspaceAnalysis> analysis
 ) implements DiagnosticsProvider<TextEditorDiagnostic> {
+    /**
+     * Creates diagnostics using a supplied index or the shared Java analysis context.
+     *
+     * @param project project being analyzed, or null for standalone diagnostics
+     * @param projectIndex shared symbol index, or null to obtain analysis for each request
+     */
     public JavaDiagnosticsProvider(Project project, JavaSymbolIndex projectIndex) {
         this(project, projectIndex, JavaLanguageSupport.analysisContextProvider()::index);
     }
 
+    /**
+     * Creates diagnostics with a caller-supplied request analysis function.
+     *
+     * @param project project being analyzed, or null for standalone diagnostics
+     * @param projectIndex shared symbol index, or null to obtain analysis for each request
+     * @param analysis captures Java analysis for the request workspace and cancellation controls
+     */
     public JavaDiagnosticsProvider {
         Objects.requireNonNull(analysis, "analysis");
     }

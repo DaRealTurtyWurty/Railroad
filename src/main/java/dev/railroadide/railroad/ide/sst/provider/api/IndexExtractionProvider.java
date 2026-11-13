@@ -7,6 +7,11 @@ import java.util.List;
 /** Extracts immutable declarations from one captured text or binary document. */
 @FunctionalInterface
 public interface IndexExtractionProvider {
-    /** @return declarations at this revision; an empty list means no declarations */
+    /**
+     * Extracts declarations and their versioned locations from the captured document.
+     *
+     * @param context captured document, workspace, cancellation token, and deadline
+     * @return declarations at this revision; an empty list means no declarations
+     */
     FeatureResult<List<SymbolOccurrence>> extract(FeatureRequestContext context);
 }

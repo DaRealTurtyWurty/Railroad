@@ -87,11 +87,19 @@ public final class PluginLoadResult {
         this.classLoader = classLoader;
     }
 
+    /**
+     * Replaces the tracked shutdown registration, closing any previous registration.
+     *
+     * @param registration shutdown registration to retain, or null to leave none registered
+     */
     public void setShutdownRegistration(ShutdownHooks.Registration registration) {
         clearShutdownRegistration();
         shutdownRegistration = registration;
     }
 
+    /**
+     * Closes and clears the tracked shutdown registration, if present.
+     */
     public void clearShutdownRegistration() {
         if (shutdownRegistration != null) {
             shutdownRegistration.close();

@@ -41,7 +41,11 @@ public final class ProjectLanguageIndexService {
         this(LanguageSupportRegistry.runtime());
     }
 
-    /** Creates index ownership backed by the supplied language runtime. */
+    /**
+     * Creates index ownership backed by the supplied language runtime.
+     *
+     * @param runtime runtime owning the language contributions and their project sessions
+     */
     public ProjectLanguageIndexService(LanguageRuntime runtime) {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
     }
@@ -279,24 +283,48 @@ public final class ProjectLanguageIndexService {
         }
     }
 
-    /** Reports whether a project language session supplies an indexer. */
+    /**
+     * Reports whether a project language session supplies an indexer.
+     *
+     * @param project project owning the language services
+     * @param languageId host storage identifier or namespaced contribution identifier
+     * @return whether the language session exposes a project indexer
+     */
     public boolean hasIndexer(Project project, String languageId) {
         return getIndexer(project, languageId) != null;
     }
 
-    /** Returns the indexer owned by the project language session, or null when unsupported. */
+    /**
+     * Returns the indexer owned by the project language session, or null when unsupported.
+     *
+     * @param project project owning the language services
+     * @param languageId host storage identifier or namespaced contribution identifier
+     * @return the session indexer, or null if the language or capability is unavailable
+     */
     public @Nullable ProjectLanguageIndexer<?, ?> getIndexer(Project project, String languageId) {
         LanguageSession provider = languageSession(project, languageId);
         return provider == null ? null : provider.capability(LanguageCapabilities.INDEXER).orElse(null);
     }
 
-    /** Returns persistence owned by the project language session, or null when unsupported. */
+    /**
+     * Returns persistence owned by the project language session, or null when unsupported.
+     *
+     * @param project project owning the language services
+     * @param languageId host storage identifier or namespaced contribution identifier
+     * @return the session persistence service, or null if unavailable
+     */
     public @Nullable ProjectLanguageIndexPersistence<?> getPersistence(Project project, String languageId) {
         LanguageSession provider = languageSession(project, languageId);
         return provider == null ? null : provider.capability(LanguageCapabilities.PERSISTENCE).orElse(null);
     }
 
-    /** Runs optional auxiliary indexing in the same owned language session as source indexing. */
+    /**
+     * Runs optional auxiliary indexing in the same owned language session as source indexing.
+     *
+     * @param project project owning the language services
+     * @param languageId host storage identifier or namespaced contribution identifier
+     * @param context project indexing inputs and cancellation controls
+     */
     public void warmAdditionalIndexes(Project project, String languageId, ProjectIndexContext context) {
         LanguageSession provider = languageSession(project, languageId);
         if (provider != null) {
@@ -304,28 +332,52 @@ public final class ProjectLanguageIndexService {
         }
     }
 
-    /** Returns the current contributions, including languages loaded after the project opened. */
+    /**
+     * Returns the current contributions, including languages loaded after the project opened.
+     *
+     * @return an immutable snapshot of contributions ordered by language ID
+     */
     public List<LanguageContribution> languages() {
         return runtime.all();
     }
 
-    /** Registration revision used to invalidate captured index contexts after plugin changes. */
+    /**
+     * Registration revision used to invalidate captured index contexts after plugin changes.
+     *
+     * @return the current language registration revision
+     */
     public long languageRegistrationRevision() {
         return runtime.registrationRevision();
     }
 
-    /** Uses the same priority and content matching as editor language selection. */
+    /**
+     * Uses the same priority and content matching as editor language selection.
+     *
+     * @param path file to recognize
+     * @return the highest-ranked matching contribution, or empty if none matches
+     */
     public Optional<LanguageContribution> findLanguage(Path path) {
         return runtime.find(path);
     }
 
-    /** Resolves a contribution's existing index storage identity through its indexer. */
+    /**
+     * Resolves a contribution's existing index storage identity through its indexer.
+     *
+     * @param project project owning the language services
+     * @param contribution language whose index storage identity is needed
+     * @return the indexer's language identifier, or the contribution ID if indexing is unsupported
+     */
     public String indexLanguageId(Project project, LanguageContribution contribution) {
         ProjectLanguageIndexer<?, ?> indexer = getIndexer(project, contribution.id().value());
         return indexer == null ? contribution.id().value() : indexer.languageId();
     }
 
-    /** Refreshes live contributions while retaining explicitly supplied contexts for registered languages. */
+    /**
+     * Refreshes live contributions while retaining explicitly supplied contexts for registered languages.
+     *
+     * @param previous captured context whose project index session must still be active
+     * @return the refreshed context retaining the previous session and cancellation token
+     */
     public ProjectIndexContext refreshContext(ProjectIndexContext previous) {
         synchronized (ownership) {
             Session session = previous.session();

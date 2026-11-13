@@ -10,6 +10,11 @@ import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxTree;
  */
 @FunctionalInterface
 public interface ParsingProvider {
-    /** @return immutable syntax for this request; failure and cancellation propagate */
+    /**
+     * Builds syntax for the captured text revision while observing request activity.
+     *
+     * @param context captured document, workspace, cancellation token, and deadline
+     * @return immutable syntax for this request; failure and cancellation propagate
+     */
     FeatureResult<SyntaxTree> parse(FeatureRequestContext context);
 }

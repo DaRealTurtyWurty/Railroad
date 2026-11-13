@@ -33,7 +33,15 @@ public record CodeEditorConfig(
     @Nullable SyntaxHighlightingProvider highlightingProvider,
     CancellationToken providerLifetime
 ) {
-    /** Creates configuration for directly owned providers with no external unload lifetime. */
+    /**
+     * Creates configuration for directly owned providers with no external unload lifetime.
+     *
+     * @param languageId identifier of the document language
+     * @param completionProvider completion service, or null to disable completion
+     * @param diagnosticsProvider diagnostics service, or null when unavailable
+     * @param signatureHelpProvider signature help service, or null when unavailable
+     * @param highlightingProvider syntax style provider, or null when unavailable
+     */
     public CodeEditorConfig(
         String languageId,
         @Nullable CompletionProvider completionProvider,

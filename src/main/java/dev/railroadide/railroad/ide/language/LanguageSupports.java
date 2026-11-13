@@ -12,6 +12,9 @@ public final class LanguageSupports {
     private LanguageSupports() {
     }
 
+    /**
+     * Registers built-in languages whose IDs are not already present in the shared runtime.
+     */
     public static synchronized void initialize() {
         for (LanguageSupport support : BUILT_INS) {
             if (LanguageSupportRegistry.runtime().get(support.id()).isEmpty()) {
@@ -20,6 +23,9 @@ public final class LanguageSupports {
         }
     }
 
+    /**
+     * Clears all language registrations and closes their sessions in the shared runtime.
+     */
     public static void reset() {
         LanguageSupportRegistry.clear();
     }

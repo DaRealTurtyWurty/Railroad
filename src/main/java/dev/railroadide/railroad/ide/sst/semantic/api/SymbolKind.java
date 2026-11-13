@@ -6,6 +6,10 @@ package dev.railroadide.railroad.ide.sst.semantic.api;
  */
 @FunctionalInterface
 public interface SymbolKind {
-    /** @return the namespaced category identifier */
+    /**
+     * Identifies this symbol category across provider boundaries.
+     *
+     * @return the namespaced category identifier
+     */
     String id();
 }

@@ -17,6 +17,9 @@ import java.util.regex.Pattern;
  * Every request is computed from its captured snapshots; no persistent cache can outlive a session.
  */
 public final class TinyLanguageContribution implements LanguageContribution {
+    /**
+     * Namespaced identity of the example text language.
+     */
     public static final LanguageId ID = new LanguageId("example:tiny");
     private static final Pattern DECLARATION = Pattern.compile("let\\s+([A-Za-z_][A-Za-z_0-9]*)(.*)");
     private static final Pattern REFERENCE = Pattern.compile("use\\s+([A-Za-z_][A-Za-z_0-9]*)\\s*");

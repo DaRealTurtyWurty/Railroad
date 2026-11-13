@@ -809,7 +809,12 @@ public final class JavaSyntaxParser {
         }
     }
 
-    /** Parses a request and collects recovery diagnostics under the same cancellation controls. */
+    /**
+     * Parses a request and collects recovery diagnostics under the same cancellation controls.
+     *
+     * @param context captured document and request activity controls
+     * @return the syntax tree and recovery diagnostics for the captured document
+     */
     public static ParseResult parseWithDiagnostics(FeatureRequestContext context) {
         context.checkActive();
         SyntaxTree tree = parse(context);

@@ -18,7 +18,12 @@ public final class JavaSstServices
         AutoCloseable {
     private final JavaWorkspaceAnalysisProvider workspaces = new JavaWorkspaceAnalysisProvider();
 
-    /** Returns the shared captured Java inputs used by all features in this language session. */
+    /**
+     * Returns the shared captured Java inputs used by all features in this language session.
+     *
+     * @param context captured workspace and request activity controls
+     * @return the Java analysis bound to the captured workspace
+     */
     public JavaWorkspaceAnalysis capture(RequestContext context) {
         return workspaces.capture(context);
     }

@@ -26,6 +26,7 @@ import dev.railroadide.railroad.ide.sst.document.api.WorkspaceSnapshot;
  *
  * @param project project whose editor features or debug state are managed
  * @param filePath optional legacy file context; completion uses the supplied snapshot
+ * @param analysis captures Java analysis for the request workspace and cancellation controls
  */
 public record JavaCompletionProvider(
     Project project,
@@ -37,6 +38,12 @@ public record JavaCompletionProvider(
         return insertedText.endsWith(".");
     }
 
+    /**
+     * Creates a completion provider using the shared Java analysis context.
+     *
+     * @param project project owning the language services
+     * @param filePath optional file context; requests use their captured document snapshot
+     */
     public JavaCompletionProvider(Project project, @Nullable Path filePath) {
         this(project, filePath, JavaLanguageSupport.analysisContextProvider()::index);
     }
@@ -79,6 +86,7 @@ public record JavaCompletionProvider(
      *
      * @param project project whose editor features or debug state are managed
      * @param filePath optional legacy file context; completion uses the supplied snapshot
+     * @param analysis captures Java analysis for the request workspace and cancellation controls
      */
     public JavaCompletionProvider {
         Objects.requireNonNull(project, "project");

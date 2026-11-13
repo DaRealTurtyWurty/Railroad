@@ -32,6 +32,12 @@ public final class LanguageSession implements AutoCloseable {
     private final Map<CapabilityKey<?>, Object> handles = new HashMap<>();
     private final List<Runnable> closeListeners = new ArrayList<>();
 
+    /**
+     * Takes ownership of provider capabilities and validates that their contracts are interfaces.
+     *
+     * @param capabilities immutable registry of services owned by this session
+     * @throws IllegalArgumentException if a capability contract is not an interface
+     */
     public LanguageSession(CapabilityRegistry capabilities) {
         this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
         for (CapabilityKey<?> key : capabilities.keys()) {
@@ -40,15 +46,29 @@ public final class LanguageSession implements AutoCloseable {
         }
     }
 
+    /**
+     * Exposes cancellation of the session lifetime.
+     *
+     * @return a token cancelled when this session closes
+     */
     public CancellationToken cancellationToken() {
         return lifetime.token();
     }
 
+    /**
+     * Checks whether session ownership has ended.
+     *
+     * @return whether this session has been closed
+     */
     public boolean isClosed() {
         return lifetime.token().isCancellationRequested();
     }
 
-    /** Runs once on closure, or immediately if ownership has already ended. */
+    /**
+     * Runs once on closure, or immediately if ownership has already ended.
+     *
+     * @param listener callback invoked when ownership ends, or synchronously if already closed
+     */
     public void onClose(Runnable listener) {
         Objects.requireNonNull(listener, "listener");
         synchronized (this) {
@@ -60,12 +80,27 @@ public final class LanguageSession implements AutoCloseable {
         listener.run();
     }
 
+    /**
+     * Returns a guarded service handle that checks session and request activity around provider calls.
+     *
+     * @param <T> public contract type of the requested service
+     * @param key capability identity and expected contract type
+     * @return the guarded service, or empty if the capability is unsupported
+     * @throws java.util.concurrent.CancellationException if this session is closed
+     * @throws IllegalArgumentException if the capability identity has a different registered contract type
+     */
     public synchronized <T> Optional<T> capability(CapabilityKey<T> key) {
         checkActive();
         return capabilities.find(key).map(value -> key.type().cast(handles.computeIfAbsent(key,
             _ -> guard(key))));
     }
 
+    /**
+     * Returns the contracts exposed by the active session.
+     *
+     * @return an immutable set of capability keys
+     * @throws java.util.concurrent.CancellationException if this session is closed
+     */
     public synchronized Set<CapabilityKey<?>> supportedCapabilities() {
         checkActive();
         return capabilities.keys();

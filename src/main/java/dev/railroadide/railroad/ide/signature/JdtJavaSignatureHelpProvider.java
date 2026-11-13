@@ -30,6 +30,8 @@ import dev.railroadide.railroad.ide.sst.request.api.*;
  *
  * @param filePath optional legacy file context; signature help uses the supplied snapshot
  * @param systemModulePaths paths supplied to the JDT binding environment
+ * @param analysis captures Java analysis for the request workspace and cancellation controls
+ * @param sourceCache source cache owned and closed by this provider
  */
 public record JdtJavaSignatureHelpProvider(
     @Nullable Path filePath,
@@ -40,11 +42,25 @@ public record JdtJavaSignatureHelpProvider(
     implements
         SignatureHelpProvider,
         AutoCloseable {
+    /**
+     * Creates signature help with the shared Java analysis context and a new source cache.
+     *
+     * @param filePath optional file context; requests use their captured document snapshot
+     * @param systemModulePaths module paths supplied to the JDT binding environment
+     */
     public JdtJavaSignatureHelpProvider(Path filePath, String[] systemModulePaths) {
         this(filePath, systemModulePaths, JavaLanguageSupport.analysisContextProvider()::index,
             new JavaSignatureSourceCache(4));
     }
 
+    /**
+     * Creates signature help with caller-supplied analysis and source caching, copying the module paths.
+     *
+     * @param filePath optional file context; requests use their captured document snapshot
+     * @param systemModulePaths module paths supplied to the JDT binding environment
+     * @param analysis captures Java analysis for the request workspace and cancellation controls
+     * @param sourceCache source cache owned and closed by this provider
+     */
     public JdtJavaSignatureHelpProvider {
         systemModulePaths = systemModulePaths.clone();
         Objects.requireNonNull(analysis, "analysis");

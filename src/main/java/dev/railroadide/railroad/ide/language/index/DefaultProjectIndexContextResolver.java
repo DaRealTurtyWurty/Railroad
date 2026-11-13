@@ -33,7 +33,12 @@ public final class DefaultProjectIndexContextResolver implements ProjectIndexCon
         this(sessions, LanguageSupportRegistry.runtime());
     }
 
-    /** Resolves only contributions owned by the supplied runtime. */
+    /**
+     * Resolves only contributions owned by the supplied runtime.
+     *
+     * @param sessions looks up project index ownership, returning null for standalone contexts
+     * @param runtime runtime supplying the registered language contributions
+     */
     public DefaultProjectIndexContextResolver(
         Function<Project, ProjectLanguageIndexService.Session> sessions,
         LanguageRuntime runtime

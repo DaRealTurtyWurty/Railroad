@@ -11,6 +11,9 @@ import java.util.Set;
 
 /** Minimal binary provider: a packet begins with the two ASCII bytes "RR". */
 public final class PacketLanguageContribution implements LanguageContribution {
+    /**
+     * Namespaced identity of the example binary packet language.
+     */
     public static final LanguageId ID = new LanguageId("example:packet");
 
     @Override
