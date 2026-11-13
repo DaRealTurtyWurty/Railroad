@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.sst.project;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.classparser.stub.ClassStub;
 import org.jetbrains.annotations.Nullable;
 
@@ -86,7 +87,8 @@ public interface JavaSymbolIndex {
     default String canonicalTypeName(String qualifiedName) {
         return lookupQualifiedName(qualifiedName).stream()
             .filter(symbol -> switch (symbol.kind()) {
-                case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION -> true;
+                case JavaSymbolKind.CLASS, JavaSymbolKind.INTERFACE, JavaSymbolKind.ENUM, JavaSymbolKind.RECORD,
+                    JavaSymbolKind.ANNOTATION -> true;
                 default -> false;
             })
             .map(JavaProjectSemanticIndex.SymbolDescriptor::qualifiedName)

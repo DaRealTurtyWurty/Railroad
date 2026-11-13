@@ -13,6 +13,11 @@ import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.function.Function;
+import dev.railroadide.railroad.ide.sst.request.api.RequestContext;
+import dev.railroadide.railroad.ide.sst.request.api.CancellationToken;
+import dev.railroadide.railroad.ide.sst.request.api.Deadline;
+import dev.railroadide.railroad.ide.language.impl.index.JavaWorkspaceAnalysis;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
 import dev.railroadide.railroad.ide.sst.document.api.WorkspaceSnapshot;
 
@@ -22,7 +27,20 @@ import dev.railroadide.railroad.ide.sst.document.api.WorkspaceSnapshot;
  * @param project project whose editor features or debug state are managed
  * @param filePath optional legacy file context; completion uses the supplied snapshot
  */
-public record JavaCompletionProvider(Project project, @Nullable Path filePath) implements CompletionProvider {
+public record JavaCompletionProvider(
+    Project project,
+    @Nullable Path filePath,
+    Function<RequestContext, JavaWorkspaceAnalysis> analysis
+) implements CompletionProvider {
+    @Override
+    public boolean shouldTrigger(String insertedText) {
+        return insertedText.endsWith(".");
+    }
+
+    public JavaCompletionProvider(Project project, @Nullable Path filePath) {
+        this(project, filePath, JavaLanguageSupport.analysisContextProvider()::index);
+    }
+
     @Override
     public FeatureResult<CompletionResult> compute(FeatureRequestContext context, int triggerAt) {
         context.checkActive();
@@ -30,7 +48,7 @@ public record JavaCompletionProvider(Project project, @Nullable Path filePath) i
             || !JavaLanguageSupport.LANGUAGE_ID.equals(text.languageId()))
             return new FeatureResult<>(context, null);
         CompletionResult result = JavaSemanticCompletionEngine.compute(text.text(), triggerAt,
-            JavaLanguageSupport.analysisContextProvider().index(context), context::checkActive);
+            analysis.apply(context), context::checkActive);
         context.checkActive();
         return new FeatureResult<>(context, result);
     }
@@ -44,8 +62,8 @@ public record JavaCompletionProvider(Project project, @Nullable Path filePath) i
         if (!(workspace.document(id).orElseThrow() instanceof TextDocumentSnapshot text)
             || !JavaLanguageSupport.LANGUAGE_ID.equals(text.languageId()))
             return null;
-        return JavaSemanticCompletionEngine.compute(text.text(), triggerAt,
-            JavaLanguageSupport.analysisContextProvider().index(workspace, id));
+        return compute(new FeatureRequestContext(workspace, text, CancellationToken.none(), Deadline.none()), triggerAt)
+            .value();
     }
     /**
      * Creates a completion provider whose document location is supplied by each snapshot.
@@ -64,6 +82,7 @@ public record JavaCompletionProvider(Project project, @Nullable Path filePath) i
      */
     public JavaCompletionProvider {
         Objects.requireNonNull(project, "project");
+        Objects.requireNonNull(analysis, "analysis");
     }
 
     @Override

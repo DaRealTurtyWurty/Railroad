@@ -809,12 +809,25 @@ public final class JavaSyntaxParser {
         }
     }
 
+    /** Parses a request and collects recovery diagnostics under the same cancellation controls. */
+    public static ParseResult parseWithDiagnostics(FeatureRequestContext context) {
+        context.checkActive();
+        SyntaxTree tree = parse(context);
+        List<SyntaxDiagnostic> diagnostics = collectSyntaxDiagnostics(tree.root(), context::checkActive);
+        context.checkActive();
+        return new ParseResult(tree, diagnostics);
+    }
+
     private static List<SyntaxDiagnostic> collectSyntaxDiagnostics(SyntaxNode root) {
+        return collectSyntaxDiagnostics(root, ActivityCheckpoint::checkInterrupted);
+    }
+
+    private static List<SyntaxDiagnostic> collectSyntaxDiagnostics(SyntaxNode root, Runnable activityCheck) {
         List<SyntaxDiagnostic> diagnostics = new ArrayList<>();
         ArrayDeque<SyntaxNode> stack = new ArrayDeque<>();
         stack.push(root);
         while (!stack.isEmpty()) {
-            ActivityCheckpoint.checkInterrupted();
+            activityCheck.run();
             SyntaxNode node = stack.pop();
             String kindId = node.kind().id();
             if (ERROR_NODE_KIND_ID.equals(kindId)) {
@@ -834,7 +847,7 @@ public final class JavaSyntaxParser {
             }
 
             for (SyntaxNode child : node.children()) {
-                ActivityCheckpoint.checkInterrupted();
+                activityCheck.run();
                 stack.push(child);
             }
         }

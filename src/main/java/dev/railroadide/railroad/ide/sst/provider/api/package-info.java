@@ -1,4 +1,11 @@
 /**
+ * Plugin SPI for language contributions, typed capabilities, owned project sessions and provider execution.
+ * Contributions declare immutable namespaced identities and optional contracts. Sessions own their service
+ * instances, link requests to their cancellation lifetime and reject retained handles after unload.
+ * Syntax, semantics, diagnostics and index features use the same captured request and result identities.
+ * Java implementation types and editor controls are outside this package's public boundary.
+ *
+ * <p>
  * Language-neutral execution and health observations for text and binary providers.
  * Hosts submit captured {@link dev.railroadide.railroad.ide.sst.request.api.RequestContext} inputs through
  * {@link dev.railroadide.railroad.ide.sst.provider.api.ProviderExecutor}, using stable provider identities

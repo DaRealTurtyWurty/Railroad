@@ -18,8 +18,8 @@
  * fresh scopes. Model builders may be reused for associations/diagnostics; earlier models
  * remain unchanged. Scope queries preserve overload order and local-to-parent lookup;
  * declaration maps preserve first-name insertion order. SimpleSymbol, Java's internal
- * synthetic symbols, and sealed semantic Type implementations are immutable.
- * Provider-defined Symbol and SyntaxNode implementations must satisfy the same contract;
+ * synthetic symbols, and Java extension type values are immutable.
+ * Provider-defined Type, SymbolKind, Symbol and SyntaxNode implementations must satisfy the same contract;
  * the core cannot clone arbitrary implementations or make a mutable provider object safe
  * by copying its container.
  *

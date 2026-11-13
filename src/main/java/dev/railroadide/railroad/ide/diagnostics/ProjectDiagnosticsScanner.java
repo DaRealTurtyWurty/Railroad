@@ -8,13 +8,13 @@ import dev.railroadide.railroad.ide.sst.provider.api.ProviderExecutor;
 import dev.railroadide.railroad.ide.diagnostics.EditorDiagnostic.TextEditorDiagnostic;
 import dev.railroadide.railroad.ide.language.LanguageSupport;
 import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
-import dev.railroadide.railroad.ide.language.ProjectDiagnosticsFeatureFactory;
+import dev.railroadide.railroad.ide.sst.provider.api.SstCapabilities;
 import dev.railroadide.railroad.ide.language.index.LanguageIndexContext;
 import dev.railroadide.railroad.ide.language.index.ProjectIndexContext;
 import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 
-import javax.tools.Diagnostic;
+import dev.railroadide.railroad.ide.diagnostics.DiagnosticSeverity;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -82,14 +82,18 @@ public final class ProjectDiagnosticsScanner {
         ProjectIndexContext context = diagnosticsContext.indexContext();
         List<FileScanResult> fileResults = new ArrayList<>();
         Map<String, Integer> countsByCode = new TreeMap<>();
-        Map<Diagnostic.Kind, Integer> countsByKind = new LinkedHashMap<>();
-        List<ScanTarget> targets = scanTargets(context);
+        Map<DiagnosticSeverity, Integer> countsByKind = new LinkedHashMap<>();
+        List<ScanTarget> sources = scanTargets(context);
+        List<ScanTarget> targets = sources.stream()
+            .filter(target -> target.support().supportedCapabilities().contains(SstCapabilities.DIAGNOSTICS)).toList();
         long scanStartedAt = System.nanoTime();
         int parallelism = SstScheduler.shared().isWorkerThread() ? 1 : 2;
-        WorkspaceSnapshot workspace = Services.IDE_STATE.getDocumentStore().map(DocumentStore::capture)
+        WorkspaceSnapshot openWorkspace = Services.IDE_STATE.getDocumentStore().map(DocumentStore::capture)
             .filter(snapshot -> snapshot.projectId().equals(project.getId()))
             .orElseGet(() -> new WorkspaceSnapshot(project.getId(), Map.of(),
                 ProjectWorkspaceConfiguration.initial(project), 0));
+        ScanInputs inputs = captureSources(context, sources, openWorkspace);
+        WorkspaceSnapshot workspace = inputs.workspace();
         Deque<CompletableFuture<FileScanResult>> pending = new ArrayDeque<>();
 
         Railroad.LOGGER.warn(
@@ -107,9 +111,9 @@ public final class ProjectDiagnosticsScanner {
                     var cancellation = new CancellationTokenSource();
                     var request = new WorkspaceRequestContext(workspace, cancellation.token(), Deadline.none());
                     pending.add(SstScheduler.shared().isWorkerThread()
-                        ? CompletableFuture.completedFuture(scanOne(diagnosticsContext, target, request))
+                        ? CompletableFuture.completedFuture(scanOne(diagnosticsContext, target, inputs, request))
                         : requests.submit(target.path(), RequestPriority.BACKGROUND_INDEXING, request, cancellation,
-                            () -> scanOne(diagnosticsContext, target, request)));
+                            () -> scanOne(diagnosticsContext, target, inputs, request)));
                 }
                 FileScanResult result = awaitResult(pending.removeFirst(), context);
                 context.checkActive();
@@ -186,6 +190,7 @@ public final class ProjectDiagnosticsScanner {
     private static FileScanResult scanOne(
         ProjectDiagnosticsContext diagnosticsContext,
         ScanTarget target,
+        ScanInputs inputs,
         WorkspaceRequestContext request
     ) {
         long fileStartedAt = System.nanoTime();
@@ -193,36 +198,30 @@ public final class ProjectDiagnosticsScanner {
         try {
             indexContext.checkActive();
             request.checkActive();
-            String source = Files.readString(target.path());
-            var snapshot = new TextDocumentSnapshot(
-                DocumentId.create(),
-                DocumentUri.fromPath(target.path()),
-                DocumentVersion.initial(),
-                target.support.languageId(),
-                new DocumentOrigin(BackingKind.FILE, ProvenanceKind.ORIGINAL),
-                source,
-                StandardCharsets.UTF_8);
+            IOException failure = inputs.failures().get(target.path());
+            if (failure != null)
+                throw failure;
+            DocumentSnapshot snapshot = inputs.documents().get(target.path());
 
             DiagnosticsProvider<?> provider = createDiagnosticsProvider(diagnosticsContext, target);
             if (provider instanceof DiagnosticsProvider<?> tprovider) {
-                var workspace = new WorkspaceSnapshot(request.workspaceSnapshot().projectId(),
-                    Map.of(snapshot.id(), snapshot), request.workspaceSnapshot().configuration(),
-                    request.workspaceSnapshot().revision());
                 Duration budget = Duration.ofSeconds(30);
                 var session = indexContext.session();
                 CancellationToken cancellation = () -> request.cancellationToken().isCancellationRequested()
                     || indexContext.cancellationToken().isCancellationRequested()
                     || session != null && (session.isClosed()
                         || session.configurationGeneration() != indexContext.configurationGeneration());
-                var feature = new FeatureRequestContext(workspace, snapshot, cancellation, Deadline.after(budget));
+                var feature = new FeatureRequestContext(request.workspaceSnapshot(), snapshot, cancellation,
+                    Deadline.after(budget));
                 List<EditorDiagnostic> diagnostics = ProviderExecutor.shared().execute(
-                    tprovider.getClass().getName() + ":project-diagnostics", feature, budget,
+                    target.support().id().value() + ":project-diagnostics", feature, budget,
                     () -> {
                         var result = tprovider.compute(feature);
                         if (!result.belongsTo(feature))
                             throw new IllegalStateException(
                                 "Diagnostics provider returned a result for a different request");
-                        return result.value().stream().map(EditorDiagnostic.class::cast).toList();
+                        return DiagnosticsProvider.validated(result.value(), feature).stream()
+                            .map(EditorDiagnostic.class::cast).toList();
                     });
                 request.checkActive();
                 indexContext.checkActive();
@@ -242,26 +241,62 @@ public final class ProjectDiagnosticsScanner {
         }
     }
 
+    private static ScanInputs captureSources(
+        ProjectIndexContext context,
+        List<ScanTarget> sources,
+        WorkspaceSnapshot openWorkspace
+    ) {
+        Map<DocumentUri, DocumentSnapshot> openDocuments = new HashMap<>();
+        openWorkspace.documents().values().forEach(snapshot -> openDocuments.put(snapshot.uri(), snapshot));
+        Map<DocumentId, DocumentSnapshot> documents = new HashMap<>(openWorkspace.documents());
+        Map<Path, DocumentSnapshot> sourceDocuments = new HashMap<>();
+        Map<Path, IOException> failures = new HashMap<>();
+        for (ScanTarget source : sources) {
+            context.checkActive();
+            DocumentUri uri = DocumentUri.fromPath(source.path());
+            DocumentSnapshot snapshot = openDocuments.get(uri);
+            try {
+                if (snapshot == null) {
+                    DocumentId id = DocumentId.create();
+                    var origin = new DocumentOrigin(BackingKind.FILE, ProvenanceKind.ORIGINAL);
+                    snapshot = source.support().contentKind() == ContentKind.TEXT
+                        ? new TextDocumentSnapshot(id, uri, DocumentVersion.initial(), source.support().languageId(),
+                            origin, Files.readString(source.path()), StandardCharsets.UTF_8)
+                        : new BinaryDocumentSnapshot(id, uri, DocumentVersion.initial(), source.support().languageId(),
+                            origin, Files.readAllBytes(source.path()));
+                }
+                documents.put(snapshot.id(), snapshot);
+                sourceDocuments.put(source.path(), snapshot);
+            } catch (IOException exception) {
+                failures.put(source.path(), exception);
+            }
+        }
+        context.checkActive();
+        return new ScanInputs(new WorkspaceSnapshot(openWorkspace.projectId(), documents,
+            openWorkspace.configuration(), openWorkspace.revision()), Map.copyOf(sourceDocuments),
+            Map.copyOf(failures));
+    }
+
+    private record ScanInputs(
+        WorkspaceSnapshot workspace,
+        Map<Path, DocumentSnapshot> documents,
+        Map<Path, IOException> failures
+    ) {
+    }
+
     private static DiagnosticsProvider createDiagnosticsProvider(
         ProjectDiagnosticsContext diagnosticsContext,
         ScanTarget target
     ) {
-        ProjectDiagnosticsFeatureFactory<DiagnosticsProvider> projectDiagnosticsFactory = target.support()
-            .projectDiagnosticsFactory();
-        if (projectDiagnosticsFactory != null)
-            return projectDiagnosticsFactory.create(diagnosticsContext, target.path());
-
-        return target.support().diagnosticsFactory().create(diagnosticsContext.project(),
-            DocumentUri.fromPath(target.path()));
+        return LanguageSupportRegistry.runtime()
+            .session(diagnosticsContext.project(), target.support().id(), "")
+            .capability(SstCapabilities.DIAGNOSTICS).orElse(null);
     }
 
     private static List<ScanTarget> scanTargets(ProjectIndexContext context) {
         List<ScanTarget> targets = new ArrayList<>();
         for (LanguageSupport support : LanguageSupportRegistry.all()) {
             context.checkActive();
-            if (!support.supportsDiagnostics() || support.diagnosticsFactory() == null)
-                continue;
-
             sourceFiles(context, support).stream()
                 .map(path -> new ScanTarget(support, path))
                 .forEach(targets::add);
@@ -332,7 +367,7 @@ public final class ProjectDiagnosticsScanner {
             if (root == null || Files.notExists(root))
                 continue;
             if (Files.isRegularFile(root)) {
-                if (support.supports(root)) {
+                if (matchesLanguage(root, support)) {
                     files.add(root.toAbsolutePath().normalize());
                 }
                 continue;
@@ -340,7 +375,7 @@ public final class ProjectDiagnosticsScanner {
 
             try (Stream<Path> paths = Files.walk(root)) {
                 paths.peek(_ -> context.checkActive()).filter(Files::isRegularFile)
-                    .filter(support::supports)
+                    .filter(path -> matchesLanguage(path, support))
                     .map(path -> path.toAbsolutePath().normalize())
                     .forEach(files::add);
             } catch (IOException exception) {
@@ -351,12 +386,16 @@ public final class ProjectDiagnosticsScanner {
         return files.stream().sorted().toList();
     }
 
+    private static boolean matchesLanguage(Path path, LanguageSupport support) {
+        return LanguageSupportRegistry.find(path).map(candidate -> candidate.id().equals(support.id())).orElse(false);
+    }
+
     private static String renderReport(
         ProjectIndexContext context,
         int scannedFiles,
         List<FileDiagnostics> files,
         List<FileScanResult> failures,
-        Map<Diagnostic.Kind, Integer> countsByKind,
+        Map<DiagnosticSeverity, Integer> countsByKind,
         Map<String, Integer> countsByCode
     ) {
         var report = new StringBuilder();
@@ -397,6 +436,7 @@ public final class ProjectDiagnosticsScanner {
                     .append("-").append(diagnostic.location().range().end)
                     .append(", ").append(diagnostic.code())
                     .append(": ").append(diagnostic.message(null))
+                    .append(" [").append(diagnostic.source()).append("/").append(diagnostic.origin()).append("]")
                     .append('\n');
             }
         }

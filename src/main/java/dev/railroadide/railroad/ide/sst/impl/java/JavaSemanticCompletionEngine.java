@@ -1,5 +1,7 @@
 package dev.railroadide.railroad.ide.sst.impl.java;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
+import dev.railroadide.railroad.ide.sst.java.api.JavaTypes;
 import dev.railroadide.railroad.ide.classparser.stub.ClassStub;
 import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import dev.railroadide.railroad.ide.classparser.stub.FieldStub;
@@ -108,7 +110,7 @@ public final class JavaSemanticCompletionEngine {
         List<CompletionItem> items = itemsByKey.values().stream()
             .sorted(Comparator.comparing(CompletionItem::displayText, String.CASE_INSENSITIVE_ORDER))
             .toList();
-        return new CompletionResult(triggerAt, items);
+        return new CompletionResult(triggerAt + 1, items);
     }
 
     private @Nullable CompletionTarget resolveCompletionTarget(
@@ -148,16 +150,16 @@ public final class JavaSemanticCompletionEngine {
         if (resolved != null) {
             if (isTypeSymbol(resolved.kind()))
                 return completionTarget(resolved.qualifiedName().orElse(null), true);
-            if (resolved.kind() == SymbolKind.CONSTRUCTOR)
+            if (resolved.kind() == JavaSymbolKind.CONSTRUCTOR)
                 return completionTarget(ownerQualifiedName(resolved.qualifiedName().orElse(null)), false);
         }
 
         Type inferred = model.inferredType(receiver).orElse(null);
         if (inferred != null) {
             String displayName = inferred.displayName();
-            if (inferred.kind() == Type.Kind.ARRAY)
+            if (inferred.kind() == JavaTypes.Kind.ARRAY)
                 return new CompletionTarget("java.lang.Object", false);
-            if (inferred.kind() == Type.Kind.DECLARED)
+            if (inferred.kind() == JavaTypes.Kind.DECLARED)
                 return completionTarget(resolveQualifiedTypeName(displayName, usageSite, model, projectIndex), false);
         }
 
@@ -223,18 +225,19 @@ public final class JavaSemanticCompletionEngine {
             String declarationOwnerQualifiedName = ownerQualifiedName(declared.qualifiedName().orElse(null));
             if (ownerQualifiedName.equals(declarationOwnerQualifiedName)) {
                 switch (declared.kind()) {
-                    case FIELD -> addFieldItem(
+                    case JavaSymbolKind.FIELD -> addFieldItem(
                         out,
                         declared.simpleName(),
                         typeOfFieldSymbol(declared, model).displayName(),
                         isStaticDeclaration(node));
-                    case METHOD -> addMethodItem(
+                    case JavaSymbolKind.METHOD -> addMethodItem(
                         out,
                         declared.simpleName(),
                         parameterTypesFromDeclaration(node),
                         returnTypeFromMethodDeclaration(node),
                         isStaticDeclaration(node));
-                    case CLASS, INTERFACE, ENUM, ANNOTATION, RECORD -> {
+                    case JavaSymbolKind.CLASS, JavaSymbolKind.INTERFACE, JavaSymbolKind.ENUM, JavaSymbolKind.ANNOTATION,
+                        JavaSymbolKind.RECORD -> {
                         if (staticContext && isStaticDeclaration(node)) {
                             addTypeItem(out, declared.simpleName(), true);
                         }
@@ -263,12 +266,12 @@ public final class JavaSemanticCompletionEngine {
         for (JavaProjectSemanticIndex.SymbolDescriptor symbol : projectIndex.lookupMembers(ownerQualifiedName)) {
             ActivityCheckpoint.poll(activityCheck);
             switch (symbol.kind()) {
-                case FIELD -> {
+                case JavaSymbolKind.FIELD -> {
                     if (symbol.isStatic() == staticContext) {
                         addFieldItem(out, symbol.simpleName(), "?", symbol.isStatic());
                     }
                 }
-                case METHOD -> {
+                case JavaSymbolKind.METHOD -> {
                     if (symbol.isStatic() == staticContext) {
                         addMethodItem(
                             out,
@@ -345,7 +348,7 @@ public final class JavaSemanticCompletionEngine {
     private Type typeOfFieldSymbol(Symbol symbol, SemanticModel model) {
         SyntaxNode declaration = symbol.declaration().orElse(null);
         if (declaration == null)
-            return new Type.UnknownType("?");
+            return new JavaTypes.UnknownType("?");
         SyntaxNode typeRef = JavaSemanticAnalyzer.directChild(declaration, JavaSyntaxKinds.TYPE_REFERENCE.id());
         if (typeRef == null) {
             SyntaxNode parent = declaration.parent().orElse(null);
@@ -354,8 +357,8 @@ public final class JavaSemanticCompletionEngine {
                 : JavaSemanticAnalyzer.directChild(parent, JavaSyntaxKinds.TYPE_REFERENCE.id());
         }
         return typeRef == null
-            ? new Type.UnknownType("?")
-            : model.inferredType(typeRef).orElse(new Type.UnknownType("?"));
+            ? new JavaTypes.UnknownType("?")
+            : model.inferredType(typeRef).orElse(new JavaTypes.UnknownType("?"));
     }
 
     private String returnTypeFromMethodDeclaration(SyntaxNode declaration) {
@@ -421,7 +424,8 @@ public final class JavaSemanticCompletionEngine {
 
     private boolean isTypeSymbol(SymbolKind symbolKind) {
         return switch (symbolKind) {
-            case CLASS, INTERFACE, ENUM, ANNOTATION, RECORD -> true;
+            case JavaSymbolKind.CLASS, JavaSymbolKind.INTERFACE, JavaSymbolKind.ENUM, JavaSymbolKind.ANNOTATION,
+                JavaSymbolKind.RECORD -> true;
             default -> false;
         };
     }
@@ -469,11 +473,12 @@ public final class JavaSemanticCompletionEngine {
 
     private List<String> implicitSuperTypes(String ownerQualifiedName, SymbolKind kind) {
         return switch (kind) {
-            case CLASS -> "java.lang.Object".equals(ownerQualifiedName) ? List.of() : List.of("java.lang.Object");
-            case RECORD -> List.of("java.lang.Record");
-            case ENUM -> List.of("java.lang.Enum");
-            case ANNOTATION -> List.of("java.lang.annotation.Annotation");
-            case INTERFACE -> List.of();
+            case JavaSymbolKind.CLASS ->
+                "java.lang.Object".equals(ownerQualifiedName) ? List.of() : List.of("java.lang.Object");
+            case JavaSymbolKind.RECORD -> List.of("java.lang.Record");
+            case JavaSymbolKind.ENUM -> List.of("java.lang.Enum");
+            case JavaSymbolKind.ANNOTATION -> List.of("java.lang.annotation.Annotation");
+            case JavaSymbolKind.INTERFACE -> List.of();
             default -> List.of();
         };
     }

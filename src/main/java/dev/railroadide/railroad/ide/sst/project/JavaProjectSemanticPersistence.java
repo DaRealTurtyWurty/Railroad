@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.sst.project;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexPersistence;
 import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import java.util.concurrent.CancellationException;
@@ -20,7 +21,7 @@ public final class JavaProjectSemanticPersistence implements ProjectLanguageInde
     private static final String CACHE_DIRECTORY = ".railroad/index/semantic";
     private static final String SNAPSHOT_FILE = "project-semantic-index.bin";
     private static final String SNAPSHOT_MAGIC = "RSSTIDX1";
-    private static final int FORMAT_VERSION = 4;
+    private static final int FORMAT_VERSION = 5;
 
     @Override
     public String languageId() {
@@ -248,7 +249,7 @@ public final class JavaProjectSemanticPersistence implements ProjectLanguageInde
         for (int index = 0; index < symbolCount; index++) {
             activityCheck.run();
             symbols.add(new JavaProjectSemanticIndex.SymbolDescriptor(
-                SymbolKind.valueOf(input.readUTF()),
+                JavaSymbolKind.fromId(input.readUTF()),
                 input.readUTF(),
                 readNullableString(input),
                 readNullableString(input),
@@ -278,7 +279,7 @@ public final class JavaProjectSemanticPersistence implements ProjectLanguageInde
         output.writeInt(file.declaredSymbols().size());
         for (JavaProjectSemanticIndex.SymbolDescriptor symbol : file.declaredSymbols()) {
             activityCheck.run();
-            output.writeUTF(symbol.kind().name());
+            output.writeUTF(symbol.kind().id());
             output.writeUTF(symbol.simpleName());
             writeNullableString(output, symbol.qualifiedName());
             writeNullableString(output, symbol.ownerQualifiedName());

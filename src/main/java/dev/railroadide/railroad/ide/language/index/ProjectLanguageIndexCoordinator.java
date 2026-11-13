@@ -2,7 +2,8 @@ package dev.railroadide.railroad.ide.language.index;
 
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.Services;
-import dev.railroadide.railroad.ide.language.LanguageSupport;
+import dev.railroadide.railroad.ide.sst.provider.api.LanguageContribution;
+import dev.railroadide.railroad.ide.language.LanguageCapabilities;
 import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
 import dev.railroadide.railroad.ide.sst.request.api.RequestContext;
 import dev.railroadide.railroad.ide.sst.provider.api.ProviderExecutor;
@@ -26,9 +27,9 @@ import java.util.concurrent.CancellationException;
 public final class ProjectLanguageIndexCoordinator {
     private volatile ProjectIndexContext context;
     private final ProjectLanguageIndexService indexService;
-    private final List<LanguageSupport> supports;
     private final ProviderExecutor providers;
     private final Duration providerBudget;
+    private long languageRegistrationRevision = -1;
 
     /**
      * Creates a coordinator for warming indexes and applying project file events.
@@ -47,8 +48,7 @@ public final class ProjectLanguageIndexCoordinator {
      */
     public ProjectLanguageIndexCoordinator(Project project, ProjectLanguageIndexService.Session session) {
         this(new DefaultProjectIndexContextResolver(_ -> session).resolve(project),
-            Services.PROJECT_LANGUAGE_INDEX_SERVICE,
-            LanguageSupportRegistry.all());
+            Services.PROJECT_LANGUAGE_INDEX_SERVICE);
     }
 
     /**
@@ -56,14 +56,12 @@ public final class ProjectLanguageIndexCoordinator {
      *
      * @param context the project indexing context
      * @param indexService the service managing project indexes
-     * @param supports the language support implementations
      */
     public ProjectLanguageIndexCoordinator(
         ProjectIndexContext context,
-        ProjectLanguageIndexService indexService,
-        Collection<LanguageSupport> supports
+        ProjectLanguageIndexService indexService
     ) {
-        this(context, indexService, supports, ProviderExecutor.shared(), Duration.ofMinutes(2));
+        this(context, indexService, ProviderExecutor.shared(), Duration.ofMinutes(2));
     }
 
     /**
@@ -72,14 +70,12 @@ public final class ProjectLanguageIndexCoordinator {
      *
      * @param context project configuration and index session
      * @param indexService index publication owner
-     * @param supports registered language providers
      * @param providers provider isolation and measurement boundary
      * @param providerBudget maximum duration of one language's source or auxiliary index work
      */
     public ProjectLanguageIndexCoordinator(
         ProjectIndexContext context,
         ProjectLanguageIndexService indexService,
-        Collection<LanguageSupport> supports,
         ProviderExecutor providers,
         Duration providerBudget
     ) {
@@ -89,7 +85,6 @@ public final class ProjectLanguageIndexCoordinator {
         if (providerBudget.isNegative())
             throw new IllegalArgumentException("Provider budget must not be negative");
         this.indexService = Objects.requireNonNull(indexService, "indexService");
-        this.supports = List.copyOf(Objects.requireNonNull(supports, "supports"));
     }
 
     /**
@@ -106,15 +101,16 @@ public final class ProjectLanguageIndexCoordinator {
      * @param request captured execution controls, or null for synchronous session-owned work
      */
     public void warmIndexes(RequestContext request) {
-        ProjectIndexContext operation = withRequest(context, request);
-        for (LanguageSupport support : supports) {
+        ProjectIndexContext operation = withRequest(refreshContext(), request);
+        for (LanguageContribution support : indexService.languages()) {
+            String languageId = indexService.indexLanguageId(operation.project(), support);
             operation.checkActive();
-            if (!indexService.hasIndexer(support.languageId()))
+            if (!indexService.hasIndexer(operation.project(), languageId))
                 continue;
 
             try {
                 runProvider(support, request, "source", operation,
-                    child -> indexService.index(child, support.languageId()));
+                    child -> indexService.index(child, languageId));
             } catch (CancellationException exception) {
                 if (request == null)
                     throw exception;
@@ -124,13 +120,14 @@ public final class ProjectLanguageIndexCoordinator {
             } catch (RuntimeException exception) {
                 Railroad.LOGGER.warn(
                     "Failed to warm project index for language {} in {}",
-                    support.languageId(),
+                    languageId,
                     operation.projectRoot(),
                     exception);
             }
 
             try {
-                runProvider(support, request, "auxiliary", operation, support::warmAdditionalIndexes);
+                runProvider(support, request, "auxiliary", operation,
+                    child -> indexService.warmAdditionalIndexes(operation.project(), languageId, child));
             } catch (CancellationException exception) {
                 if (request == null)
                     throw exception;
@@ -139,7 +136,7 @@ public final class ProjectLanguageIndexCoordinator {
             } catch (RuntimeException exception) {
                 Railroad.LOGGER.warn(
                     "Failed to warm additional indexes for language {} in {}",
-                    support.languageId(),
+                    languageId,
                     operation.projectRoot(),
                     exception);
             }
@@ -167,10 +164,7 @@ public final class ProjectLanguageIndexCoordinator {
         ProjectIndexContext previous = context;
         if (previous.session() == null || previous.session().isClosed())
             return;
-        if (previous.configurationGeneration() != previous.session().configurationGeneration()) {
-            context = new DefaultProjectIndexContextResolver(_ -> previous.session()).resolve(previous.project());
-        }
-        ProjectIndexContext operation = withRequest(context, request);
+        ProjectIndexContext operation = withRequest(refreshContext(), request);
         operation.checkActive();
         Objects.requireNonNull(path, "path");
         Objects.requireNonNull(kind, "kind");
@@ -181,42 +175,46 @@ public final class ProjectLanguageIndexCoordinator {
             Railroad.EVENT_BUS.publish(new ProjectConfigurationChangedEvent(context.project()));
         }
 
-        LanguageSupport support = findSupport(path);
-        if (support == null || !indexService.hasIndexer(support.languageId()))
+        boolean deleted = kind == StandardWatchEventKinds.ENTRY_DELETE;
+        if (!deleted && kind != StandardWatchEventKinds.ENTRY_CREATE && kind != StandardWatchEventKinds.ENTRY_MODIFY)
+            return;
+        if (!deleted && Files.isDirectory(path))
             return;
 
-        try {
-            if (kind == StandardWatchEventKinds.ENTRY_DELETE) {
-                runProvider(support, request, "source", operation,
-                    child -> indexService.removeFile(child, support.languageId(), path));
-                return;
+        LanguageContribution winner = deleted ? null : indexService.findLanguage(path).orElse(null);
+        for (LanguageContribution support : indexService.languages()) {
+            String languageId = indexService.indexLanguageId(operation.project(), support);
+            if (!indexService.hasIndexer(operation.project(), languageId))
+                continue;
+            boolean ownsFile = winner != null && winner.id().equals(support.id());
+            ProjectLanguageIndex<?> current = indexService.current(operation, languageId);
+            if (!ownsFile && (current == null || current.getFileIndex(path.toAbsolutePath().normalize()) == null))
+                continue;
+            try {
+                runProvider(support, request, "source", operation, child -> {
+                    if (ownsFile) {
+                        indexService.updateFile(child, languageId, path);
+                    } else {
+                        indexService.removeFile(child, languageId, path);
+                    }
+                });
+            } catch (CancellationException exception) {
+                indexService.invalidate(operation.project(), languageId);
+                if (request == null)
+                    throw exception;
+                request.checkActive();
+                operation.checkActive();
+            } catch (RuntimeException exception) {
+                indexService.invalidate(operation.project(), languageId);
+                Railroad.LOGGER.warn(
+                    "Failed to update project index for language {} and path {}",
+                    languageId, path, exception);
             }
-
-            if (kind == StandardWatchEventKinds.ENTRY_CREATE || kind == StandardWatchEventKinds.ENTRY_MODIFY) {
-                if (Files.isDirectory(path))
-                    return;
-
-                runProvider(support, request, "source", operation,
-                    child -> indexService.updateFile(child, support.languageId(), path));
-            }
-        } catch (CancellationException exception) {
-            indexService.invalidate(operation.project(), support.languageId());
-            if (request == null)
-                throw exception;
-            request.checkActive();
-            operation.checkActive();
-        } catch (RuntimeException exception) {
-            indexService.invalidate(operation.project(), support.languageId());
-            Railroad.LOGGER.warn(
-                "Failed to update project index for language {} and path {}",
-                support.languageId(),
-                path,
-                exception);
         }
     }
 
     private void runProvider(
-        LanguageSupport support,
+        LanguageContribution support,
         RequestContext request,
         String operation,
         ProjectIndexContext inputs,
@@ -226,11 +224,21 @@ public final class ProjectLanguageIndexCoordinator {
             work.accept(inputs);
             return;
         }
-        providers.executeWithContext("project-index:" + support.languageId() + ":"
+        providers.executeWithContext("project-index:" + indexService.indexLanguageId(inputs.project(), support) + ":"
             + support.getClass().getName() + ":" + operation, request, providerBudget, child -> {
                 work.accept(withRequest(inputs, child));
                 return null;
             });
+    }
+
+    private synchronized ProjectIndexContext refreshContext() {
+        long revision = indexService.languageRegistrationRevision();
+        if (revision != languageRegistrationRevision
+            || context.configurationGeneration() != context.session().configurationGeneration()) {
+            context = indexService.refreshContext(context);
+            languageRegistrationRevision = revision;
+        }
+        return context;
     }
 
     private static ProjectIndexContext withRequest(ProjectIndexContext context, RequestContext request) {
@@ -242,12 +250,4 @@ public final class ProjectLanguageIndexCoordinator {
                 || request.cancellationToken().isCancellationRequested() || request.deadline().isExpired());
     }
 
-    private LanguageSupport findSupport(Path path) {
-        for (LanguageSupport support : supports) {
-            if (support.supports(path))
-                return support;
-        }
-
-        return null;
-    }
 }

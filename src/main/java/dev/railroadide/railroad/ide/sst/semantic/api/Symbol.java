@@ -7,8 +7,8 @@ import java.util.Optional;
 /**
  * Public semantic symbol contract.
  * <p>
- * A symbol represents something that can be declared and/or referenced in Java source,
- * such as a type, field, method, parameter, or local variable.
+ * A symbol represents a language-defined entity that can be declared or referenced.
+ * Source syntax is optional, so binary and synthetic symbols need no placeholder tree.
  * Implementations supplied to published semantic models or scopes must be deeply
  * immutable and safe for concurrent reads, including any attached syntax node.
  * Models retain symbol identity; they do not clone provider-defined implementations.

@@ -77,6 +77,11 @@
     -mfx-color: -color-warning-emphasis;
 }
 
+.code-area .editor-diagnostic-information,
+.code-area .editor-diagnostic-hint {
+    -mfx-color: -color-fg-default;
+}
+
 /* Colourful syntax roles, with separate colours for light and dark canvases. */
 .code-area {
     -syntax-keyword: ladder(-color-surface-editor, #c792ea 49%, #8539a8 50%);

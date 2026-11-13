@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.diagnostics.inspections;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.diagnostics.RegisteredInspection;
 import dev.railroadide.railroad.ide.diagnostics.rules.java.JavaSemanticRules;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaTokenType;
@@ -832,7 +833,7 @@ public final class CoreDefiniteAssignmentInspection implements JavaInspectionRul
         if (symbol.declaration().map(declaration -> "JAVA_RECORD_COMPONENT".equals(declaration.kind().id()))
             .orElse(false))
             return false;
-        return symbol.kind() == SymbolKind.LOCAL_VARIABLE || symbol.kind() == SymbolKind.PARAMETER;
+        return symbol.kind() == JavaSymbolKind.LOCAL_VARIABLE || symbol.kind() == JavaSymbolKind.PARAMETER;
     }
 
     private static boolean isVisibleAtUse(Symbol symbol, SyntaxNode usageNode) {

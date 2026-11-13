@@ -9,6 +9,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Objects;
+import java.util.function.Function;
 import java.util.List;
 import dev.railroadide.railroad.ide.sst.document.api.WorkspaceSnapshot;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
@@ -29,10 +31,31 @@ import dev.railroadide.railroad.ide.sst.request.api.*;
  * @param filePath optional legacy file context; signature help uses the supplied snapshot
  * @param systemModulePaths paths supplied to the JDT binding environment
  */
-public record JdtJavaSignatureHelpProvider(@Nullable Path filePath, String[] systemModulePaths)
+public record JdtJavaSignatureHelpProvider(
+    @Nullable Path filePath,
+    String[] systemModulePaths,
+    Function<RequestContext, JavaWorkspaceAnalysis> analysis,
+    JavaSignatureSourceCache sourceCache
+)
     implements
-        SignatureHelpProvider {
-    private static final JavaSignatureSourceCache SOURCES = new JavaSignatureSourceCache(4);
+        SignatureHelpProvider,
+        AutoCloseable {
+    public JdtJavaSignatureHelpProvider(Path filePath, String[] systemModulePaths) {
+        this(filePath, systemModulePaths, JavaLanguageSupport.analysisContextProvider()::index,
+            new JavaSignatureSourceCache(4));
+    }
+
+    public JdtJavaSignatureHelpProvider {
+        systemModulePaths = systemModulePaths.clone();
+        Objects.requireNonNull(analysis, "analysis");
+        Objects.requireNonNull(sourceCache, "sourceCache");
+    }
+
+    @Override
+    public void close() {
+        sourceCache.close();
+    }
+
     /**
      * Creates a JDT provider whose document location is supplied by each snapshot.
      *
@@ -66,9 +89,9 @@ public record JdtJavaSignatureHelpProvider(@Nullable Path filePath, String[] sys
         if (!(snapshot instanceof TextDocumentSnapshot text) || !"java".equals(text.languageId()))
             return null;
         context.checkActive();
-        JavaWorkspaceAnalysis analysis = JavaLanguageSupport.analysisContextProvider().index(context);
+        JavaWorkspaceAnalysis analysis = this.analysis.apply(context);
         context.checkActive();
-        try (JavaSignatureSourceCache.Lease sources = SOURCES.acquire(analysis, text, context::checkActive)) {
+        try (JavaSignatureSourceCache.Lease sources = sourceCache.acquire(analysis, text, context::checkActive)) {
             List<String> classpath = new ArrayList<>(analysis.classpath().stream().map(Path::toString).toList());
             Path jmods = analysis.jdkHome().resolve("jmods");
             if (Files.isDirectory(jmods)) {

@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.diagnostics.inspections;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.diagnostics.RegisteredInspection;
 import dev.railroadide.railroad.ide.diagnostics.rules.java.JavaSemanticRules;
 import dev.railroadide.railroad.ide.sst.semantic.api.Symbol;
@@ -60,7 +61,7 @@ public final class CoreDuplicateDeclarationInspection implements JavaInspectionR
         JavaInspectionRuleReporter reporter
     ) {
         Symbol symbol = context.declaredSymbol(node).orElse(null);
-        if (symbol != null && symbol.kind() != SymbolKind.IMPORT && !"_".equals(symbol.simpleName())) {
+        if (symbol != null && symbol.kind() != JavaSymbolKind.IMPORT && !"_".equals(symbol.simpleName())) {
             if (JAVA_PATTERN.equals(node.kind().id())) {
                 symbol = null;
             }
@@ -81,7 +82,7 @@ public final class CoreDuplicateDeclarationInspection implements JavaInspectionR
     }
 
     private static String declarationKey(JavaRuleContext context, Symbol symbol, SyntaxNode node) {
-        if (symbol.kind() != SymbolKind.METHOD && symbol.kind() != SymbolKind.CONSTRUCTOR)
+        if (symbol.kind() != JavaSymbolKind.METHOD && symbol.kind() != JavaSymbolKind.CONSTRUCTOR)
             return symbol.simpleName();
 
         SyntaxNode parameterList = context.directChild(node, "JAVA_PARAMETER_LIST");

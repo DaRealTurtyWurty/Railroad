@@ -25,6 +25,10 @@ public record SignatureHelp(
     String returnType,
     boolean varargs
 ) {
+    public SignatureHelp {
+        parameters = List.copyOf(parameters);
+    }
+
     /**
      * Immutable descriptor for a single parameter in a signature.
      *

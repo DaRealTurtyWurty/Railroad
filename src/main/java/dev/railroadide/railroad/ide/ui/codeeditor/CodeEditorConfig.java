@@ -3,8 +3,12 @@ package dev.railroadide.railroad.ide.ui.codeeditor;
 import dev.railroadide.railroad.ide.completion.CompletionProvider;
 import dev.railroadide.railroad.ide.diagnostics.DiagnosticsProvider;
 import dev.railroadide.railroad.ide.language.LanguageSupport;
+import dev.railroadide.railroad.ide.language.LanguageCapabilities;
+import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
+import dev.railroadide.railroad.ide.sst.provider.api.SstCapabilities;
 import dev.railroadide.railroad.ide.signature.SignatureHelpProvider;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentUri;
+import dev.railroadide.railroad.ide.sst.request.api.CancellationToken;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import org.jspecify.annotations.Nullable;
 
@@ -19,14 +23,28 @@ import java.util.Objects;
  * @param diagnosticsProvider diagnostics service, or null when unavailable
  * @param signatureHelpProvider signature help service, or null when unavailable
  * @param highlightingProvider syntax style provider, or null when unavailable
+ * @param providerLifetime cancellation token invalidating providers and their unpublished results on unload
  */
 public record CodeEditorConfig(
     String languageId,
     @Nullable CompletionProvider completionProvider,
     @Nullable DiagnosticsProvider diagnosticsProvider,
     @Nullable SignatureHelpProvider signatureHelpProvider,
-    @Nullable SyntaxHighlightingProvider highlightingProvider
+    @Nullable SyntaxHighlightingProvider highlightingProvider,
+    CancellationToken providerLifetime
 ) {
+    /** Creates configuration for directly owned providers with no external unload lifetime. */
+    public CodeEditorConfig(
+        String languageId,
+        @Nullable CompletionProvider completionProvider,
+        @Nullable DiagnosticsProvider diagnosticsProvider,
+        @Nullable SignatureHelpProvider signatureHelpProvider,
+        @Nullable SyntaxHighlightingProvider highlightingProvider
+    ) {
+        this(languageId, completionProvider, diagnosticsProvider, signatureHelpProvider, highlightingProvider,
+            CancellationToken.none());
+    }
+
     /**
      * Creates editor configuration with a non-null language identifier and optional providers.
      *
@@ -35,19 +53,21 @@ public record CodeEditorConfig(
      * @param diagnosticsProvider diagnostics service, or null when unavailable
      * @param signatureHelpProvider signature help service, or null when unavailable
      * @param highlightingProvider syntax style provider, or null when unavailable
+     * @param providerLifetime external lifetime shared with captured requests
      */
     public CodeEditorConfig {
         Objects.requireNonNull(languageId, "languageId");
+        Objects.requireNonNull(providerLifetime, "providerLifetime");
     }
 
     /**
-     * Creates document-specific providers from the available language-support factories.
-     * Converts the path to an absolute, normalized file URI before invoking the factories.
+     * Obtains optional providers from the language's owned project session.
+     * Converts the path to an absolute, normalized file URI.
      * Use {@link #fromDocument} when the caller already has a document URI.
      *
      * @param project project whose files and workspace are being displayed
      * @param filePath document file for which the view or services are created
-     * @param languageSupport language support whose provider factories should be used
+     * @param languageSupport registered contribution whose session should be used
      * @param highlightingProvider syntax style provider, or null when unavailable
      * @return configuration with null entries for unavailable services
      */
@@ -62,11 +82,11 @@ public record CodeEditorConfig(
     }
 
     /**
-     * Creates providers for a physical or virtual document without opening an editor.
+     * Resolves session providers for a physical or virtual document without opening an editor.
      *
      * @param project project whose files and workspace are being displayed
      * @param documentUri document for which services are created
-     * @param languageSupport language support whose provider factories should be used
+     * @param languageSupport registered contribution whose session should be used
      * @param highlightingProvider syntax style provider, or null when unavailable
      * @return configuration with null entries for unavailable services
      */
@@ -80,24 +100,21 @@ public record CodeEditorConfig(
         Objects.requireNonNull(documentUri, "documentUri");
         Objects.requireNonNull(languageSupport, "languageSupport");
 
-        var completionFactory = languageSupport.completionFactory();
-        var diagnosticsFactory = languageSupport.diagnosticsFactory();
-        var signatureHelpFactory = languageSupport.signatureHelpFactory();
-        CompletionProvider completionProvider = completionFactory == null
-            ? null
-            : completionFactory.create(project, documentUri);
-        DiagnosticsProvider diagnosticsProvider = diagnosticsFactory == null
-            ? null
-            : diagnosticsFactory.create(project, documentUri);
-        SignatureHelpProvider signatureHelpProvider = signatureHelpFactory == null
-            ? null
-            : signatureHelpFactory.create(project, documentUri);
+        var session = LanguageSupportRegistry.runtime().session(project, languageSupport.id(), "");
+        CompletionProvider completionProvider = session.capability(SstCapabilities.COMPLETION).orElse(null);
+        DiagnosticsProvider diagnosticsProvider = session.capability(SstCapabilities.DIAGNOSTICS).orElse(null);
+        SignatureHelpProvider signatureHelpProvider = session.capability(SstCapabilities.SIGNATURE_HELP).orElse(null);
+
+        if (highlightingProvider == null) {
+            highlightingProvider = session.capability(LanguageCapabilities.HIGHLIGHTING).orElse(null);
+        }
 
         return new CodeEditorConfig(
             languageSupport.languageId(),
             completionProvider,
             diagnosticsProvider,
             signatureHelpProvider,
-            highlightingProvider);
+            highlightingProvider,
+            session.cancellationToken());
     }
 }

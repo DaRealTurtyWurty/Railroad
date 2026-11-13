@@ -15,6 +15,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import dev.railroadide.railroad.ide.sst.document.api.ContentKind;
 
 /**
  * Keeps project backing documents current independently of whether their editors are open.
@@ -198,7 +199,8 @@ public final class ProjectDocumentSynchronizer implements AutoCloseable {
         }
         byte[] bytes = Files.readAllBytes(path);
         String language = LanguageSupportRegistry.resolveLanguageId(path);
-        boolean textBased = LanguageSupportRegistry.get(language).map(LanguageSupport::isTextBased)
+        boolean textBased = LanguageSupportRegistry.get(language)
+            .map(support -> support.contentKind() == ContentKind.TEXT)
             .orElse(!Set.of("image", "binary").contains(language));
         String text = textBased ? StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString() : null;
         dispatch.accept(() -> {

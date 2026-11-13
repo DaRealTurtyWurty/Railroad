@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.sst.project;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.classparser.stub.ClassStub;
 import dev.railroadide.railroad.ide.language.index.LanguageFileIndex;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndex;
@@ -257,7 +258,8 @@ public final class JavaProjectSemanticIndex
 
     private static boolean isTypeSymbol(SymbolKind kind) {
         return switch (kind) {
-            case CLASS, INTERFACE, ENUM, ANNOTATION, RECORD -> true;
+            case JavaSymbolKind.CLASS, JavaSymbolKind.INTERFACE, JavaSymbolKind.ENUM, JavaSymbolKind.ANNOTATION,
+                JavaSymbolKind.RECORD -> true;
             default -> false;
         };
     }

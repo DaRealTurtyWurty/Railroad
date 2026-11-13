@@ -1,5 +1,7 @@
 package dev.railroadide.railroad.plugin.spi.inspection;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaTypes;
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import com.google.common.collect.Sets;
 import dev.railroadide.railroad.ide.classparser.Type.*;
 import dev.railroadide.railroad.ide.classparser.Type.ArrayType;
@@ -19,7 +21,7 @@ import dev.railroadide.railroad.ide.sst.project.JavaSymbolIndex;
 import dev.railroadide.railroad.ide.sst.project.JavaSourceSnapshotIndex;
 import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import dev.railroadide.railroad.ide.sst.semantic.api.*;
-import dev.railroadide.railroad.ide.sst.semantic.api.Type.*;
+import dev.railroadide.railroad.ide.sst.java.api.JavaTypes.*;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxTree;
@@ -1114,7 +1116,8 @@ public final class JavaRuleContext implements LanguageRuleContext {
      */
     public boolean isTypeSymbol(SymbolKind symbolKind) {
         return switch (symbolKind) {
-            case CLASS, INTERFACE, ENUM, ANNOTATION, RECORD -> true;
+            case JavaSymbolKind.CLASS, JavaSymbolKind.INTERFACE, JavaSymbolKind.ENUM, JavaSymbolKind.ANNOTATION,
+                JavaSymbolKind.RECORD -> true;
             default -> false;
         };
     }
@@ -1245,8 +1248,8 @@ public final class JavaRuleContext implements LanguageRuleContext {
             return numericRank(target.displayName()) >= numericRank(source.displayName());
 
         if (target.kind() == Kind.ARRAY && source.kind() == Kind.ARRAY) {
-            Type.ArrayType targetArray = (Type.ArrayType) target;
-            Type.ArrayType sourceArray = (Type.ArrayType) source;
+            JavaTypes.ArrayType targetArray = (JavaTypes.ArrayType) target;
+            JavaTypes.ArrayType sourceArray = (JavaTypes.ArrayType) source;
             return isAssignable(targetArray.componentType(), sourceArray.componentType(), usageSite, visited);
         }
 
@@ -1598,15 +1601,15 @@ public final class JavaRuleContext implements LanguageRuleContext {
 
         ClassStub stub = availableClassStubsByQualifiedName().get(ownerQualifiedName);
         if (stub == null)
-            return symbol.kind() == SymbolKind.CONSTRUCTOR ? typeModifiers(ownerQualifiedName) : Modifier.PUBLIC;
+            return symbol.kind() == JavaSymbolKind.CONSTRUCTOR ? typeModifiers(ownerQualifiedName) : Modifier.PUBLIC;
 
         return switch (symbol.kind()) {
-            case FIELD -> stub.fields().stream()
+            case JavaSymbolKind.FIELD -> stub.fields().stream()
                 .filter(field -> field.name().equals(symbol.simpleName()))
                 .findFirst()
                 .map(FieldStub::modifiers)
                 .orElse(Modifier.PUBLIC);
-            case METHOD -> {
+            case JavaSymbolKind.METHOD -> {
                 String signature = callableSignature(symbol);
                 yield stub.methods().stream()
                     .filter(method -> method.name().equals(symbol.simpleName()))
@@ -1616,7 +1619,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
                     .map(MethodStub::modifiers)
                     .orElse(Modifier.PUBLIC);
             }
-            case CONSTRUCTOR -> {
+            case JavaSymbolKind.CONSTRUCTOR -> {
                 String signature = callableSignature(symbol);
                 yield stub.constructors().stream()
                     .filter(constructor -> signature == null || signature.equals(signatureSuffix(
@@ -1660,7 +1663,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
     public boolean isInterfaceType(String qualifiedTypeName) {
         Symbol localType = localTypeSymbol(qualifiedTypeName).orElse(null);
         if (localType != null)
-            return localType.kind() == SymbolKind.INTERFACE || localType.kind() == SymbolKind.ANNOTATION;
+            return localType.kind() == JavaSymbolKind.INTERFACE || localType.kind() == JavaSymbolKind.ANNOTATION;
 
         ClassStub stub = availableClassStubsByQualifiedName().get(qualifiedTypeName);
         if (stub != null)
@@ -1669,7 +1672,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         if (symbolIndex != null) {
             for (JavaProjectSemanticIndex.SymbolDescriptor symbol : symbolIndex
                 .lookupQualifiedName(qualifiedTypeName)) {
-                if (symbol.kind() == SymbolKind.INTERFACE || symbol.kind() == SymbolKind.ANNOTATION)
+                if (symbol.kind() == JavaSymbolKind.INTERFACE || symbol.kind() == JavaSymbolKind.ANNOTATION)
                     return true;
             }
         }
@@ -2076,7 +2079,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         if (stub == null)
             return List.of();
 
-        if (symbol.kind() == SymbolKind.CONSTRUCTOR) {
+        if (symbol.kind() == JavaSymbolKind.CONSTRUCTOR) {
             for (var constructor : stub.constructors()) {
                 if (signature.equals(signatureSuffix(
                     constructor.parameters().stream().map(parameter -> toSemanticType(parameter.type())).toList())))
@@ -2085,7 +2088,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
             return List.of();
         }
 
-        if (symbol.kind() != SymbolKind.METHOD)
+        if (symbol.kind() != JavaSymbolKind.METHOD)
             return List.of();
 
         for (var method : stub.methods()) {
@@ -2177,11 +2180,11 @@ public final class JavaRuleContext implements LanguageRuleContext {
 
         Type result = switch (text) {
             case "boolean", "byte", "short", "char", "int", "long", "float", "double", "void" ->
-                new Type.PrimitiveType(text);
+                new JavaTypes.PrimitiveType(text);
             default -> new DeclaredType(text, List.of());
         };
         for (int index = 0; index < arrayDimensions; index++) {
-            result = new Type.ArrayType(result);
+            result = new JavaTypes.ArrayType(result);
         }
 
         return result;
@@ -2532,7 +2535,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         Map<String, List<MethodDescriptor>> collected = new LinkedHashMap<>();
 
         traverse(node -> declaredSymbol(node).ifPresent(symbol -> {
-            if (symbol.kind() != SymbolKind.METHOD)
+            if (symbol.kind() != JavaSymbolKind.METHOD)
                 return;
             String ownerQualifiedName = ownerQualifiedName(symbol).orElse(null);
             SyntaxNode declaration = symbol.declaration().orElse(null);
@@ -2556,7 +2559,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
 
     private void addImplicitRecordAccessors(Map<String, List<MethodDescriptor>> collected) {
         localTypeSymbolsByQualifiedName().forEach((ownerQualifiedName, typeSymbol) -> {
-            if (typeSymbol.kind() != SymbolKind.RECORD)
+            if (typeSymbol.kind() != JavaSymbolKind.RECORD)
                 return;
 
             SyntaxNode declaration = typeSymbol.declaration().orElse(null);
@@ -2601,7 +2604,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         Map<String, List<FieldDescriptor>> collected = new LinkedHashMap<>();
 
         traverse(node -> declaredSymbol(node).ifPresent(symbol -> {
-            if (symbol.kind() != SymbolKind.FIELD)
+            if (symbol.kind() != JavaSymbolKind.FIELD)
                 return;
             String ownerQualifiedName = ownerQualifiedName(symbol).orElse(null);
             SyntaxNode declaration = symbol.declaration().orElse(null);
@@ -2757,7 +2760,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
     }
 
     private static String lombokGetterName(String fieldName, Type fieldType) {
-        if (fieldType instanceof Type.PrimitiveType primitive && "boolean".equals(primitive.displayName())) {
+        if (fieldType instanceof JavaTypes.PrimitiveType primitive && "boolean".equals(primitive.displayName())) {
             if (fieldName.length() > 2 && fieldName.startsWith("is") && Character.isUpperCase(fieldName.charAt(2)))
                 return fieldName;
             return "is" + capitalizePropertyName(fieldName);
@@ -2776,7 +2779,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
     private int sourceSymbolModifiers(Symbol symbol, SyntaxNode declaration) {
         int modifiers = 0;
         SyntaxNode modifierSource = switch (symbol.kind()) {
-            case FIELD, LOCAL_VARIABLE -> declaration.parent().orElse(declaration);
+            case JavaSymbolKind.FIELD, JavaSymbolKind.LOCAL_VARIABLE -> declaration.parent().orElse(declaration);
             default -> declaration;
         };
 
@@ -2824,7 +2827,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         }
 
         Symbol ownerSymbol = ownerQualifiedName(symbol).flatMap(this::localTypeSymbol).orElse(null);
-        if ((symbol.kind() == SymbolKind.FIELD || symbol.kind() == SymbolKind.METHOD)
+        if ((symbol.kind() == JavaSymbolKind.FIELD || symbol.kind() == JavaSymbolKind.METHOD)
             && ownerSymbol != null
             && ownerSymbol.declaration().isPresent()) {
             String ownerKindId = ownerSymbol.declaration().orElseThrow().kind().id();
@@ -2966,9 +2969,9 @@ public final class JavaRuleContext implements LanguageRuleContext {
         Symbol localType = localTypeSymbol(qualifiedTypeName).orElse(null);
         if (localType == null || directSupers.stream().anyMatch(type -> "java.lang.Object".equals(type.displayName())))
             return false;
-        if (localType.kind() == SymbolKind.RECORD)
+        if (localType.kind() == JavaSymbolKind.RECORD)
             return true;
-        if (localType.kind() != SymbolKind.CLASS)
+        if (localType.kind() != JavaSymbolKind.CLASS)
             return false;
 
         SyntaxNode declaration = localType.declaration().orElse(null);
@@ -2981,7 +2984,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
 
         return symbolIndex.lookupQualifiedName(qualifiedTypeName).stream()
             .anyMatch(symbol -> symbol.sourceFile() != null
-                && (symbol.kind() == SymbolKind.CLASS || symbol.kind() == SymbolKind.RECORD));
+                && (symbol.kind() == JavaSymbolKind.CLASS || symbol.kind() == JavaSymbolKind.RECORD));
     }
 
     private List<Type> invocationArgumentTypes(SyntaxNode invocation) {
@@ -3011,7 +3014,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         if (localType != null && localType.declaration().isPresent()) {
             SyntaxNode declaration = localType.declaration().orElseThrow();
             traverseNode(declaration, node -> declaredSymbol(node).ifPresent(symbol -> {
-                if (symbol.kind() != SymbolKind.CONSTRUCTOR)
+                if (symbol.kind() != JavaSymbolKind.CONSTRUCTOR)
                     return;
                 if (!Objects.equals(ownerQualifiedName(symbol).orElse(null), ownerQualifiedTypeName))
                     return;
@@ -3021,7 +3024,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
                 constructors.add(sourceConstructorDescriptor(ownerQualifiedTypeName, symbol, ctorDeclaration));
             }));
 
-            if (constructors.isEmpty() && localType.kind() == SymbolKind.RECORD) {
+            if (constructors.isEmpty() && localType.kind() == JavaSymbolKind.RECORD) {
                 constructors.add(implicitRecordConstructorDescriptor(ownerQualifiedTypeName, declaration));
             }
             return List.copyOf(constructors);
@@ -3123,11 +3126,11 @@ public final class JavaRuleContext implements LanguageRuleContext {
         if ("void".equals(text))
             return new VoidType();
         if (text.startsWith("?extends"))
-            return new Type.WildcardType(semanticTypeFromText(text.substring(8), usageSite), null);
+            return new JavaTypes.WildcardType(semanticTypeFromText(text.substring(8), usageSite), null);
         if (text.startsWith("?super"))
-            return new Type.WildcardType(null, semanticTypeFromText(text.substring(6), usageSite));
+            return new JavaTypes.WildcardType(null, semanticTypeFromText(text.substring(6), usageSite));
         if ("?".equals(text))
-            return new Type.WildcardType(new DeclaredType("java.lang.Object", List.of()), null);
+            return new JavaTypes.WildcardType(new DeclaredType("java.lang.Object", List.of()), null);
 
         int arrayDimensions = 0;
         while (text.endsWith("[]")) {
@@ -3152,7 +3155,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         String qualifiedName = resolveQualifiedTypeName(rawType, usageSite);
         Type resolved;
         if (Set.of("boolean", "byte", "short", "char", "int", "long", "float", "double").contains(rawType)) {
-            resolved = new Type.PrimitiveType(rawType);
+            resolved = new JavaTypes.PrimitiveType(rawType);
         } else if (isLikelyTypeVariableName(rawType)
             && (qualifiedName == null
                 || qualifiedName.equals(rawType) && !availableQualifiedTypeNames().contains(qualifiedName))) {
@@ -3164,7 +3167,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         }
 
         for (int index = 0; index < arrayDimensions; index++) {
-            resolved = new Type.ArrayType(resolved);
+            resolved = new JavaTypes.ArrayType(resolved);
         }
         return resolved;
     }
@@ -3207,7 +3210,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
             return null;
 
         Symbol resolved = resolvedSymbol(receiver).orElse(null);
-        if (resolved != null && resolved.kind() == SymbolKind.METHOD) {
+        if (resolved != null && resolved.kind() == JavaSymbolKind.METHOD) {
             String ownerQualifiedName = ownerQualifiedName(resolved).orElse(null);
             if (ownerQualifiedName != null && !ownerQualifiedName.isBlank()) {
                 String returnType = methodReturnTypeName(ownerQualifiedName, resolved.simpleName());
@@ -3371,7 +3374,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         if (!varargs)
             return true;
 
-        Type.ArrayType varargsArray = (Type.ArrayType) parameterTypes.getLast();
+        JavaTypes.ArrayType varargsArray = (JavaTypes.ArrayType) parameterTypes.getLast();
         if (argumentTypes.size() == parameterTypes.size()
             && isInvocationAssignable(varargsArray, argumentTypes.getLast()))
             return true;
@@ -3389,7 +3392,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
 
         for (JavaProjectSemanticIndex.SymbolDescriptor symbol : symbolIndex.lookupMember(owner.qualifiedTypeName(),
             methodName)) {
-            if (symbol.kind() != SymbolKind.METHOD)
+            if (symbol.kind() != JavaSymbolKind.METHOD)
                 continue;
             if (owner.staticAccess() && !symbol.isStatic())
                 continue;
@@ -3541,8 +3544,9 @@ public final class JavaRuleContext implements LanguageRuleContext {
             case DeclaredType declared -> new DeclaredType(
                 declared.displayName(),
                 declared.typeArguments().stream().map(argument -> substituteType(argument, substitutions)).toList());
-            case Type.ArrayType array -> new Type.ArrayType(substituteType(array.componentType(), substitutions));
-            case Type.WildcardType wildcard -> new Type.WildcardType(
+            case JavaTypes.ArrayType array ->
+                new JavaTypes.ArrayType(substituteType(array.componentType(), substitutions));
+            case JavaTypes.WildcardType wildcard -> new JavaTypes.WildcardType(
                 wildcard.upperBound() == null ? null : substituteType(wildcard.upperBound(), substitutions),
                 wildcard.lowerBound() == null ? null : substituteType(wildcard.lowerBound(), substitutions));
             default -> type;
@@ -3640,7 +3644,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
                 SyntaxNode typeRef = directChild(child, JAVA_TYPE_REFERENCE);
                 Type parameterType = semanticTypeFromTypeReference(typeRef);
                 if (hasTokenKind(child, JavaTokenType.ELLIPSIS)) {
-                    parameterType = new Type.ArrayType(parameterType);
+                    parameterType = new JavaTypes.ArrayType(parameterType);
                 }
                 parameterTypes.add(parameterType);
             }
@@ -3912,8 +3916,8 @@ public final class JavaRuleContext implements LanguageRuleContext {
         return switch (type) {
             case PrimitiveType primitive -> "void".equals(primitive.name())
                 ? new VoidType()
-                : new Type.PrimitiveType(primitive.name());
-            case ArrayType array -> new Type.ArrayType(toSemanticType(array.componentType()));
+                : new JavaTypes.PrimitiveType(primitive.name());
+            case ArrayType array -> new JavaTypes.ArrayType(toSemanticType(array.componentType()));
             case ClassType clazz -> new DeclaredType(
                 clazz.name(),
                 clazz.typeArguments().stream().map(JavaRuleContext::toSemanticType).toList());
@@ -3921,11 +3925,11 @@ public final class JavaRuleContext implements LanguageRuleContext {
             case WildcardType wildcard -> {
                 // Keep binary unbounded wildcards consistent with source '?' parsing.
                 if (wildcard.bound() == null && wildcard.isUpperBound())
-                    yield new Type.WildcardType(new DeclaredType("java.lang.Object", List.of()), null);
+                    yield new JavaTypes.WildcardType(new DeclaredType("java.lang.Object", List.of()), null);
                 Type bound = wildcard.bound() == null ? new UnknownType("<unknown>") : toSemanticType(wildcard.bound());
                 yield wildcard.isUpperBound()
-                    ? new Type.WildcardType(bound, null)
-                    : new Type.WildcardType(null, bound);
+                    ? new JavaTypes.WildcardType(bound, null)
+                    : new JavaTypes.WildcardType(null, bound);
             }
         };
     }
@@ -4278,7 +4282,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
                 for (ImportEntry importEntry : singleStaticImports) {
                     if (hasResolvableStaticField(importEntry.ownerName(), fieldName)) {
                         resolved.add(new SimpleSymbol(
-                            SymbolKind.FIELD,
+                            JavaSymbolKind.FIELD,
                             fieldName,
                             importEntry.ownerName() + "#" + fieldName,
                             importEntry.targetNode()));
@@ -4289,7 +4293,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
             for (ImportEntry onDemandImport : onDemandStaticImports) {
                 if (hasResolvableStaticField(onDemandImport.ownerName(), fieldName)) {
                     resolved.add(new SimpleSymbol(
-                        SymbolKind.FIELD,
+                        JavaSymbolKind.FIELD,
                         fieldName,
                         onDemandImport.ownerName() + "#" + fieldName,
                         referenceNode));
@@ -4318,7 +4322,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
                 for (ImportEntry importEntry : singleStaticImports) {
                     if (hasResolvableStaticMethod(importEntry.ownerName(), methodName, argumentCountOrUnknown)) {
                         resolved.add(new SimpleSymbol(
-                            SymbolKind.METHOD,
+                            JavaSymbolKind.METHOD,
                             methodName,
                             importEntry.ownerName() + "#" + methodName,
                             importEntry.targetNode()));
@@ -4329,7 +4333,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
             for (ImportEntry onDemandImport : onDemandStaticImports) {
                 if (hasResolvableStaticMethod(onDemandImport.ownerName(), methodName, argumentCountOrUnknown)) {
                     resolved.add(new SimpleSymbol(
-                        SymbolKind.METHOD,
+                        JavaSymbolKind.METHOD,
                         methodName,
                         onDemandImport.ownerName() + "#" + methodName,
                         invocationNode));
@@ -4419,7 +4423,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
                 Symbol symbol = context.declaredSymbol(node).orElse(null);
                 if (symbol == null)
                     return;
-                if (symbol.kind() != SymbolKind.FIELD && symbol.kind() != SymbolKind.METHOD)
+                if (symbol.kind() != JavaSymbolKind.FIELD && symbol.kind() != JavaSymbolKind.METHOD)
                     return;
 
                 String qualifiedName = symbol.qualifiedName().orElse(null);
@@ -4434,7 +4438,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
 
                 String ownerName = qualifiedName.substring(0, separator);
                 String memberName = qualifiedName.substring(separator + 1);
-                if (symbol.kind() == SymbolKind.FIELD) {
+                if (symbol.kind() == JavaSymbolKind.FIELD) {
                     localStaticFieldsByOwner.computeIfAbsent(ownerName, _ -> new HashSet<>()).add(memberName);
                 } else {
                     int arity = methodDeclarationArity(context, symbol);

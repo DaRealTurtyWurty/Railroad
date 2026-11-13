@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.diagnostics.inspections;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaTypes;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticAnalyzer;
 import dev.railroadide.railroad.ide.sst.project.JavaJdkSymbolIndex;
 import dev.railroadide.railroad.ide.sst.project.JavaSymbolIndex;
@@ -35,7 +36,8 @@ public class JavaInferenceRepairTest {
         var model = JavaSemanticAnalyzer.analyzeFacts(source);
         var context = new JavaRuleContext(Path.of("Example.java"), source, model);
         var literal = context.nodesOfKind("JAVA_LITERAL_EXPRESSION").getFirst();
-        assertEquals(new Type.DeclaredType("java.lang.String", List.of()), model.inferredType(literal).orElseThrow());
+        assertEquals(new JavaTypes.DeclaredType("java.lang.String", List.of()),
+            model.inferredType(literal).orElseThrow());
     }
 
     @Test

@@ -11,6 +11,7 @@ import dev.railroadide.railroad.ide.signature.SignatureHelp;
 import dev.railroadide.railroad.ide.signature.SignatureHelpProvider;
 import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.request.api.CancellationTokenSource;
+import dev.railroadide.railroad.ide.sst.request.api.CancellationToken;
 import dev.railroadide.railroad.ide.sst.request.api.Deadline;
 import dev.railroadide.railroad.ide.sst.request.api.FeatureRequestContext;
 import dev.railroadide.railroad.ide.sst.request.api.RequestPriority;
@@ -46,7 +47,7 @@ import org.fxmisc.richtext.model.StyleSpansBuilder;
 import org.jspecify.annotations.Nullable;
 import org.reactfx.Subscription;
 
-import javax.tools.Diagnostic;
+import dev.railroadide.railroad.ide.diagnostics.DiagnosticSeverity;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
@@ -81,13 +82,14 @@ public abstract class CodeEditorPane extends TextEditorPane {
     private final PauseTransition workspaceDiagnosticsDelay = new PauseTransition(
         javafx.util.Duration.millis(DIAGNOSTIC_DEBOUNCE.toMillis()));
 
-    protected final Map<Integer, Diagnostic.Kind> lineSeverity = new ConcurrentHashMap<>();
+    protected final Map<Integer, DiagnosticSeverity> lineSeverity = new ConcurrentHashMap<>();
     protected final Map<Integer, String> lineDiagnosticMessages = new ConcurrentHashMap<>();
     protected final AtomicInteger diagnosticsGeneration = new AtomicInteger();
 
     protected volatile List<TextEditorDiagnostic> visibleDiagnostics = List.of();
     protected final Popup diagnosticPopup = new Popup();
 
+    private final CancellationToken providerLifetime;
     private @Nullable CancellationTokenSource activeDiagnosticsCancellation;
     private @Nullable FeatureRequestContext activeDiagnosticsContext;
     // endregion
@@ -104,7 +106,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
 
     // region Completion state
     protected final List<CompletionItem> completionCandidates = new ArrayList<>();
-    protected volatile int completionDotIndex = -1;
+    protected volatile int completionReplacementStart = -1;
     protected final AtomicInteger completionGeneration = new AtomicInteger();
     protected final AtomicReference<Popup> activeCompletionPopup = new AtomicReference<>(null);
     protected final AtomicReference<RRListView<CompletionItem>> activeCompletionList = new AtomicReference<>(null);
@@ -149,6 +151,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         this.project = Objects.requireNonNull(project, "project");
         Objects.requireNonNull(filePath, "filePath");
         Objects.requireNonNull(config, "config");
+        this.providerLifetime = config.providerLifetime();
         this.completionProvider = config.completionProvider();
         this.diagnosticsProvider = config.diagnosticsProvider();
         this.signatureHelpProvider = config.signatureHelpProvider();
@@ -325,21 +328,21 @@ public abstract class CodeEditorPane extends TextEditorPane {
     }
 
     private @Nullable Node createDiagnosticMarker(int line) {
-        Diagnostic.Kind severity = lineSeverity.get(line);
+        DiagnosticSeverity severity = lineSeverity.get(line);
         if (severity == null)
             return null;
 
-        FontAwesomeSolid iconType = severity == Diagnostic.Kind.ERROR
-            ? FontAwesomeSolid.CIRCLE_EXCLAMATION
-            : FontAwesomeSolid.TRIANGLE_EXCLAMATION;
+        FontAwesomeSolid iconType = switch (severity) {
+            case ERROR -> FontAwesomeSolid.CIRCLE_EXCLAMATION;
+            case WARNING -> FontAwesomeSolid.TRIANGLE_EXCLAMATION;
+            case INFORMATION, HINT -> FontAwesomeSolid.CIRCLE_INFO;
+        };
 
         var icon = new MFXFontIcon(iconType, 12);
-        icon.getStyleClass().add(severity == Diagnostic.Kind.ERROR
-            ? "editor-diagnostic-error"
-            : "editor-diagnostic-warning");
+        icon.getStyleClass().add("editor-diagnostic-" + severity.name().toLowerCase(Locale.ROOT));
         String tooltipText = lineDiagnosticMessages.getOrDefault(
             line,
-            severity == Diagnostic.Kind.ERROR ? "Error" : "Warning");
+            severity.name());
         Tooltip.install(icon, new Tooltip(tooltipText));
         return icon;
     }
@@ -375,7 +378,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
      */
     private void requestHighlight() {
         invalidateHighlightRequest();
-        if (codeEditorClosed || !supportsHighlighting())
+        if (codeEditorClosed || providerLifetime.isCancellationRequested() || !supportsHighlighting())
             return;
 
         int generation = highlightGeneration.incrementAndGet();
@@ -384,14 +387,14 @@ public abstract class CodeEditorPane extends TextEditorPane {
             || !(workspace.document(documentId).orElse(null) instanceof TextDocumentSnapshot snapshot))
             return;
 
-        activeHighlightCancellation = new CancellationTokenSource();
+        activeHighlightCancellation = new CancellationTokenSource(providerLifetime);
         var context = new FeatureRequestContext(workspace, snapshot, activeHighlightCancellation.token(),
             Deadline.after(HIGHLIGHT_BUDGET));
         activeHighlightContext = context;
 
         featureRequests.submit("highlighting", RequestPriority.OPEN_DOCUMENT_ANALYSIS, context,
             activeHighlightCancellation, () -> ProviderExecutor.shared().execute(
-                highlightingProvider.getClass().getName() + ":highlighting", context, HIGHLIGHT_BUDGET,
+                context.documentSnapshot().languageId() + ":highlighting", context, HIGHLIGHT_BUDGET,
                 () -> highlightingProvider.compute(context)))
             .thenAccept(result -> Platform.runLater(() -> {
                 if (highlightGeneration.get() != generation
@@ -466,7 +469,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         invalidateDiagnosticsRequest();
 
         workspaceDiagnosticsDelay.stop();
-        if (codeEditorClosed || !supportsDiagnostics())
+        if (codeEditorClosed || providerLifetime.isCancellationRequested() || !supportsDiagnostics())
             return;
 
         int generation = diagnosticsGeneration.incrementAndGet();
@@ -476,14 +479,14 @@ public abstract class CodeEditorPane extends TextEditorPane {
             || !(workspace.document(documentId).orElse(null) instanceof TextDocumentSnapshot snapshot))
             return;
 
-        activeDiagnosticsCancellation = new CancellationTokenSource();
+        activeDiagnosticsCancellation = new CancellationTokenSource(providerLifetime);
         var context = new FeatureRequestContext(workspace, snapshot, activeDiagnosticsCancellation.token(),
             Deadline.after(DIAGNOSTICS_BUDGET));
         activeDiagnosticsContext = context;
 
         featureRequests.submit("diagnostics", RequestPriority.VISIBLE_DIAGNOSTICS, context,
             activeDiagnosticsCancellation, () -> ProviderExecutor.shared().execute(
-                diagnosticsProvider.getClass().getName() + ":diagnostics", context, DIAGNOSTICS_BUDGET,
+                context.documentSnapshot().languageId() + ":diagnostics", context, DIAGNOSTICS_BUDGET,
                 () -> diagnosticsProvider.compute(context)))
             .thenAccept(result -> Platform.runLater(() -> {
                 if (activeDiagnosticsContext != context
@@ -629,7 +632,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         });
 
         caretPositionProperty().addListener((obs, oldPos, newPos) -> {
-            if (completionDotIndex >= 0 && newPos <= completionDotIndex) {
+            if (completionReplacementStart >= 0 && newPos < completionReplacementStart) {
                 hideAutoComplete();
             }
         });
@@ -646,19 +649,19 @@ public abstract class CodeEditorPane extends TextEditorPane {
      * Publication on the JavaFX thread must validate request identity, activity, generation,
      * and current workspace state before interpreting the possibly unsupported payload.
      *
-     * @param dotIndex zero-based UTF-16 completion trigger offset in the captured document
+     * @param triggerAt zero-based UTF-16 completion trigger offset in the captured document
      */
-    private void triggerCompletion(int dotIndex) {
+    private void triggerCompletion(int triggerAt) {
         invalidateCompletionRequest();
 
-        if (codeEditorClosed || !supportsCompletion())
+        if (codeEditorClosed || providerLifetime.isCancellationRequested() || !supportsCompletion())
             return;
 
         WorkspaceSnapshot workspace = captureFeatureWorkspace();
         if (workspace == null || workspace.document(documentId).isEmpty())
             return;
 
-        activeCompletionCancellation = new CancellationTokenSource();
+        activeCompletionCancellation = new CancellationTokenSource(providerLifetime);
         var context = new FeatureRequestContext(workspace, workspace.document(documentId).get(),
             activeCompletionCancellation.token(), Deadline.after(INTERACTIVE_BUDGET));
         activeCompletionContext = context;
@@ -666,8 +669,8 @@ public abstract class CodeEditorPane extends TextEditorPane {
         int generation = completionGeneration.incrementAndGet();
         featureRequests.submit("completion", RequestPriority.COMPLETION, context,
             activeCompletionCancellation, () -> ProviderExecutor.shared().execute(
-                completionProvider.getClass().getName() + ":completion", context, INTERACTIVE_BUDGET,
-                () -> completionProvider.compute(context, dotIndex)))
+                context.documentSnapshot().languageId() + ":completion", context, INTERACTIVE_BUDGET,
+                () -> completionProvider.compute(context, triggerAt)))
             .thenAccept(result -> Platform.runLater(() -> {
                 if (completionGeneration.get() != generation
                     || activeCompletionContext != context
@@ -700,14 +703,15 @@ public abstract class CodeEditorPane extends TextEditorPane {
     }
 
     private void handleCompletionResult(CompletionResult result) {
-        if (result.items().isEmpty()) {
+        if (result.items().isEmpty() || result.replacementStart() < 0
+            || result.replacementStart() > getCaretPosition()) {
             hideAutoComplete();
             return;
         }
 
         completionCandidates.clear();
         completionCandidates.addAll(result.items());
-        completionDotIndex = result.dotIndex();
+        completionReplacementStart = result.replacementStart();
         showAutoComplete();
     }
 
@@ -741,12 +745,20 @@ public abstract class CodeEditorPane extends TextEditorPane {
     }
 
     private void completeFromSelection(RRListView<CompletionItem> listView) {
+        if (codeEditorClosed || providerLifetime.isCancellationRequested()) {
+            hideAutoComplete();
+            return;
+        }
         CompletionItem selected = listView.getSelectionModel().getSelectedItem();
         if (selected == null)
             return;
 
         int caret = getCaretPosition();
-        int start = Math.min(completionDotIndex + 1, caret);
+        if (completionReplacementStart < 0 || completionReplacementStart > caret) {
+            hideAutoComplete();
+            return;
+        }
+        int start = completionReplacementStart;
         String insert = selected.insertText();
         replaceText(start, caret, insert);
         moveTo(start + insert.length());
@@ -760,17 +772,17 @@ public abstract class CodeEditorPane extends TextEditorPane {
             return;
 
         int caret = getCaretPosition();
-        if (completionDotIndex < 0 || completionDotIndex >= text.length() || text.charAt(completionDotIndex) != '.') {
+        if (completionReplacementStart < 0 || completionReplacementStart > text.length()) {
             hideAutoComplete();
             return;
         }
 
-        if (caret <= completionDotIndex) {
+        if (caret < completionReplacementStart) {
             hideAutoComplete();
             return;
         }
 
-        String prefix = text.substring(completionDotIndex + 1, Math.min(caret, text.length()));
+        String prefix = text.substring(completionReplacementStart, Math.min(caret, text.length()));
         List<CompletionItem> filtered = completionCandidates.stream()
             .filter(item -> item.insertText().startsWith(prefix))
             .collect(Collectors.toList());
@@ -809,18 +821,26 @@ public abstract class CodeEditorPane extends TextEditorPane {
         if (clearState) {
             invalidateCompletionRequest();
             completionCandidates.clear();
-            completionDotIndex = -1;
+            completionReplacementStart = -1;
         }
     }
 
     private void showAutocomplete(PlainTextChange change) {
+        if (codeEditorClosed || providerLifetime.isCancellationRequested())
+            return;
         String inserted = change.getInserted();
         if (inserted == null || inserted.isEmpty())
             return;
 
-        if (inserted.endsWith(".")) {
-            int dotIndex = change.getPosition() + inserted.length() - 1;
-            triggerCompletion(dotIndex);
+        try {
+            if (completionProvider.shouldTrigger(inserted)) {
+                int triggerAt = change.getPosition() + inserted.length() - 1;
+                triggerCompletion(triggerAt);
+            }
+        } catch (CancellationException _) {
+            // The session can close before its editor notification reaches the UI thread.
+        } catch (RuntimeException exception) {
+            Railroad.LOGGER.error("Completion trigger policy failed", exception);
         }
     }
     // endregion
@@ -867,7 +887,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
     private void requestSignatureHelp(boolean textChanged) {
         invalidateSignatureRequest();
 
-        if (codeEditorClosed || !supportsSignatureHelp()) {
+        if (codeEditorClosed || providerLifetime.isCancellationRequested() || !supportsSignatureHelp()) {
             hideSignatureHelp();
             return;
         }
@@ -885,14 +905,14 @@ public abstract class CodeEditorPane extends TextEditorPane {
             || !(workspace.document(documentId).orElse(null) instanceof TextDocumentSnapshot snapshot))
             return;
 
-        activeSignatureCancellation = new CancellationTokenSource();
+        activeSignatureCancellation = new CancellationTokenSource(providerLifetime);
         var context = new FeatureRequestContext(workspace, snapshot, activeSignatureCancellation.token(),
             Deadline.after(INTERACTIVE_BUDGET));
         activeSignatureContext = context;
 
         featureRequests.submit("signature", RequestPriority.SIGNATURE_HELP, context,
             activeSignatureCancellation, () -> ProviderExecutor.shared().execute(
-                signatureHelpProvider.getClass().getName() + ":signature", context, INTERACTIVE_BUDGET,
+                context.documentSnapshot().languageId() + ":signature", context, INTERACTIVE_BUDGET,
                 () -> signatureHelpProvider.compute(context, caret)))
             .thenAccept(result -> Platform.runLater(() -> {
                 if (signatureGeneration.get() != generation
@@ -1190,7 +1210,9 @@ public abstract class CodeEditorPane extends TextEditorPane {
             if (end <= start)
                 continue;
 
-            boolean error = diagnostic.kind() == Diagnostic.Kind.ERROR;
+            if (diagnostic.kind() == DiagnosticSeverity.INFORMATION || diagnostic.kind() == DiagnosticSeverity.HINT)
+                continue;
+            boolean error = diagnostic.kind() == DiagnosticSeverity.ERROR;
             registerDiagnosticEvent(events, start, error, 1);
             registerDiagnosticEvent(events, end, error, -1);
         }
@@ -1283,21 +1305,17 @@ public abstract class CodeEditorPane extends TextEditorPane {
     }
 
     private boolean recomputeLineDecorations() {
-        Map<Integer, Diagnostic.Kind> updatedSeverity = new LinkedHashMap<>();
+        Map<Integer, DiagnosticSeverity> updatedSeverity = new LinkedHashMap<>();
         Map<Integer, String> updatedMessages = new LinkedHashMap<>();
 
         for (TextEditorDiagnostic diagnostic : visibleDiagnostics) {
             int line = diagnostic.location().line() + 1;
-            Diagnostic.Kind kind = diagnostic.kind();
-            Diagnostic.Kind effectiveKind = kind == Diagnostic.Kind.ERROR
-                ? Diagnostic.Kind.ERROR
-                : Diagnostic.Kind.WARNING;
-            Diagnostic.Kind existing = updatedSeverity.get(line);
-            if (existing != Diagnostic.Kind.ERROR) {
-                updatedSeverity.put(line, effectiveKind);
+            DiagnosticSeverity kind = diagnostic.kind();
+            DiagnosticSeverity existing = updatedSeverity.get(line);
+            if (existing == null || kind.ordinal() < existing.ordinal()) {
+                updatedSeverity.put(line, kind);
+                updatedMessages.put(line, diagnostic.message(Locale.getDefault()));
             }
-
-            updatedMessages.putIfAbsent(line, diagnostic.message(Locale.getDefault()));
         }
 
         boolean changed = !lineSeverity.equals(updatedSeverity) || !lineDiagnosticMessages.equals(updatedMessages);

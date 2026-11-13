@@ -1,5 +1,7 @@
 package dev.railroadide.railroad.ide.sst.impl.java;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaTypes;
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.sst.project.JavaSymbolIndex;
 import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import dev.railroadide.railroad.ide.sst.semantic.api.*;
@@ -366,23 +368,23 @@ public final class JavaDeclarationAnalysis {
             } else if (JavaSyntaxKinds.MODULE_DECLARATION.id().equals(kindId)) {
                 declareModule(node, scope);
             } else if (JavaSyntaxKinds.CLASS_DECLARATION.id().equals(kindId)) {
-                visitTypeDeclaration(node, scope, SymbolKind.CLASS, JavaTokenType.CLASS_KEYWORD,
+                visitTypeDeclaration(node, scope, JavaSymbolKind.CLASS, JavaTokenType.CLASS_KEYWORD,
                     currentTypeQualifiedName);
                 return;
             } else if (JavaSyntaxKinds.INTERFACE_DECLARATION.id().equals(kindId)) {
-                visitTypeDeclaration(node, scope, SymbolKind.INTERFACE, JavaTokenType.INTERFACE_KEYWORD,
+                visitTypeDeclaration(node, scope, JavaSymbolKind.INTERFACE, JavaTokenType.INTERFACE_KEYWORD,
                     currentTypeQualifiedName);
                 return;
             } else if (JavaSyntaxKinds.ENUM_DECLARATION.id().equals(kindId)) {
-                visitTypeDeclaration(node, scope, SymbolKind.ENUM, JavaTokenType.ENUM_KEYWORD,
+                visitTypeDeclaration(node, scope, JavaSymbolKind.ENUM, JavaTokenType.ENUM_KEYWORD,
                     currentTypeQualifiedName);
                 return;
             } else if (JavaSyntaxKinds.ANNOTATION_TYPE_DECLARATION.id().equals(kindId)) {
-                visitTypeDeclaration(node, scope, SymbolKind.ANNOTATION, JavaTokenType.AT_INTERFACE_KEYWORD,
+                visitTypeDeclaration(node, scope, JavaSymbolKind.ANNOTATION, JavaTokenType.AT_INTERFACE_KEYWORD,
                     currentTypeQualifiedName);
                 return;
             } else if (JavaSyntaxKinds.RECORD_DECLARATION.id().equals(kindId)) {
-                visitTypeDeclaration(node, scope, SymbolKind.RECORD, JavaTokenType.RECORD_KEYWORD,
+                visitTypeDeclaration(node, scope, JavaSymbolKind.RECORD, JavaTokenType.RECORD_KEYWORD,
                     currentTypeQualifiedName);
                 return;
             } else if (JavaSyntaxKinds.FIELD_DECLARATION.id().equals(kindId)) {
@@ -581,7 +583,7 @@ public final class JavaDeclarationAnalysis {
 
             String simpleName = lastSegment(qualifiedName);
             context.currentPackageName = qualifiedName;
-            declareSymbol(scope, packageDeclaration, SymbolKind.PACKAGE, simpleName, qualifiedName);
+            declareSymbol(scope, packageDeclaration, JavaSymbolKind.PACKAGE, simpleName, qualifiedName);
         }
 
         private void declareImport(SyntaxNode importDeclaration, Scope scope) {
@@ -593,7 +595,7 @@ public final class JavaDeclarationAnalysis {
             if (importName == null || importName.isBlank())
                 return;
 
-            declareSymbol(scope, importDeclaration, SymbolKind.IMPORT, importName, importName);
+            declareSymbol(scope, importDeclaration, JavaSymbolKind.IMPORT, importName, importName);
         }
 
         private void declareModule(SyntaxNode moduleDeclaration, Scope scope) {
@@ -605,7 +607,7 @@ public final class JavaDeclarationAnalysis {
             if (moduleName == null || moduleName.isBlank())
                 return;
 
-            declareSymbol(scope, moduleDeclaration, SymbolKind.MODULE, moduleName, moduleName);
+            declareSymbol(scope, moduleDeclaration, JavaSymbolKind.MODULE, moduleName, moduleName);
         }
 
         private void declareFields(SyntaxNode fieldDeclaration, Scope scope, @Nullable String ownerQualifiedName) {
@@ -619,7 +621,7 @@ public final class JavaDeclarationAnalysis {
                     continue;
 
                 String qualifiedName = qualifyMemberName(ownerQualifiedName, fieldName);
-                declareSymbol(scope, child, SymbolKind.FIELD, fieldName, qualifiedName);
+                declareSymbol(scope, child, JavaSymbolKind.FIELD, fieldName, qualifiedName);
             }
         }
 
@@ -638,7 +640,7 @@ public final class JavaDeclarationAnalysis {
                     continue;
 
                 String qualifiedName = qualifyMemberName(ownerQualifiedName, variableName);
-                declareSymbol(scope, child, SymbolKind.LOCAL_VARIABLE, variableName, qualifiedName);
+                declareSymbol(scope, child, JavaSymbolKind.LOCAL_VARIABLE, variableName, qualifiedName);
             }
         }
 
@@ -648,7 +650,7 @@ public final class JavaDeclarationAnalysis {
                 return;
 
             String qualifiedName = qualifyMemberName(ownerQualifiedName, constantName);
-            declareSymbol(scope, enumConstant, SymbolKind.FIELD, constantName, qualifiedName);
+            declareSymbol(scope, enumConstant, JavaSymbolKind.FIELD, constantName, qualifiedName);
         }
 
         private Scope declareMethod(SyntaxNode methodDeclaration, Scope scope, @Nullable String ownerQualifiedName) {
@@ -657,7 +659,7 @@ public final class JavaDeclarationAnalysis {
                 return scope.child();
 
             String qualifiedName = qualifyMemberName(ownerQualifiedName, methodName);
-            declareSymbol(scope, methodDeclaration, SymbolKind.METHOD, methodName, qualifiedName);
+            declareSymbol(scope, methodDeclaration, JavaSymbolKind.METHOD, methodName, qualifiedName);
             return scope.child();
         }
 
@@ -673,7 +675,7 @@ public final class JavaDeclarationAnalysis {
             }
 
             String qualifiedName = qualifyMemberName(ownerQualifiedName, constructorName);
-            declareSymbol(scope, constructorDeclaration, SymbolKind.CONSTRUCTOR, constructorName, qualifiedName);
+            declareSymbol(scope, constructorDeclaration, JavaSymbolKind.CONSTRUCTOR, constructorName, qualifiedName);
             return scope.child();
         }
 
@@ -682,7 +684,7 @@ public final class JavaDeclarationAnalysis {
             if (parameterName == null || parameterName.isBlank())
                 return;
             String qualifiedName = qualifyMemberName(ownerQualifiedName, parameterName);
-            declareSymbol(scope, parameterNode, SymbolKind.PARAMETER, parameterName, qualifiedName);
+            declareSymbol(scope, parameterNode, JavaSymbolKind.PARAMETER, parameterName, qualifiedName);
         }
 
         private void declareRecordComponent(
@@ -695,7 +697,7 @@ public final class JavaDeclarationAnalysis {
                 return;
 
             String qualifiedName = qualifyMemberName(ownerQualifiedName, componentName);
-            declareSymbol(scope, recordComponentNode, SymbolKind.PARAMETER, componentName, qualifiedName);
+            declareSymbol(scope, recordComponentNode, JavaSymbolKind.PARAMETER, componentName, qualifiedName);
         }
 
         private void declarePatternVariable(SyntaxNode patternNode, Scope scope, @Nullable String ownerQualifiedName) {
@@ -715,7 +717,7 @@ public final class JavaDeclarationAnalysis {
                 return;
 
             String qualifiedName = qualifyMemberName(ownerQualifiedName, variableName);
-            declareSymbol(scope, patternNode, SymbolKind.LOCAL_VARIABLE, variableName, qualifiedName);
+            declareSymbol(scope, patternNode, JavaSymbolKind.LOCAL_VARIABLE, variableName, qualifiedName);
         }
 
         private void declareSymbol(

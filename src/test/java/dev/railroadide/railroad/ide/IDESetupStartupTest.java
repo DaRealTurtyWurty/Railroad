@@ -64,7 +64,6 @@ public class IDESetupStartupTest {
     public void eagerWorkerRetainsAcceptedSessionForSourceAndBuildEvents() throws Exception {
         WorkspaceModes.initialize();
         LanguageSupports.initialize();
-        LanguageSupports.initializeLanguageIndexers();
         assertNotNull(Services.IDE_STATE);
         root = root.toRealPath();
         Path source = root.resolve("src/main/java/demo/A.java");
@@ -92,7 +91,7 @@ public class IDESetupStartupTest {
             });
             Services.IDE_STATE.getWorkspaceConfiguration().ready().get(10, TimeUnit.SECONDS);
             Files.writeString(source, "package demo; class A { static int VALUE; }");
-            assertTrue(Services.PROJECT_LANGUAGE_INDEX_SERVICE.hasIndexer("java"));
+            assertTrue(Services.PROJECT_LANGUAGE_INDEX_SERVICE.hasIndexer(project, "java"));
             coordinator.handleFileChange(source, StandardWatchEventKinds.ENTRY_MODIFY);
             var context = new DefaultProjectIndexContextResolver(Services.PROJECT_LANGUAGE_INDEX_SERVICE::session)
                 .resolve(project);

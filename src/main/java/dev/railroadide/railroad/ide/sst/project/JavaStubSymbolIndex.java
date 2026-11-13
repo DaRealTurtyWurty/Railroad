@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.sst.project;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.classparser.stub.*;
 import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import dev.railroadide.railroad.ide.sst.semantic.api.SymbolKind;
@@ -92,7 +93,7 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
             for (FieldStub field : stub.fields()) {
                 ActivityCheckpoint.poll(activityCheck);
                 var descriptor = new JavaProjectSemanticIndex.SymbolDescriptor(
-                    SymbolKind.FIELD,
+                    JavaSymbolKind.FIELD,
                     field.name(),
                     qualifiedName + "#" + field.name(),
                     qualifiedName,
@@ -108,7 +109,7 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
             for (MethodStub method : stub.methods()) {
                 ActivityCheckpoint.poll(activityCheck);
                 var descriptor = new JavaProjectSemanticIndex.SymbolDescriptor(
-                    SymbolKind.METHOD,
+                    JavaSymbolKind.METHOD,
                     method.name(),
                     qualifiedName + "#" + method.name(),
                     qualifiedName,
@@ -124,7 +125,7 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
             for (ConstructorStub constructor : stub.constructors()) {
                 ActivityCheckpoint.poll(activityCheck);
                 var descriptor = new JavaProjectSemanticIndex.SymbolDescriptor(
-                    SymbolKind.CONSTRUCTOR,
+                    JavaSymbolKind.CONSTRUCTOR,
                     stub.name(),
                     qualifiedName + "#<init>",
                     qualifiedName,
@@ -223,14 +224,14 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
     private static SymbolKind toTypeKind(ClassStub stub) {
         int modifiers = stub.modifiers();
         if ((modifiers & Opcodes.ACC_ANNOTATION) != 0)
-            return SymbolKind.ANNOTATION;
+            return JavaSymbolKind.ANNOTATION;
         if ((modifiers & Opcodes.ACC_ENUM) != 0)
-            return SymbolKind.ENUM;
+            return JavaSymbolKind.ENUM;
         if ((modifiers & Opcodes.ACC_RECORD) != 0)
-            return SymbolKind.RECORD;
+            return JavaSymbolKind.RECORD;
         if ((modifiers & Opcodes.ACC_INTERFACE) != 0)
-            return SymbolKind.INTERFACE;
-        return SymbolKind.CLASS;
+            return JavaSymbolKind.INTERFACE;
+        return JavaSymbolKind.CLASS;
     }
 
     private static String renderSignature(MethodStub method) {

@@ -4,11 +4,14 @@ import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.ide.diagnostics.EditorDiagnostic.TextEditorDiagnostic;
 import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
 import dev.railroadide.railroad.ide.language.impl.JavaLanguageSupport;
+import dev.railroadide.railroad.ide.language.impl.index.JavaWorkspaceAnalysis;
+import java.util.function.Function;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentSnapshot;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentUri;
 import dev.railroadide.railroad.ide.sst.document.api.TextDocumentSnapshot;
 import dev.railroadide.railroad.ide.sst.document.api.Location.TextLocation;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticAnalyzer;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxParser;
 import dev.railroadide.railroad.ide.sst.project.JavaSymbolIndex;
 import dev.railroadide.railroad.ide.sst.semantic.api.SemanticDiagnostic;
 import dev.railroadide.railroad.ide.sst.semantic.api.SemanticModel;
@@ -21,7 +24,7 @@ import dev.railroadide.railroad.plugin.spi.inspection.JavaRuleContext;
 import org.jetbrains.annotations.NotNull;
 import org.jspecify.annotations.Nullable;
 
-import javax.tools.Diagnostic;
+import dev.railroadide.railroad.ide.diagnostics.DiagnosticSeverity;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -42,15 +45,24 @@ import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnaps
  */
 public record JavaDiagnosticsProvider(
     Project project,
-    @Nullable JavaSymbolIndex projectIndex
+    @Nullable JavaSymbolIndex projectIndex,
+    Function<RequestContext, JavaWorkspaceAnalysis> analysis
 ) implements DiagnosticsProvider<TextEditorDiagnostic> {
+    public JavaDiagnosticsProvider(Project project, JavaSymbolIndex projectIndex) {
+        this(project, projectIndex, JavaLanguageSupport.analysisContextProvider()::index);
+    }
+
+    public JavaDiagnosticsProvider {
+        Objects.requireNonNull(analysis, "analysis");
+    }
+
     private static final Duration INSPECTION_BUDGET = Duration.ofSeconds(5);
 
     @Override
     public @NotNull FeatureResult<List<TextEditorDiagnostic>> compute(FeatureRequestContext context) {
         context.checkActive();
         JavaSymbolIndex index = projectIndex == null
-            ? JavaLanguageSupport.analysisContextProvider().index(context)
+            ? analysis.apply(context)
             : projectIndex;
         List<TextEditorDiagnostic> diagnostics = compute(context.documentSnapshot(), index, context);
         context.checkActive();
@@ -88,7 +100,7 @@ public record JavaDiagnosticsProvider(
      * @param context the project and semantic context to inspect
      */
     public JavaDiagnosticsProvider(ProjectDiagnosticsContext context) {
-        this(context.project(), context.javaSymbolIndex());
+        this(context.project(), JavaLanguageSupport.analysisContextProvider().index(context.indexContext()));
     }
 
     @Override
@@ -111,50 +123,63 @@ public record JavaDiagnosticsProvider(
     ) {
         context.checkActive();
         var language = LanguageSupportRegistry.getExpected(JavaLanguageSupport.LANGUAGE_ID);
-        Optional<String> snapshotText = TextDocumentSnapshot.unwrap(snapshot, language);
+        Optional<String> snapshotText = TextDocumentSnapshot.unwrap(snapshot, language.languageId());
 
         if (snapshotText.isEmpty())
             return List.of();
 
         String document = snapshotText.get();
 
-        SemanticModel semanticModel = JavaSemanticAnalyzer.analyzeFacts(context, symbolIndex);
-
-        List<SemanticDiagnostic> semanticDiagnostics = runRegisteredInspections(snapshot.uri(),
-            document, semanticModel, symbolIndex, context);
-        char[] source = document.toCharArray();
-
+        var parsed = JavaSyntaxParser.parseWithDiagnostics(context);
+        SemanticModel semanticModel = JavaSemanticAnalyzer.analyzeFacts(parsed.tree(), symbolIndex,
+            context::checkActive);
+        var textSnapshot = (TextDocumentSnapshot) snapshot;
         List<TextEditorDiagnostic> diagnostics = new ArrayList<>();
-        for (SemanticDiagnostic diagnostic : semanticDiagnostics) {
+        parsed.diagnostics().forEach(diagnostic -> {
             context.checkActive();
-            Diagnostic.Kind kind = switch (diagnostic.severity()) {
-                case ERROR -> Diagnostic.Kind.ERROR;
-                case WARNING -> Diagnostic.Kind.WARNING;
-                case INFO -> Diagnostic.Kind.NOTE;
-            };
-
-            int start = Math.clamp(diagnostic.startOffset(), 0, source.length);
-            int end = Math.clamp(diagnostic.endOffset(), start, source.length);
-            diagnostics.add(
-                new TextEditorDiagnostic(
-                    TextLocation.from((TextDocumentSnapshot) snapshot, start, end),
-                    kind,
-                    diagnostic.code(),
-                    diagnostic.message()));
-        }
-
+            diagnostics.add(new TextEditorDiagnostic(
+                TextLocation.from(textSnapshot, diagnostic.startOffset(), diagnostic.endOffset()),
+                switch (diagnostic.severity()) {
+                    case ERROR -> DiagnosticSeverity.ERROR;
+                    case WARNING -> DiagnosticSeverity.WARNING;
+                    case INFO -> DiagnosticSeverity.INFORMATION;
+                },
+                diagnostic.code(), diagnostic.message(), "railroad:java-parser", DiagnosticOrigin.SYNTAX,
+                Set.of(), List.of(), null));
+        });
+        semanticModel.diagnostics().forEach(diagnostic -> diagnostics.add(toEditorDiagnostic(textSnapshot,
+            diagnostic, "railroad:java-semantic", DiagnosticOrigin.SEMANTIC)));
+        diagnostics.addAll(runRegisteredInspections(textSnapshot, document, semanticModel, symbolIndex, context));
         context.checkActive();
         return List.copyOf(diagnostics);
     }
 
-    private List<SemanticDiagnostic> runRegisteredInspections(
-        DocumentUri documentUri,
+    private static TextEditorDiagnostic toEditorDiagnostic(
+        TextDocumentSnapshot snapshot,
+        SemanticDiagnostic diagnostic,
+        String source,
+        DiagnosticOrigin origin
+    ) {
+        DiagnosticSeverity kind = switch (diagnostic.severity()) {
+            case ERROR -> DiagnosticSeverity.ERROR;
+            case WARNING -> DiagnosticSeverity.WARNING;
+            case INFO -> DiagnosticSeverity.INFORMATION;
+        };
+        int start = Math.clamp(diagnostic.startOffset(), 0, snapshot.text().length());
+        int end = Math.clamp(diagnostic.endOffset(), start, snapshot.text().length());
+        return new TextEditorDiagnostic(TextLocation.from(snapshot, start, end), kind,
+            diagnostic.code(), diagnostic.message(), source, origin, Set.of(), List.of(), null);
+    }
+
+    private List<TextEditorDiagnostic> runRegisteredInspections(
+        TextDocumentSnapshot snapshot,
         String document,
         SemanticModel semanticModel,
         JavaSymbolIndex symbolIndex,
         FeatureRequestContext request
     ) {
-        List<SemanticDiagnostic> diagnostics = new ArrayList<>();
+        List<TextEditorDiagnostic> diagnostics = new ArrayList<>();
+        DocumentUri documentUri = snapshot.uri();
 
         for (JavaInspectionRuleProvider provider : sortedRuleProviders()) {
             request.checkActive();
@@ -169,7 +194,8 @@ public record JavaDiagnosticsProvider(
                         return JavaInspectionRuleEngine.collectDiagnostics(provider, context);
                     });
                 request.checkActive();
-                diagnostics.addAll(produced);
+                produced.forEach(diagnostic -> diagnostics.add(toEditorDiagnostic(snapshot, diagnostic,
+                    provider.id(), DiagnosticOrigin.INSPECTION)));
             } catch (CancellationException exception) {
                 request.checkActive();
                 // A provider's own cancellation or deadline does not cancel healthy sibling providers.

@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.sst.project;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticAnalyzer;
@@ -119,8 +120,8 @@ public final class JavaProjectSemanticExtractor {
 
     private boolean isIndexedKind(SymbolKind symbolKind) {
         return switch (symbolKind) {
-            case CLASS, INTERFACE, ENUM, ANNOTATION, RECORD,
-                METHOD, FIELD, CONSTRUCTOR -> true;
+            case JavaSymbolKind.CLASS, JavaSymbolKind.INTERFACE, JavaSymbolKind.ENUM, JavaSymbolKind.ANNOTATION,
+                JavaSymbolKind.RECORD, JavaSymbolKind.METHOD, JavaSymbolKind.FIELD, JavaSymbolKind.CONSTRUCTOR -> true;
             default -> false;
         };
     }
@@ -141,7 +142,7 @@ public final class JavaProjectSemanticExtractor {
     }
 
     private @Nullable String extractSignature(SyntaxNode node, SymbolKind kind) {
-        if (kind != SymbolKind.METHOD && kind != SymbolKind.CONSTRUCTOR)
+        if (kind != JavaSymbolKind.METHOD && kind != JavaSymbolKind.CONSTRUCTOR)
             return null;
 
         SyntaxNode parameterList = directChild(node, JavaSyntaxKinds.PARAMETER_LIST.id());
@@ -182,7 +183,7 @@ public final class JavaProjectSemanticExtractor {
         if (qualifiedName == null || qualifiedName.isBlank())
             return null;
 
-        if (kind == SymbolKind.FIELD || kind == SymbolKind.METHOD || kind == SymbolKind.CONSTRUCTOR) {
+        if (kind == JavaSymbolKind.FIELD || kind == JavaSymbolKind.METHOD || kind == JavaSymbolKind.CONSTRUCTOR) {
             int hash = qualifiedName.indexOf('#');
             if (hash > 0)
                 return qualifiedName.substring(0, hash);
@@ -215,7 +216,8 @@ public final class JavaProjectSemanticExtractor {
 
     private boolean isTypeKind(SymbolKind kind) {
         return switch (kind) {
-            case CLASS, INTERFACE, ENUM, ANNOTATION, RECORD -> true;
+            case JavaSymbolKind.CLASS, JavaSymbolKind.INTERFACE, JavaSymbolKind.ENUM, JavaSymbolKind.ANNOTATION,
+                JavaSymbolKind.RECORD -> true;
             default -> false;
         };
     }

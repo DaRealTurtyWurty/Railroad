@@ -15,7 +15,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.tools.Diagnostic;
+import dev.railroadide.railroad.ide.diagnostics.DiagnosticSeverity;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -158,7 +158,7 @@ public class CodeEditorWorkspaceTest {
                 }
                 TextDocumentSnapshot document = (TextDocumentSnapshot) workspace.document(documentId).orElseThrow();
                 return List.of(new TextEditorDiagnostic(Location.TextLocation.from(document, 0, 1),
-                    Diagnostic.Kind.ERROR, call == 1 ? "OLD" : "NEW", "result"));
+                    DiagnosticSeverity.ERROR, call == 1 ? "OLD" : "NEW", "result"));
             }
         };
         TestEditor editor = onFx(() -> {
@@ -321,6 +321,11 @@ public class CodeEditorWorkspaceTest {
         CompletableFuture<WorkspaceSnapshot> completedWith = new CompletableFuture<>();
         CompletionProvider completion = new CompletionProvider() {
             @Override
+            public boolean shouldTrigger(String insertedText) {
+                return false;
+            }
+
+            @Override
             public CompletionResult compute(DocumentSnapshot snapshot, int offset) {
                 throw new AssertionError("Editor must pass the captured workspace");
             }
@@ -346,7 +351,7 @@ public class CodeEditorWorkspaceTest {
                 completedWith.complete(workspace);
                 TextDocumentSnapshot snapshot = (TextDocumentSnapshot) workspace.document(id).orElseThrow();
                 return List.of(new TextEditorDiagnostic(Location.TextLocation.from(snapshot, 0, 1),
-                    Diagnostic.Kind.ERROR, "OLD", "old result"));
+                    DiagnosticSeverity.ERROR, "OLD", "old result"));
             }
         };
         SignatureHelpProvider signature = new SignatureHelpProvider() {

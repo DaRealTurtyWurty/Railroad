@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.ide;
 
 import dev.railroadide.railroad.ide.language.impl.JavaLanguageSupport;
+import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
 
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.Services;
@@ -74,6 +75,14 @@ public class DefaultIDEStateService implements IDEStateService {
             Services.PROJECT_LANGUAGE_INDEX_SERVICE.closeProject(previousSession);
             JavaLanguageSupport.analysisContextProvider()
                 .closeSession(previousSession);
+            if (currentProject != null) {
+                try {
+                    LanguageSupportRegistry.runtime().closeProject(currentProject);
+                } catch (RuntimeException exception) {
+                    Railroad.LOGGER.error("Unable to dispose all language providers for the previous project",
+                        exception);
+                }
+            }
             if (project != null) {
                 Services.PROJECT_LANGUAGE_INDEX_SERVICE.openProject(project);
             }

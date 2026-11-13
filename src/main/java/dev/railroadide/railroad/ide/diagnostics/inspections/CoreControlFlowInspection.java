@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.diagnostics.inspections;
 
+import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.diagnostics.RegisteredInspection;
 import dev.railroadide.railroad.ide.diagnostics.rules.java.JavaSemanticRules;
 import dev.railroadide.railroad.ide.sst.semantic.api.Symbol;
@@ -314,7 +315,7 @@ public final class CoreControlFlowInspection implements JavaInspectionRuleProvid
 
     private static String callableName(JavaRuleContext context, SyntaxNode callableNode) {
         Symbol declared = context.declaredSymbol(callableNode).orElse(null);
-        if (declared != null && declared.kind() == SymbolKind.METHOD)
+        if (declared != null && declared.kind() == JavaSymbolKind.METHOD)
             return declared.simpleName();
         return context.lastIdentifierLikeTokenText(callableNode);
     }

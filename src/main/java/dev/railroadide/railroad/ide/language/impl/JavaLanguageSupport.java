@@ -6,8 +6,6 @@ import dev.railroadide.railroad.ide.diagnostics.DiagnosticsProvider;
 import dev.railroadide.railroad.ide.diagnostics.JavaDiagnosticsProvider;
 import dev.railroadide.railroad.ide.language.BaseLanguageSupport;
 import dev.railroadide.railroad.ide.language.EditorOpenView;
-import dev.railroadide.railroad.ide.language.LanguageFeatureFactory;
-import dev.railroadide.railroad.ide.language.ProjectDiagnosticsFeatureFactory;
 import dev.railroadide.railroad.ide.language.impl.index.JavaAnalysisContextProvider;
 import dev.railroadide.railroad.ide.language.impl.index.JavaLanguageIndexContextContributor;
 import dev.railroadide.railroad.ide.language.impl.index.JavaProjectLanguageIndexer;
@@ -16,6 +14,7 @@ import dev.railroadide.railroad.ide.language.index.LanguageIndexContextContribut
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexPersistence;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexer;
 import dev.railroadide.railroad.ide.signature.JdtJavaSignatureHelpProvider;
+import dev.railroadide.railroad.ide.signature.JavaSignatureSourceCache;
 import dev.railroadide.railroad.ide.signature.SignatureHelpProvider;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
 import dev.railroadide.railroad.ide.sst.project.JavaProjectSemanticPersistence;
@@ -27,6 +26,11 @@ import org.jspecify.annotations.NonNull;
 
 import java.nio.file.Path;
 import java.util.Set;
+import dev.railroadide.railroad.ide.sst.provider.api.*;
+import dev.railroadide.railroad.ide.language.LanguageCapabilities;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxParser;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSstServices;
+import dev.railroadide.railroad.ide.sst.request.api.FeatureResult;
 import dev.railroadide.railroad.utility.ShutdownHooks;
 
 /**
@@ -62,43 +66,35 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
     }
 
     @Override
-    public LanguageFeatureFactory<DiagnosticsProvider> diagnosticsFactory() {
-        return (project, _) -> new JavaDiagnosticsProvider(project);
+    public Set<CapabilityKey<?>> supportedCapabilities() {
+        return Set.of(SstCapabilities.PARSING, SstCapabilities.SEMANTICS, SstCapabilities.INDEX_EXTRACTION,
+            SstCapabilities.INDEX_QUERY, SstCapabilities.DIAGNOSTICS,
+            SstCapabilities.COMPLETION, SstCapabilities.SIGNATURE_HELP, LanguageCapabilities.INDEXER,
+            LanguageCapabilities.PERSISTENCE, LanguageCapabilities.INDEX_CONTEXT, LanguageCapabilities.INDEX_WARMUP,
+            LanguageCapabilities.HIGHLIGHTING);
     }
 
     @Override
-    public ProjectDiagnosticsFeatureFactory<DiagnosticsProvider> projectDiagnosticsFactory() {
-        return (context, _) -> new JavaDiagnosticsProvider(context);
-    }
-
-    @Override
-    public LanguageFeatureFactory<CompletionProvider> completionFactory() {
-        return (project, _) -> new JavaCompletionProvider(project);
-    }
-
-    @Override
-    public LanguageFeatureFactory<SignatureHelpProvider> signatureHelpFactory() {
-        return (_, _) -> new JdtJavaSignatureHelpProvider(JavaCodeEditorPane.resolveSystemModules());
-    }
-
-    @Override
-    public ProjectLanguageIndexer<?, ?> createIndexer() {
-        return new JavaProjectLanguageIndexer();
-    }
-
-    @Override
-    public ProjectLanguageIndexPersistence<?> createPersistence() {
-        return new JavaProjectSemanticPersistence();
-    }
-
-    @Override
-    public @NonNull LanguageIndexContextContributor createIndexContextContributor() {
-        return new JavaLanguageIndexContextContributor();
-    }
-
-    @Override
-    public void warmAdditionalIndexes(ProjectIndexContext context) {
-        ANALYSIS_CONTEXT_PROVIDER.index(context);
+    public LanguageSession openSession(LanguageSessionContext context) {
+        Project project = context.services().find(LanguageCapabilities.PROJECT).orElseThrow();
+        var semantics = new JavaSstServices();
+        var session = new LanguageSession(CapabilityRegistry.builder()
+            .add(LanguageCapabilities.HIGHLIGHTING, TreeSitterJavaSyntaxHighlighting::computeHighlighting)
+            .add(SstCapabilities.DIAGNOSTICS, new JavaDiagnosticsProvider(project, null, semantics::capture))
+            .add(SstCapabilities.COMPLETION, new JavaCompletionProvider(project, null, semantics::capture))
+            .add(SstCapabilities.SIGNATURE_HELP,
+                new JdtJavaSignatureHelpProvider(null, JavaCodeEditorPane.resolveSystemModules(), semantics::capture,
+                    new JavaSignatureSourceCache(4)))
+            .add(SstCapabilities.PARSING, request -> new FeatureResult<>(request, JavaSyntaxParser.parse(request)))
+            .add(SstCapabilities.SEMANTICS, semantics)
+            .add(SstCapabilities.INDEX_EXTRACTION, semantics)
+            .add(SstCapabilities.INDEX_QUERY, semantics)
+            .add(LanguageCapabilities.INDEXER, new JavaProjectLanguageIndexer())
+            .add(LanguageCapabilities.PERSISTENCE, new JavaProjectSemanticPersistence())
+            .add(LanguageCapabilities.INDEX_CONTEXT, new JavaLanguageIndexContextContributor())
+            .add(LanguageCapabilities.INDEX_WARMUP, ANALYSIS_CONTEXT_PROVIDER::index)
+            .build());
+        return session;
     }
 
     /**

@@ -14,7 +14,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.tools.Diagnostic;
+import dev.railroadide.railroad.ide.diagnostics.DiagnosticSeverity;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -349,7 +349,7 @@ public class CodeEditorDiagnosticsRequestTest {
     private static FeatureResult<List<TextEditorDiagnostic>> diagnostics(FeatureRequestContext context, String code) {
         return new FeatureResult<>(context, List.of(new TextEditorDiagnostic(
             Location.TextLocation.from((TextDocumentSnapshot) context.documentSnapshot(), 0, 1),
-            Diagnostic.Kind.ERROR, code, code)));
+            DiagnosticSeverity.ERROR, code, code)));
     }
 
     private static void await(CountDownLatch latch) {
