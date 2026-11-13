@@ -31,10 +31,12 @@ public final class JavaProjectLanguageIndexer
 
     @Override
     public JavaProjectSemanticIndex build(ProjectIndexContext context, Collection<Path> sourceFiles) {
+        context.checkActive();
         return indexer.build(sourceFiles.stream()
+            .peek(_ -> context.checkActive())
             .filter(this::supports)
             .sorted(Comparator.naturalOrder())
-            .toList());
+            .toList(), context::checkActive);
     }
 
     @Override
@@ -43,7 +45,7 @@ public final class JavaProjectLanguageIndexer
         Path sourceFile,
         String sourceContent
     ) {
-        return indexer.indexFile(sourceFile, sourceContent);
+        return indexer.indexFile(sourceFile, sourceContent, context::checkActive);
     }
 
     @Override

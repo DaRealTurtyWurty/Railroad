@@ -17,6 +17,7 @@ import dev.railroadide.railroad.ide.sst.impl.java.JavaTokenType;
 import dev.railroadide.railroad.ide.sst.project.JavaProjectSemanticIndex;
 import dev.railroadide.railroad.ide.sst.project.JavaSymbolIndex;
 import dev.railroadide.railroad.ide.sst.project.JavaSourceSnapshotIndex;
+import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import dev.railroadide.railroad.ide.sst.semantic.api.*;
 import dev.railroadide.railroad.ide.sst.semantic.api.Type.*;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
@@ -109,6 +110,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
     private final String documentText;
     private final SemanticModel semanticModel;
     private final @Nullable JavaSymbolIndex symbolIndex;
+    private final Runnable activityCheck;
     private volatile @Nullable ImportIndex cachedImportIndex;
     private volatile @Nullable Set<String> cachedAvailableTypeNames;
     private volatile @Nullable Set<String> cachedAvailableQualifiedTypeNames;
@@ -181,10 +183,39 @@ public final class JavaRuleContext implements LanguageRuleContext {
         SemanticModel semanticModel,
         @Nullable JavaSymbolIndex symbolIndex
     ) {
+        this(documentUri, documentText, semanticModel, symbolIndex, () -> {
+        });
+    }
+
+    /**
+     * Creates an inspection context whose traversal and rule boundaries cooperate with a request.
+     * The activity callback must remain valid for this context's lifetime; cancelled contexts are
+     * discarded rather than reused by another request.
+     *
+     * @param documentUri inspected document location
+     * @param documentText captured source text
+     * @param semanticModel completed semantic facts
+     * @param symbolIndex captured external symbols, or null
+     * @param activityCheck request cancellation and deadline check
+     */
+    public JavaRuleContext(
+        DocumentUri documentUri,
+        String documentText,
+        SemanticModel semanticModel,
+        @Nullable JavaSymbolIndex symbolIndex,
+        Runnable activityCheck
+    ) {
         this.documentUri = Objects.requireNonNull(documentUri, "documentUri");
         this.documentText = Objects.requireNonNull(documentText, "documentText");
         this.semanticModel = Objects.requireNonNull(semanticModel, "semanticModel");
         this.symbolIndex = symbolIndex;
+        this.activityCheck = Objects.requireNonNull(activityCheck, "activityCheck");
+    }
+
+    @Override
+    public void checkActive() {
+        LanguageRuleContext.super.checkActive();
+        activityCheck.run();
     }
 
     /**
@@ -656,7 +687,13 @@ public final class JavaRuleContext implements LanguageRuleContext {
      */
     public void traverse(Consumer<SyntaxNode> visitor) {
         Objects.requireNonNull(visitor, "visitor");
-        traverseNode(syntaxTree().root(), visitor);
+        var checkpoint = new ActivityCheckpoint(this::checkActive);
+        checkpoint.run();
+        traverseNode(syntaxTree().root(), node -> {
+            ActivityCheckpoint.poll(checkpoint);
+            visitor.accept(node);
+        });
+        checkpoint.run();
     }
 
     /**

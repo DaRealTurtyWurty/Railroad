@@ -44,7 +44,7 @@ public class CodeEditorCompletionRequestTest {
     public void acceptedCompletionKeepsItsRequestActiveWhileBuildingThePopup() throws Exception {
         try (Fixture fixture = open(context -> completion(context, "ACCEPTED"))) {
             FeatureRequestContext context = fixture.request();
-            awaitWorkers(fixture.editor.worker, 0);
+            awaitRequests(fixture.editor.featureRequests);
             onFx(() -> {
                 assertEquals(List.of("ACCEPTED"), fixture.editor.candidates());
                 assertFalse(context.cancellationToken().isCancellationRequested());
@@ -70,14 +70,14 @@ public class CodeEditorCompletionRequestTest {
                 FeatureRequestContext current = fixture.request();
                 assertTrue(old.cancellationToken().isCancellationRequested());
                 assertNotSame(old, current);
-                awaitWorkers(fixture.editor.worker, 1);
+                awaitRequests(fixture.editor.featureRequests);
                 onFx(() -> {
                     assertEquals(List.of("NEW"), fixture.editor.candidates());
                     return null;
                 });
 
                 releaseOld.countDown();
-                awaitWorkers(fixture.editor.worker, 0);
+                awaitRequests(fixture.editor.featureRequests);
                 onFx(() -> {
                     assertEquals(List.of("NEW"), fixture.editor.candidates());
                     return null;
@@ -109,7 +109,7 @@ public class CodeEditorCompletionRequestTest {
                 if (alreadyQueued) {
                     try (FxBlocker blocker = FxBlocker.start(fixture.editor::escape)) {
                         releaseResult.countDown();
-                        awaitWorkers(fixture.editor.worker, 0);
+                        awaitRequests(fixture.editor.featureRequests);
                         blocker.releaseAndAwait();
                     }
                 } else {
@@ -118,7 +118,7 @@ public class CodeEditorCompletionRequestTest {
                         return null;
                     });
                     releaseResult.countDown();
-                    awaitWorkers(fixture.editor.worker, 0);
+                    awaitRequests(fixture.editor.featureRequests);
                 }
                 assertTrue(context.cancellationToken().isCancellationRequested());
                 onFx(() -> {
@@ -143,7 +143,7 @@ public class CodeEditorCompletionRequestTest {
             return completion(different, "WRONG_REQUEST");
         })) {
             fixture.request();
-            awaitWorkers(fixture.editor.worker, 0);
+            awaitRequests(fixture.editor.featureRequests);
             onFx(() -> {
                 assertTrue(fixture.editor.candidates().isEmpty());
                 return null;
@@ -155,7 +155,7 @@ public class CodeEditorCompletionRequestTest {
     public void unsupportedNullPayloadDismissesCompletionWithoutAnFxFailure() throws Exception {
         try (Fixture fixture = open(context -> new FeatureResult<>(context, null))) {
             FeatureRequestContext context = fixture.request();
-            awaitWorkers(fixture.editor.worker, 0);
+            awaitRequests(fixture.editor.featureRequests);
             onFx(() -> {
                 assertTrue(fixture.editor.candidates().isEmpty());
                 assertNull(fixture.editor.activeCompletionPopup.get());
@@ -171,7 +171,7 @@ public class CodeEditorCompletionRequestTest {
     public void emptyPayloadDismissesCompletionWithoutAnFxFailure() throws Exception {
         try (Fixture fixture = open(context -> new FeatureResult<>(context, CompletionResult.empty()))) {
             FeatureRequestContext context = fixture.request();
-            awaitWorkers(fixture.editor.worker, 0);
+            awaitRequests(fixture.editor.featureRequests);
             onFx(() -> {
                 assertTrue(fixture.editor.candidates().isEmpty());
                 assertNull(fixture.editor.activeCompletionPopup.get());
@@ -197,7 +197,7 @@ public class CodeEditorCompletionRequestTest {
                     return null;
                 });
                 releaseResult.countDown();
-                awaitWorkers(fixture.editor.worker, 0);
+                awaitRequests(fixture.editor.featureRequests);
                 onFx(() -> {
                     assertTrue(fixture.editor.candidates().isEmpty());
                     return null;
@@ -212,7 +212,7 @@ public class CodeEditorCompletionRequestTest {
     public void replacingTheStoreClearsAlreadyDisplayedCompletionState() throws Exception {
         try (Fixture fixture = open(context -> completion(context, "OLD_STORE"))) {
             FeatureRequestContext context = fixture.request();
-            awaitWorkers(fixture.editor.worker, 0);
+            awaitRequests(fixture.editor.featureRequests);
             onFx(() -> {
                 assertEquals(List.of("OLD_STORE"), fixture.editor.candidates());
                 fixture.editor.setDocumentStore(replacementStore(context));
@@ -228,7 +228,7 @@ public class CodeEditorCompletionRequestTest {
     public void confirmedCloseClearsAlreadyDisplayedCompletionState() throws Exception {
         try (Fixture fixture = open(context -> completion(context, "CLOSING"))) {
             FeatureRequestContext context = fixture.request();
-            awaitWorkers(fixture.editor.worker, 0);
+            awaitRequests(fixture.editor.featureRequests);
             onFx(() -> {
                 assertEquals(List.of("CLOSING"), fixture.editor.candidates());
                 fixture.editor.discardChangesOnClose();
@@ -257,7 +257,7 @@ public class CodeEditorCompletionRequestTest {
                     return null;
                 });
                 releaseResult.countDown();
-                awaitWorkers(fixture.editor.worker, 0);
+                awaitRequests(fixture.editor.featureRequests);
                 onFx(() -> {
                     assertTrue(fixture.editor.candidates().isEmpty());
                     return null;
@@ -277,9 +277,9 @@ public class CodeEditorCompletionRequestTest {
             return completion(context, "RECOVERED");
         })) {
             fixture.request();
-            awaitWorkers(fixture.editor.worker, 0);
+            awaitRequests(fixture.editor.featureRequests);
             fixture.request();
-            awaitWorkers(fixture.editor.worker, 0);
+            awaitRequests(fixture.editor.featureRequests);
             onFx(() -> {
                 assertEquals(List.of("RECOVERED"), fixture.editor.candidates());
                 return null;
@@ -361,7 +361,7 @@ public class CodeEditorCompletionRequestTest {
                 }
                 return null;
             });
-            assertTrue(editor.worker.awaitTermination(10, TimeUnit.SECONDS));
+            CodeEditorRequestTestSupport.awaitRequests(editor.featureRequests);
             assertNoFxFailures();
         }
     }

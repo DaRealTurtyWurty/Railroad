@@ -43,9 +43,7 @@ public class JavaLexer implements Lexer<JavaTokenType> {
      * @throws NullPointerException if input is null
      */
     public JavaLexer(CharSequence input, String sourceId) {
-        this(input, sourceId, () -> {
-            // Default activity check does nothing
-        });
+        this(input, sourceId, new ActivityCheckpoint(ActivityCheckpoint::checkInterrupted));
     }
 
     /**

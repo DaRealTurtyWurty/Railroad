@@ -14,6 +14,7 @@ import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 import java.util.UUID;
@@ -67,7 +68,7 @@ public final class ProjectLanguageIndexService {
 
     private static final class Entry {
         private final ReentrantLock operation = new ReentrantLock();
-        private long generation;
+        private volatile long generation;
         private ProjectLanguageIndex<?> current;
     }
 
@@ -160,6 +161,7 @@ public final class ProjectLanguageIndexService {
     }
 
     private void check(ProjectIndexContext context) {
+        context.checkActive();
         Session session = context.session();
         if (session == null || session.closed || roots.get(context.projectRoot()) != session
             || session.configurationGeneration != context.configurationGeneration())
@@ -179,6 +181,25 @@ public final class ProjectLanguageIndexService {
             if (entry.generation != generation)
                 throw new CancellationException("Index invalidated");
             entry.current = index;
+        }
+    }
+
+    private static ProjectIndexContext operationContext(ProjectIndexContext context, Entry entry, long generation) {
+        return new ProjectIndexContext(context.project(), context.projectRoot(), context.languages(), context.session(),
+            context.configurationGeneration(), () -> context.cancellationToken().isCancellationRequested()
+                || entry.generation != generation);
+    }
+
+    private static void lock(ProjectIndexContext context, Entry entry) {
+        while (true) {
+            context.checkActive();
+            try {
+                if (entry.operation.tryLock(10, TimeUnit.MILLISECONDS))
+                    return;
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new CancellationException("Interrupted waiting for index");
+            }
         }
     }
 
@@ -365,21 +386,23 @@ public final class ProjectLanguageIndexService {
             return null;
 
         Entry entry = entry(context, languageId);
-        lock(entry);
+        lock(context, entry);
         try {
             long generation = generation(context, entry);
+            ProjectIndexContext operationContext = operationContext(context, entry, generation);
             ProjectLanguageIndex<?> current = current(context, languageId);
             if (current != null)
                 return current;
             ProjectLanguageIndexer<?, ?> indexer = indexersByLanguageId.get(languageId);
             if (indexer == null)
                 return null;
-            Collection<Path> files = collectFiles(languageContext).stream().filter(indexer::supports).toList();
+            Collection<Path> files = collectFiles(languageContext, operationContext).stream().filter(indexer::supports)
+                .toList();
             ProjectLanguageKey key = key(projectRoot, languageId);
-            ProjectLanguageIndex<?> result = loadPersisted(key, files);
+            ProjectLanguageIndex<?> result = loadPersisted(key, files, operationContext);
             boolean built = result == null;
             if (built) {
-                result = buildUnchecked(indexer, context, files);
+                result = buildUnchecked(indexer, operationContext, files);
             }
             publish(context, entry, generation, result);
             if (built) {
@@ -473,11 +496,12 @@ public final class ProjectLanguageIndexService {
             }
         }
         Entry entry = entry(context, languageId);
-        lock(entry);
+        lock(context, entry);
         try {
             long generation = generation(context, entry);
-            ProjectLanguageIndex<?> rebuilt = buildUnchecked(rawIndexer, context,
-                collectFiles(languageContext).stream().filter(rawIndexer::supports).toList());
+            ProjectIndexContext operationContext = operationContext(context, entry, generation);
+            ProjectLanguageIndex<?> rebuilt = buildUnchecked(rawIndexer, operationContext,
+                collectFiles(languageContext, operationContext).stream().filter(rawIndexer::supports).toList());
             publish(context, entry, generation, rebuilt);
             savePersisted(context, entry, generation, key(projectRoot, languageId), rebuilt);
             return rebuilt;
@@ -549,13 +573,16 @@ public final class ProjectLanguageIndexService {
             return null;
 
         Entry entry = entry(context, languageId);
-        lock(entry);
+        lock(context, entry);
         try {
             long generation = generation(context, entry);
+            ProjectIndexContext operationContext = operationContext(context, entry, generation);
             I current = indexTyped(context, languageId);
             if (current == null)
                 return null;
-            F indexedFile = indexer.indexFile(context, normalizedFile, readSource(normalizedFile));
+            operationContext.checkActive();
+            F indexedFile = indexer.indexFile(operationContext, normalizedFile, readSource(normalizedFile));
+            operationContext.checkActive();
             I updated = indexer.withUpdatedFile(current, normalizedFile, indexedFile);
             publish(context, entry, generation, updated);
             savePersisted(context, entry, generation, key(normalizedRoot, languageId), updated);
@@ -591,9 +618,10 @@ public final class ProjectLanguageIndexService {
             return;
 
         Entry entry = entry(context, languageId);
-        lock(entry);
+        lock(context, entry);
         try {
             long generation = generation(context, entry);
+            ProjectIndexContext operationContext = operationContext(context, entry, generation);
             I current = indexTyped(context, languageId);
             if (current == null)
                 return;
@@ -687,24 +715,28 @@ public final class ProjectLanguageIndexService {
         return FileUtils.normalizePath(Objects.requireNonNull(path, "path"));
     }
 
-    private static Collection<Path> collectFiles(LanguageIndexContext languageContext) {
+    private static Collection<Path> collectFiles(LanguageIndexContext languageContext, ProjectIndexContext context) {
         LinkedHashSet<Path> files = new LinkedHashSet<>();
-        collectFiles(files, languageContext.sourceRoots());
-        collectFiles(files, languageContext.generatedRoots());
+        collectFiles(files, languageContext.sourceRoots(), context);
+        collectFiles(files, languageContext.generatedRoots(), context);
         return files;
     }
 
-    private static void collectFiles(LinkedHashSet<Path> files, Collection<Path> roots) {
+    private static void collectFiles(LinkedHashSet<Path> files, Collection<Path> roots, ProjectIndexContext context) {
         for (Path root : roots) {
+            context.checkActive();
             Path normalizedRoot = normalize(root);
             if (!Files.exists(normalizedRoot) || !Files.isDirectory(normalizedRoot))
                 continue;
 
             try (Stream<Path> paths = Files.walk(normalizedRoot)) {
                 paths
+                    .peek(_ -> context.checkActive())
                     .filter(Files::isRegularFile)
                     .map(ProjectLanguageIndexService::normalize)
                     .forEach(files::add);
+            } catch (CancellationException exception) {
+                throw exception;
             } catch (Exception exception) {
                 throw new RuntimeException("Failed to scan language files for " + normalizedRoot, exception);
             }
@@ -743,12 +775,16 @@ public final class ProjectLanguageIndexService {
         return false;
     }
 
-    private @Nullable ProjectLanguageIndex<?> loadPersisted(ProjectLanguageKey key, Collection<Path> sourceFiles) {
+    private @Nullable ProjectLanguageIndex<?> loadPersisted(
+        ProjectLanguageKey key,
+        Collection<Path> sourceFiles,
+        ProjectIndexContext context
+    ) {
         ProjectLanguageIndexPersistence<?> persistence = persistenceByLanguageId.get(key.languageId());
         if (persistence == null)
             return null;
 
-        return persistence.loadIfCurrent(key.projectRoot(), sourceFiles);
+        return persistence.loadIfCurrent(key.projectRoot(), sourceFiles, context::checkActive);
     }
 
     @SuppressWarnings("unchecked")
@@ -763,6 +799,7 @@ public final class ProjectLanguageIndexService {
             .get(key.languageId());
         if (persistence == null)
             return;
+        ProjectIndexContext operationContext = operationContext(context, entry, generation);
         try {
             persistence.save(key.projectRoot(), index, replacement -> {
                 synchronized (ownership) {
@@ -771,7 +808,7 @@ public final class ProjectLanguageIndexService {
                         throw new CancellationException("Index invalidated before persistence commit");
                     replacement.run();
                 }
-            });
+            }, operationContext::checkActive);
         } catch (CancellationException exception) {
             throw exception;
         } catch (RuntimeException exception) {

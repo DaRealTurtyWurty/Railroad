@@ -27,6 +27,7 @@ import org.jspecify.annotations.NonNull;
 
 import java.nio.file.Path;
 import java.util.Set;
+import dev.railroadide.railroad.utility.ShutdownHooks;
 
 /**
  * Integrates Java editing, diagnostics, completion, signature help, and semantic project indexes.
@@ -37,6 +38,10 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
      */
     public static final String LANGUAGE_ID = "java";
     private static final JavaAnalysisContextProvider ANALYSIS_CONTEXT_PROVIDER = new JavaAnalysisContextProvider();
+
+    static {
+        ShutdownHooks.addHook(ANALYSIS_CONTEXT_PROVIDER::close);
+    }
 
     /**
      * Creates support for Java source files with the standard Java language identifier.

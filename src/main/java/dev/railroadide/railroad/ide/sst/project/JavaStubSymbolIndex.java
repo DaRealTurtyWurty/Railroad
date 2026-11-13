@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.ide.sst.project;
 
 import dev.railroadide.railroad.ide.classparser.stub.*;
+import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import dev.railroadide.railroad.ide.sst.semantic.api.SymbolKind;
 import org.objectweb.asm.Opcodes;
 
@@ -31,9 +32,28 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
         Map<String, ClassStub> classStubsByQualifiedName,
         Map<String, Path> sourceByQualifiedName
     ) {
+        this(classStubsByQualifiedName, sourceByQualifiedName, ActivityCheckpoint::checkInterrupted);
+    }
+
+    /**
+     * Builds immutable lookup tables with cooperative checks during publication.
+     *
+     * @param classStubsByQualifiedName stubs keyed by qualified type name
+     * @param sourceByQualifiedName class origins
+     * @param activityCheck request activity check
+     */
+    public JavaStubSymbolIndex(
+        Map<String, ClassStub> classStubsByQualifiedName,
+        Map<String, Path> sourceByQualifiedName,
+        Runnable activityCheck
+    ) {
+        Objects.requireNonNull(activityCheck, "activityCheck").run();
         Map<String, ClassStub> published = new LinkedHashMap<>();
         Objects.requireNonNull(classStubsByQualifiedName, "classStubsByQualifiedName")
-            .forEach((name, stub) -> published.put(name, BinaryStubPublication.copy(stub)));
+            .forEach((name, stub) -> {
+                ActivityCheckpoint.poll(activityCheck);
+                published.put(name, BinaryStubPublication.copy(stub));
+            });
         this.classStubsByQualifiedName = Map.copyOf(published);
 
         Set<String> declaredQualifiedNames = new LinkedHashSet<>();
@@ -44,6 +64,7 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
         Map<String, List<JavaProjectSemanticIndex.SymbolDescriptor>> membersByOwnerQualifiedName = new LinkedHashMap<>();
 
         for (Map.Entry<String, ClassStub> entry : this.classStubsByQualifiedName.entrySet()) {
+            ActivityCheckpoint.poll(activityCheck);
             String qualifiedName = entry.getKey();
             ClassStub stub = entry.getValue();
             Path sourceFile = Objects.requireNonNull(sourceByQualifiedName.get(qualifiedName),
@@ -69,6 +90,7 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
             index(symbolsByQualifiedName, qualifiedName, typeDescriptor);
 
             for (FieldStub field : stub.fields()) {
+                ActivityCheckpoint.poll(activityCheck);
                 var descriptor = new JavaProjectSemanticIndex.SymbolDescriptor(
                     SymbolKind.FIELD,
                     field.name(),
@@ -84,6 +106,7 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
             }
 
             for (MethodStub method : stub.methods()) {
+                ActivityCheckpoint.poll(activityCheck);
                 var descriptor = new JavaProjectSemanticIndex.SymbolDescriptor(
                     SymbolKind.METHOD,
                     method.name(),
@@ -99,6 +122,7 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
             }
 
             for (ConstructorStub constructor : stub.constructors()) {
+                ActivityCheckpoint.poll(activityCheck);
                 var descriptor = new JavaProjectSemanticIndex.SymbolDescriptor(
                     SymbolKind.CONSTRUCTOR,
                     stub.name(),
@@ -117,9 +141,10 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
         this.declaredQualifiedNames = Set.copyOf(declaredQualifiedNames);
         this.typeNames = Set.copyOf(typeNames);
         this.packages = Set.copyOf(packages);
-        this.symbolsBySimpleName = copyListMap(symbolsBySimpleName);
-        this.symbolsByQualifiedName = copyListMap(symbolsByQualifiedName);
-        this.membersByOwnerQualifiedName = copyListMap(membersByOwnerQualifiedName);
+        this.symbolsBySimpleName = copyListMap(symbolsBySimpleName, activityCheck);
+        this.symbolsByQualifiedName = copyListMap(symbolsByQualifiedName, activityCheck);
+        this.membersByOwnerQualifiedName = copyListMap(membersByOwnerQualifiedName, activityCheck);
+        activityCheck.run();
     }
 
     @Override
@@ -185,9 +210,10 @@ public class JavaStubSymbolIndex implements JavaSymbolIndex {
         return index.getOrDefault(key.trim(), List.of());
     }
 
-    private static <T> Map<String, List<T>> copyListMap(Map<String, List<T>> original) {
+    private static <T> Map<String, List<T>> copyListMap(Map<String, List<T>> original, Runnable activityCheck) {
         Map<String, List<T>> copy = new LinkedHashMap<>(original.size());
         for (Map.Entry<String, List<T>> entry : original.entrySet()) {
+            ActivityCheckpoint.poll(activityCheck);
             copy.put(entry.getKey(), List.copyOf(entry.getValue()));
         }
 

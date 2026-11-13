@@ -1,6 +1,8 @@
 package dev.railroadide.railroad.ide.sst.project;
 
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
+import java.util.concurrent.CancellationException;
 import dev.railroadide.railroad.ide.classparser.ClassScanException;
 import dev.railroadide.railroad.ide.classparser.ClassStubParser;
 import dev.railroadide.railroad.ide.classparser.stub.ClassStub;
@@ -20,9 +22,10 @@ import java.util.jar.JarFile;
 public final class JavaLibrarySymbolIndex extends JavaStubSymbolIndex {
     private JavaLibrarySymbolIndex(
         Map<String, ClassStub> classStubsByQualifiedName,
-        Map<String, Path> sourceByQualifiedName
+        Map<String, Path> sourceByQualifiedName,
+        Runnable activityCheck
     ) {
-        super(classStubsByQualifiedName, sourceByQualifiedName);
+        super(classStubsByQualifiedName, sourceByQualifiedName, activityCheck);
     }
 
     /**
@@ -32,45 +35,62 @@ public final class JavaLibrarySymbolIndex extends JavaStubSymbolIndex {
      * @return the symbol index for successfully parsed library classes
      */
     public static JavaLibrarySymbolIndex build(List<Path> roots) {
+        return build(roots, ActivityCheckpoint::checkInterrupted);
+    }
+
+    /**
+     * Scans captured binary roots with cooperative cancellation and deadline checks.
+     *
+     * @param roots binary roots in lookup order
+     * @param activityCheck request activity check
+     * @return complete index; cancelled scans never publish a partial index
+     */
+    public static JavaLibrarySymbolIndex build(List<Path> roots, Runnable activityCheck) {
+        Objects.requireNonNull(activityCheck, "activityCheck").run();
         Map<String, ClassStub> stubsByQualifiedName = new LinkedHashMap<>();
         Map<String, Path> sourceByQualifiedName = new LinkedHashMap<>();
         Set<Path> uniqueRoots = new LinkedHashSet<>(roots);
         for (Path root : uniqueRoots) {
-            scanRoot(root, stubsByQualifiedName, sourceByQualifiedName);
+            activityCheck.run();
+            scanRoot(root, stubsByQualifiedName, sourceByQualifiedName, activityCheck);
         }
 
-        return new JavaLibrarySymbolIndex(stubsByQualifiedName, sourceByQualifiedName);
+        activityCheck.run();
+        return new JavaLibrarySymbolIndex(stubsByQualifiedName, sourceByQualifiedName, activityCheck);
     }
 
     private static void scanRoot(
         Path root,
         Map<String, ClassStub> stubsByQualifiedName,
-        Map<String, Path> sourceByQualifiedName
+        Map<String, Path> sourceByQualifiedName,
+        Runnable activityCheck
     ) {
         if (root == null || Files.notExists(root) || !Files.isReadable(root))
             return;
 
         if (Files.isDirectory(root)) {
-            scanDirectory(root, stubsByQualifiedName, sourceByQualifiedName);
+            scanDirectory(root, stubsByQualifiedName, sourceByQualifiedName, activityCheck);
             return;
         }
 
         String fileName = root.getFileName() == null ? "" : root.getFileName().toString().toLowerCase();
         if (fileName.endsWith(".jar") || fileName.endsWith(".jmod")) {
-            scanArchive(root, stubsByQualifiedName, sourceByQualifiedName);
+            scanArchive(root, stubsByQualifiedName, sourceByQualifiedName, activityCheck);
         }
     }
 
     private static void scanDirectory(
         Path root,
         Map<String, ClassStub> stubsByQualifiedName,
-        Map<String, Path> sourceByQualifiedName
+        Map<String, Path> sourceByQualifiedName,
+        Runnable activityCheck
     ) {
         try (var paths = Files.walk(root)) {
-            paths.filter(Files::isRegularFile)
+            paths.peek(_ -> activityCheck.run()).filter(Files::isRegularFile)
                 .filter(path -> path.getFileName().toString().endsWith(".class"))
                 .filter(path -> !isDescriptorClass(path.getFileName().toString()))
-                .forEach(path -> parseClassFile(path, root, stubsByQualifiedName, sourceByQualifiedName));
+                .forEach(
+                    path -> parseClassFile(path, root, stubsByQualifiedName, sourceByQualifiedName, activityCheck));
         } catch (IOException exception) {
             Railroad.LOGGER.error("Error scanning library directory {}", root, exception);
         }
@@ -80,10 +100,13 @@ public final class JavaLibrarySymbolIndex extends JavaStubSymbolIndex {
         Path classFile,
         Path origin,
         Map<String, ClassStub> stubsByQualifiedName,
-        Map<String, Path> sourceByQualifiedName
+        Map<String, Path> sourceByQualifiedName,
+        Runnable activityCheck
     ) {
+        activityCheck.run();
         try {
-            indexStub(ClassStubParser.parse(classFile), origin, stubsByQualifiedName, sourceByQualifiedName);
+            indexStub(ClassStubParser.parse(classFile), origin, stubsByQualifiedName, sourceByQualifiedName,
+                activityCheck);
         } catch (ClassScanException exception) {
             Railroad.LOGGER.warn("Ignoring unreadable class file {}", classFile, exception);
         }
@@ -92,11 +115,13 @@ public final class JavaLibrarySymbolIndex extends JavaStubSymbolIndex {
     private static void scanArchive(
         Path archive,
         Map<String, ClassStub> stubsByQualifiedName,
-        Map<String, Path> sourceByQualifiedName
+        Map<String, Path> sourceByQualifiedName,
+        Runnable activityCheck
     ) {
         try (JarFile jarFile = new JarFile(archive.toFile())) {
             Enumeration<JarEntry> entries = jarFile.entries();
             while (entries.hasMoreElements()) {
+                activityCheck.run();
                 JarEntry entry = entries.nextElement();
                 if (entry.isDirectory())
                     continue;
@@ -107,7 +132,9 @@ public final class JavaLibrarySymbolIndex extends JavaStubSymbolIndex {
 
                 try (InputStream input = jarFile.getInputStream(entry)) {
                     indexStub(ClassStubParser.parse(new ClassReader(input)), archive, stubsByQualifiedName,
-                        sourceByQualifiedName);
+                        sourceByQualifiedName, activityCheck);
+                } catch (CancellationException exception) {
+                    throw exception;
                 } catch (Exception exception) {
                     Railroad.LOGGER.warn("Ignoring unreadable class entry {} in {}", entryName, archive, exception);
                 }
@@ -121,8 +148,10 @@ public final class JavaLibrarySymbolIndex extends JavaStubSymbolIndex {
         ClassStub stub,
         Path origin,
         Map<String, ClassStub> stubsByQualifiedName,
-        Map<String, Path> sourceByQualifiedName
+        Map<String, Path> sourceByQualifiedName,
+        Runnable activityCheck
     ) {
+        activityCheck.run();
         String qualifiedName = stub.getFullName();
         if (qualifiedName == null || qualifiedName.isBlank())
             return;

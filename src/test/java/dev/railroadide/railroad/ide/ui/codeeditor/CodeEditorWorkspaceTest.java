@@ -318,7 +318,7 @@ public class CodeEditorWorkspaceTest {
         Files.writeString(file, "class Example {}");
         var release = new CountDownLatch(1);
         CompletableFuture<WorkspaceSnapshot> entered = new CompletableFuture<>();
-        AtomicReference<WorkspaceSnapshot> completedWith = new AtomicReference<>();
+        CompletableFuture<WorkspaceSnapshot> completedWith = new CompletableFuture<>();
         CompletionProvider completion = new CompletionProvider() {
             @Override
             public CompletionResult compute(DocumentSnapshot snapshot, int offset) {
@@ -328,7 +328,7 @@ public class CodeEditorWorkspaceTest {
             @Override
             public CompletionResult compute(WorkspaceSnapshot workspace, DocumentId id, int offset) {
                 block(workspace, entered, release);
-                completedWith.set(workspace);
+                completedWith.complete(workspace);
                 return new CompletionResult(offset, List.of(new CompletionItem("old", "old")));
             }
         };
@@ -343,7 +343,7 @@ public class CodeEditorWorkspaceTest {
                 block(workspace, entered, release);
                 if (workspace != entered.getNow(null))
                     return List.of();
-                completedWith.set(workspace);
+                completedWith.complete(workspace);
                 TextDocumentSnapshot snapshot = (TextDocumentSnapshot) workspace.document(id).orElseThrow();
                 return List.of(new TextEditorDiagnostic(Location.TextLocation.from(snapshot, 0, 1),
                     Diagnostic.Kind.ERROR, "OLD", "old result"));
@@ -358,7 +358,7 @@ public class CodeEditorWorkspaceTest {
             @Override
             public SignatureHelp compute(WorkspaceSnapshot workspace, DocumentId id, int caret) {
                 block(workspace, entered, release);
-                completedWith.set(workspace);
+                completedWith.complete(workspace);
                 return new SignatureHelp("Example", "Example", "old", List.of(), 0, false, "void", false);
             }
         };
@@ -401,6 +401,7 @@ public class CodeEditorWorkspaceTest {
             assertEquals("class Example {}", original.text());
             assertSame(other, captured.document(otherId).orElseThrow());
             release.countDown();
+            completedWith.get(10, TimeUnit.SECONDS);
             editor.awaitWorkerCompletion();
             onFx(() -> {
                 assertSame(captured, completedWith.get());
@@ -428,11 +429,17 @@ public class CodeEditorWorkspaceTest {
         CountDownLatch release
     ) {
         entered.complete(workspace);
-        try {
-            assertTrue(release.await(10, TimeUnit.SECONDS));
-        } catch (InterruptedException exception) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                assertTrue(release.await(10, TimeUnit.SECONDS));
+                break;
+            } catch (InterruptedException exception) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
             Thread.currentThread().interrupt();
-            throw new AssertionError(exception);
         }
     }
 
@@ -476,13 +483,7 @@ public class CodeEditorWorkspaceTest {
         }
 
         private void awaitWorkerCompletion() throws Exception {
-            ThreadPoolExecutor executor = (ThreadPoolExecutor) worker;
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-            while ((executor.getActiveCount() != 0 || !executor.getQueue().isEmpty()) && System.nanoTime() < deadline) {
-                Thread.sleep(5);
-            }
-            assertEquals(0, executor.getActiveCount());
-            assertTrue(executor.getQueue().isEmpty());
+            featureRequests.completion().get(10, TimeUnit.SECONDS);
         }
     }
 }

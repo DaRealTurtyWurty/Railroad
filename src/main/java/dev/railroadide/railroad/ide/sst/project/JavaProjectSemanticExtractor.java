@@ -1,5 +1,7 @@
 package dev.railroadide.railroad.ide.sst.project;
 
+import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
+
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticAnalyzer;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxKinds;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaTokenType;
@@ -24,6 +26,29 @@ import java.util.List;
  * Extracts package, import, type, and member descriptors from Java declaration facts.
  */
 public final class JavaProjectSemanticExtractor {
+    private final Runnable activityCheck;
+
+    /** Creates a source extractor that observes worker interruption. */
+    public JavaProjectSemanticExtractor() {
+        this(ActivityCheckpoint::checkInterrupted);
+    }
+
+    private JavaProjectSemanticExtractor(Runnable activityCheck) {
+        this.activityCheck = activityCheck;
+    }
+
+    /**
+     * Extracts one source file with invocation-local cancellation controls.
+     *
+     * @param path source file identity
+     * @param source captured source text
+     * @param activityCheck cooperative request activity check
+     * @return complete immutable source entry
+     */
+    public JavaProjectSemanticIndex.SourceFileIndex extract(Path path, CharSequence source, Runnable activityCheck) {
+        return new JavaProjectSemanticExtractor(
+            new ActivityCheckpoint(activityCheck)).extract(path, source);
+    }
     /**
      * Extracts package, import, type, and member descriptors for one Java source file.
      *
@@ -32,12 +57,14 @@ public final class JavaProjectSemanticExtractor {
      * @return the source file's immutable index entry
      */
     public JavaProjectSemanticIndex.SourceFileIndex extract(Path path, CharSequence source) {
+        activityCheck.run();
         String parsedSource = source.toString();
-        SemanticModel model = JavaSemanticAnalyzer.analyzeDeclarationsFacts(parsedSource);
+        SemanticModel model = JavaSemanticAnalyzer.analyzeDeclarationsFacts(parsedSource, activityCheck);
         JavaProjectSemanticIndex.SourceFileIndex indexed = extract(path, model);
         try {
             String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(parsedSource.getBytes(StandardCharsets.UTF_8)));
+            activityCheck.run();
             return new JavaProjectSemanticIndex.SourceFileIndex(indexed.path(), indexed.packageName(),
                 indexed.imports(), indexed.declaredSymbols(), hash);
         } catch (NoSuchAlgorithmException exception) {
@@ -53,11 +80,13 @@ public final class JavaProjectSemanticExtractor {
      * @return the source file's immutable index entry
      */
     public JavaProjectSemanticIndex.SourceFileIndex extract(Path path, SemanticModel model) {
+        activityCheck.run();
         SyntaxNode root = model.syntaxTree().root();
 
         String packageName = extractPackageName(root);
         List<JavaProjectSemanticIndex.ImportDescriptor> imports = extractImports(root);
         List<JavaProjectSemanticIndex.SymbolDescriptor> symbols = extractSymbols(path, root, model);
+        activityCheck.run();
 
         return new JavaProjectSemanticIndex.SourceFileIndex(path, packageName, imports, symbols);
     }
@@ -83,6 +112,7 @@ public final class JavaProjectSemanticExtractor {
             .ifPresent(symbol -> symbols.add(toDescriptor(path, node, symbol)));
 
         for (SyntaxNode child : node.children()) {
+            ActivityCheckpoint.poll(activityCheck);
             collectSymbols(path, child, model, symbols);
         }
     }
@@ -120,6 +150,7 @@ public final class JavaProjectSemanticExtractor {
 
         List<String> parameterTypes = new ArrayList<>();
         for (SyntaxNode child : parameterList.children()) {
+            ActivityCheckpoint.poll(activityCheck);
             String kindId = child.kind().id();
 
             if (!JavaSyntaxKinds.PARAMETER.id().equals(kindId))
@@ -172,6 +203,7 @@ public final class JavaProjectSemanticExtractor {
 
         SyntaxNode current = node.parent().orElse(null);
         while (current != null) {
+            ActivityCheckpoint.poll(activityCheck);
             if (isTypeDeclaration(current))
                 return false;
 
@@ -203,6 +235,7 @@ public final class JavaProjectSemanticExtractor {
         List<JavaProjectSemanticIndex.ImportDescriptor> imports = new ArrayList<>();
 
         for (SyntaxNode child : root.children()) {
+            ActivityCheckpoint.poll(activityCheck);
             if (!JavaSyntaxKinds.IMPORT_DECLARATION.id().equals(child.kind().id()))
                 continue;
 
@@ -236,6 +269,7 @@ public final class JavaProjectSemanticExtractor {
             return token.kind().id().equals(tokenKindId);
 
         for (SyntaxNode child : node.children()) {
+            ActivityCheckpoint.poll(activityCheck);
             if (containsTokenKind(child, tokenKindId))
                 return true;
         }
@@ -245,6 +279,7 @@ public final class JavaProjectSemanticExtractor {
 
     private String extractPackageName(SyntaxNode root) {
         for (SyntaxNode child : root.children()) {
+            ActivityCheckpoint.poll(activityCheck);
             if (!JavaSyntaxKinds.PACKAGE_DECLARATION.id().equals(child.kind().id()))
                 continue;
 
@@ -261,6 +296,7 @@ public final class JavaProjectSemanticExtractor {
 
     private @Nullable SyntaxNode directChild(SyntaxNode node, String kindId) {
         for (SyntaxNode child : node.children()) {
+            ActivityCheckpoint.poll(activityCheck);
             if (child.kind().id().equals(kindId))
                 return child;
         }
@@ -283,6 +319,7 @@ public final class JavaProjectSemanticExtractor {
         }
 
         for (SyntaxNode child : node.children()) {
+            ActivityCheckpoint.poll(activityCheck);
             appendQualifiedName(child, builder);
         }
     }

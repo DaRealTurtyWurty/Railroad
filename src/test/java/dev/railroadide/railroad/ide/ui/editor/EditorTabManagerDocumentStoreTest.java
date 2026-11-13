@@ -7,6 +7,11 @@ import dev.railroadide.railroad.ide.WorkspaceModes;
 import dev.railroadide.railroad.ide.ProjectDocumentSynchronizer;
 import dev.railroadide.railroad.ide.language.LanguageSupports;
 import dev.railroadide.railroad.ide.sst.document.api.*;
+import dev.railroadide.railroad.ide.sst.request.api.CancellationTokenSource;
+import dev.railroadide.railroad.ide.sst.request.api.Deadline;
+import dev.railroadide.railroad.ide.sst.request.api.RequestPriority;
+import dev.railroadide.railroad.ide.sst.request.api.SstScheduler;
+import dev.railroadide.railroad.ide.sst.request.api.WorkspaceRequestContext;
 import dev.railroadide.railroad.ide.ui.MarkdownPreviewPane;
 import dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorPane;
 import dev.railroadide.railroad.ide.ui.codeeditor.TextEditorPane;
@@ -675,10 +680,16 @@ public class EditorTabManagerDocumentStoreTest {
             Field watcher = TextEditorPane.class.getDeclaredField("watcherExecutor");
             watcher.setAccessible(true);
             assertTrue(((ExecutorService) watcher.get(editor)).isShutdown());
-            Field worker = CodeEditorPane.class
-                .getDeclaredField("worker");
-            worker.setAccessible(true);
-            assertTrue(((ExecutorService) worker.get(editor)).isShutdown());
+            Field requests = CodeEditorPane.class.getDeclaredField("featureRequests");
+            requests.setAccessible(true);
+            var scope = (SstScheduler.Scope) requests.get(editor);
+            assertTrue(scope.completion().isDone());
+            var cancellation = new CancellationTokenSource();
+            var context = new WorkspaceRequestContext(store.capture(), cancellation.token(), Deadline.none());
+            var rejected = scope.submit("closed-editor", RequestPriority.COMPLETION, context, cancellation,
+                () -> fail("A closed editor must not dispatch additional work"));
+            assertInstanceOf(RejectedExecutionException.class,
+                assertThrows(CompletionException.class, rejected::join).getCause());
             DocumentId id = tab.documentId();
             Files.delete(file);
             Files.writeString(file, "class Forced {}");

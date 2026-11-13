@@ -23,6 +23,55 @@ public class IndexConcurrencyTest {
     public Path root;
 
     @Test
+    public void invalidationCooperativelyStopsAnActiveProvider() throws Exception {
+        assertCooperativeStop("invalidate");
+    }
+
+    @Test
+    public void configurationRefreshCooperativelyStopsAnActiveProvider() throws Exception {
+        assertCooperativeStop("refresh");
+    }
+
+    @Test
+    public void projectClosureCooperativelyStopsAnActiveProvider() throws Exception {
+        assertCooperativeStop("close");
+    }
+
+    private void assertCooperativeStop(String action) throws Exception {
+        var service = new ProjectLanguageIndexService();
+        var indexer = new TestIndexer() {
+            @Override
+            public Index build(ProjectIndexContext context, Collection<Path> files) {
+                entered.countDown();
+                while (release.getCount() > 0) {
+                    context.checkActive();
+                    Thread.onSpinWait();
+                }
+                return new Index(Map.of());
+            }
+        };
+        service.registerIndexer(indexer);
+        var context = context(service);
+        try (var workers = Executors.newSingleThreadExecutor()) {
+            var task = workers.submit(() -> service.index(context, "test"));
+            try {
+                assertTrue(indexer.entered.await(5, TimeUnit.SECONDS));
+                switch (action) {
+                    case "invalidate" -> service.invalidate(context.project(), "test");
+                    case "refresh" -> service.refreshProject(context.session());
+                    case "close" -> service.closeProject(context.session());
+                    default -> throw new AssertionError(action);
+                }
+                var failure = assertThrows(ExecutionException.class, () -> task.get(5, TimeUnit.SECONDS));
+                assertInstanceOf(CancellationException.class, failure.getCause());
+                assertNull(service.current(context.project(), "test"));
+            } finally {
+                indexer.release.countDown();
+            }
+        }
+    }
+
+    @Test
     public void interruptingAWaitingCallerDoesNotCancelTheInitializer() throws Exception {
         var service = new ProjectLanguageIndexService();
         var indexer = new TestIndexer();

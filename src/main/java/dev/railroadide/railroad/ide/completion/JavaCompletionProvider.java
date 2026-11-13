@@ -1,6 +1,8 @@
 package dev.railroadide.railroad.ide.completion;
 
 import dev.railroadide.railroad.Services;
+import dev.railroadide.railroad.ide.sst.request.api.FeatureRequestContext;
+import dev.railroadide.railroad.ide.sst.request.api.FeatureResult;
 import dev.railroadide.railroad.ide.language.impl.JavaLanguageSupport;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentSnapshot;
 import dev.railroadide.railroad.ide.sst.document.api.TextDocumentSnapshot;
@@ -21,6 +23,18 @@ import dev.railroadide.railroad.ide.sst.document.api.WorkspaceSnapshot;
  * @param filePath optional legacy file context; completion uses the supplied snapshot
  */
 public record JavaCompletionProvider(Project project, @Nullable Path filePath) implements CompletionProvider {
+    @Override
+    public FeatureResult<CompletionResult> compute(FeatureRequestContext context, int triggerAt) {
+        context.checkActive();
+        if (!(context.documentSnapshot() instanceof TextDocumentSnapshot text)
+            || !JavaLanguageSupport.LANGUAGE_ID.equals(text.languageId()))
+            return new FeatureResult<>(context, null);
+        CompletionResult result = JavaSemanticCompletionEngine.compute(text.text(), triggerAt,
+            JavaLanguageSupport.analysisContextProvider().index(context), context::checkActive);
+        context.checkActive();
+        return new FeatureResult<>(context, result);
+    }
+
     @Override
     public @Nullable CompletionResult compute(
         WorkspaceSnapshot workspace,

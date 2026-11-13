@@ -13,10 +13,12 @@ import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.request.api.CancellationTokenSource;
 import dev.railroadide.railroad.ide.sst.request.api.Deadline;
 import dev.railroadide.railroad.ide.sst.request.api.FeatureRequestContext;
+import dev.railroadide.railroad.ide.sst.request.api.RequestPriority;
+import dev.railroadide.railroad.ide.sst.request.api.SstScheduler;
+import dev.railroadide.railroad.ide.sst.provider.api.ProviderExecutor;
 import dev.railroadide.railroad.ide.ui.DiagnosticPane;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.ui.RRListView;
-import dev.railroadide.railroad.utility.ShutdownHooks;
 import io.github.palexdev.mfxresources.fonts.MFXFontIcon;
 import io.github.palexdev.mfxresources.fonts.fontawesome.FontAwesomeSolid;
 import javafx.animation.PauseTransition;
@@ -64,10 +66,10 @@ public abstract class CodeEditorPane extends TextEditorPane {
     protected final @Nullable SignatureHelpProvider signatureHelpProvider;
     protected final @Nullable SyntaxHighlightingProvider highlightingProvider;
 
-    protected final ExecutorService worker = Executors.newFixedThreadPool(
-        Math.max(2, Runtime.getRuntime().availableProcessors() / 2),
-        namedThreadFactory("railroad-code-editor-worker-%d"));
-    private final ShutdownHooks.Registration workerShutdownRegistration;
+    protected final SstScheduler.Scope featureRequests = SstScheduler.shared().newScope();
+    private static final Duration INTERACTIVE_BUDGET = Duration.ofSeconds(2);
+    private static final Duration HIGHLIGHT_BUDGET = Duration.ofSeconds(5);
+    private static final Duration DIAGNOSTICS_BUDGET = Duration.ofSeconds(30);
     private boolean codeEditorClosed;
     private final List<Subscription> subscriptions = new ArrayList<>();
     private DocumentStore.ChangeSubscription workspaceSubscription;
@@ -195,7 +197,6 @@ public abstract class CodeEditorPane extends TextEditorPane {
         installBracketHighlighting();
         installDiagnosticPopupHandlers();
 
-        workerShutdownRegistration = ShutdownHooks.registerHook(worker::shutdownNow);
     }
 
     @Override
@@ -223,8 +224,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         invalidateDiagnosticsRequest();
         hideAutoComplete();
         hideSignatureHelp();
-        workerShutdownRegistration.close();
-        worker.shutdownNow();
+        featureRequests.close();
         diagnosticPopup.hide();
         Popup completionPopup = activeCompletionPopup.getAndSet(null);
         if (completionPopup != null) {
@@ -351,6 +351,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
      * Cancels the JavaFX-thread-owned highlighting request and releases its captured inputs.
      */
     private void invalidateHighlightRequest() {
+        featureRequests.cancel("highlighting");
         if (activeHighlightCancellation != null) {
             activeHighlightCancellation.cancel();
             activeHighlightCancellation = null;
@@ -385,10 +386,13 @@ public abstract class CodeEditorPane extends TextEditorPane {
 
         activeHighlightCancellation = new CancellationTokenSource();
         var context = new FeatureRequestContext(workspace, snapshot, activeHighlightCancellation.token(),
-            Deadline.none());
+            Deadline.after(HIGHLIGHT_BUDGET));
         activeHighlightContext = context;
 
-        CompletableFuture.supplyAsync(() -> highlightingProvider.compute(context), worker)
+        featureRequests.submit("highlighting", RequestPriority.OPEN_DOCUMENT_ANALYSIS, context,
+            activeHighlightCancellation, () -> ProviderExecutor.shared().execute(
+                highlightingProvider.getClass().getName() + ":highlighting", context, HIGHLIGHT_BUDGET,
+                () -> highlightingProvider.compute(context)))
             .thenAccept(result -> Platform.runLater(() -> {
                 if (highlightGeneration.get() != generation
                     || activeHighlightContext != context
@@ -432,6 +436,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
      * Generation advancement remains with the calling lifecycle transition.
      */
     private void invalidateDiagnosticsRequest() {
+        featureRequests.cancel("diagnostics");
         if (activeDiagnosticsCancellation != null) {
             activeDiagnosticsCancellation.cancel();
             activeDiagnosticsCancellation = null;
@@ -473,10 +478,13 @@ public abstract class CodeEditorPane extends TextEditorPane {
 
         activeDiagnosticsCancellation = new CancellationTokenSource();
         var context = new FeatureRequestContext(workspace, snapshot, activeDiagnosticsCancellation.token(),
-            Deadline.none());
+            Deadline.after(DIAGNOSTICS_BUDGET));
         activeDiagnosticsContext = context;
 
-        CompletableFuture.supplyAsync(() -> diagnosticsProvider.compute(context), worker)
+        featureRequests.submit("diagnostics", RequestPriority.VISIBLE_DIAGNOSTICS, context,
+            activeDiagnosticsCancellation, () -> ProviderExecutor.shared().execute(
+                diagnosticsProvider.getClass().getName() + ":diagnostics", context, DIAGNOSTICS_BUDGET,
+                () -> diagnosticsProvider.compute(context)))
             .thenAccept(result -> Platform.runLater(() -> {
                 if (activeDiagnosticsContext != context
                     || !result.belongsTo(context)
@@ -598,6 +606,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
      * Cancels the JavaFX-thread-owned completion request and releases its captured inputs.
      */
     private void invalidateCompletionRequest() {
+        featureRequests.cancel("completion");
         if (activeCompletionCancellation != null) {
             activeCompletionCancellation.cancel();
             activeCompletionCancellation = null;
@@ -651,11 +660,14 @@ public abstract class CodeEditorPane extends TextEditorPane {
 
         activeCompletionCancellation = new CancellationTokenSource();
         var context = new FeatureRequestContext(workspace, workspace.document(documentId).get(),
-            activeCompletionCancellation.token(), Deadline.none());
+            activeCompletionCancellation.token(), Deadline.after(INTERACTIVE_BUDGET));
         activeCompletionContext = context;
 
         int generation = completionGeneration.incrementAndGet();
-        CompletableFuture.supplyAsync(() -> completionProvider.compute(context, dotIndex), worker)
+        featureRequests.submit("completion", RequestPriority.COMPLETION, context,
+            activeCompletionCancellation, () -> ProviderExecutor.shared().execute(
+                completionProvider.getClass().getName() + ":completion", context, INTERACTIVE_BUDGET,
+                () -> completionProvider.compute(context, dotIndex)))
             .thenAccept(result -> Platform.runLater(() -> {
                 if (completionGeneration.get() != generation
                     || activeCompletionContext != context
@@ -819,6 +831,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
      * Cancels the JavaFX-thread-owned signature request and releases its captured inputs.
      */
     private void invalidateSignatureRequest() {
+        featureRequests.cancel("signature");
         if (activeSignatureCancellation != null) {
             activeSignatureCancellation.cancel();
             activeSignatureCancellation = null;
@@ -874,10 +887,13 @@ public abstract class CodeEditorPane extends TextEditorPane {
 
         activeSignatureCancellation = new CancellationTokenSource();
         var context = new FeatureRequestContext(workspace, snapshot, activeSignatureCancellation.token(),
-            Deadline.none());
+            Deadline.after(INTERACTIVE_BUDGET));
         activeSignatureContext = context;
 
-        CompletableFuture.supplyAsync(() -> signatureHelpProvider.compute(context, caret), worker)
+        featureRequests.submit("signature", RequestPriority.SIGNATURE_HELP, context,
+            activeSignatureCancellation, () -> ProviderExecutor.shared().execute(
+                signatureHelpProvider.getClass().getName() + ":signature", context, INTERACTIVE_BUDGET,
+                () -> signatureHelpProvider.compute(context, caret)))
             .thenAccept(result -> Platform.runLater(() -> {
                 if (signatureGeneration.get() != generation
                     || activeSignatureContext != context

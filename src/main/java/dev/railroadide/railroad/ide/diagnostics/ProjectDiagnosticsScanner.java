@@ -1,6 +1,10 @@
 package dev.railroadide.railroad.ide.diagnostics;
 
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.Services;
+import dev.railroadide.railroad.ide.ProjectWorkspaceConfiguration;
+import dev.railroadide.railroad.ide.sst.request.api.*;
+import dev.railroadide.railroad.ide.sst.provider.api.ProviderExecutor;
 import dev.railroadide.railroad.ide.diagnostics.EditorDiagnostic.TextEditorDiagnostic;
 import dev.railroadide.railroad.ide.language.LanguageSupport;
 import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
@@ -18,13 +22,13 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.CompletionService;
-import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Runs registered language diagnostics over every source file in a project.
@@ -63,7 +67,17 @@ public final class ProjectDiagnosticsScanner {
         return scan(ProjectDiagnosticsContext.create(project), reportPath);
     }
 
-    private static Path scan(ProjectDiagnosticsContext diagnosticsContext, Path reportPath) {
+    /**
+     * Scans using captured project indexing inputs. Individual provider failures are
+     * included in the report; cancellation of the project or scan prevents report publication.
+     *
+     * @param diagnosticsContext captured project and symbol-index inputs
+     * @param reportPath destination for the diagnostics text report
+     * @return path of the written report
+     */
+    public static Path scan(ProjectDiagnosticsContext diagnosticsContext, Path reportPath) {
+        Objects.requireNonNull(diagnosticsContext, "diagnosticsContext");
+        Objects.requireNonNull(reportPath, "reportPath");
         Project project = diagnosticsContext.project();
         ProjectIndexContext context = diagnosticsContext.indexContext();
         List<FileScanResult> fileResults = new ArrayList<>();
@@ -71,23 +85,34 @@ public final class ProjectDiagnosticsScanner {
         Map<Diagnostic.Kind, Integer> countsByKind = new LinkedHashMap<>();
         List<ScanTarget> targets = scanTargets(context);
         long scanStartedAt = System.nanoTime();
-        int parallelism = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 8));
-        ExecutorService executor = Executors.newFixedThreadPool(parallelism);
-        CompletionService<FileScanResult> completionService = new ExecutorCompletionService<>(executor);
+        int parallelism = SstScheduler.shared().isWorkerThread() ? 1 : 2;
+        WorkspaceSnapshot workspace = Services.IDE_STATE.getDocumentStore().map(DocumentStore::capture)
+            .filter(snapshot -> snapshot.projectId().equals(project.getId()))
+            .orElseGet(() -> new WorkspaceSnapshot(project.getId(), Map.of(),
+                ProjectWorkspaceConfiguration.initial(project), 0));
+        Deque<CompletableFuture<FileScanResult>> pending = new ArrayDeque<>();
 
         Railroad.LOGGER.warn(
             "Starting project diagnostics scan for {}: {} files using {} workers",
             context.projectRoot(),
             targets.size(),
             parallelism);
-        try {
-            for (ScanTarget target : targets) {
-                completionService.submit(() -> scanOne(diagnosticsContext, target));
-            }
-
+        try (var requests = SstScheduler.shared().newScope()) {
+            int submitted = 0;
             int scannedFiles = 0;
             for (int index = 0; index < targets.size(); index++) {
-                FileScanResult result = completionService.take().get();
+                context.checkActive();
+                while (submitted < targets.size() && pending.size() < parallelism) {
+                    ScanTarget target = targets.get(submitted++);
+                    var cancellation = new CancellationTokenSource();
+                    var request = new WorkspaceRequestContext(workspace, cancellation.token(), Deadline.none());
+                    pending.add(SstScheduler.shared().isWorkerThread()
+                        ? CompletableFuture.completedFuture(scanOne(diagnosticsContext, target, request))
+                        : requests.submit(target.path(), RequestPriority.BACKGROUND_INDEXING, request, cancellation,
+                            () -> scanOne(diagnosticsContext, target, request)));
+                }
+                FileScanResult result = awaitResult(pending.removeFirst(), context);
+                context.checkActive();
                 fileResults.add(result);
                 scannedFiles++;
 
@@ -112,20 +137,21 @@ public final class ProjectDiagnosticsScanner {
             }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Project diagnostics scan was interrupted", exception);
+            throw new CancellationException("Project diagnostics scan was interrupted");
         } catch (ExecutionException exception) {
             throw new IllegalStateException("Project diagnostics scan failed", exception.getCause());
-        } finally {
-            executor.shutdownNow();
         }
 
+        context.checkActive();
         fileResults.sort(Comparator.comparing(file -> file.path().toString()));
         List<FileDiagnostics> files = fileResults.stream()
             .filter(result -> result.failure() == null && !result.diagnostics().isEmpty())
             .map(result -> new FileDiagnostics(result.path(), result.languageId(), result.diagnostics()))
             .toList();
+        List<FileScanResult> failures = fileResults.stream().filter(result -> result.failure() != null).toList();
 
-        String report = renderReport(context, targets.size(), files, countsByKind, countsByCode);
+        String report = renderReport(context, targets.size(), files, failures, countsByKind, countsByCode);
+        context.checkActive();
         try {
             Files.createDirectories(reportPath.getParent());
             Files.writeString(reportPath, report, StandardCharsets.UTF_8);
@@ -143,9 +169,30 @@ public final class ProjectDiagnosticsScanner {
         return reportPath;
     }
 
-    private static FileScanResult scanOne(ProjectDiagnosticsContext diagnosticsContext, ScanTarget target) {
+    private static FileScanResult awaitResult(
+        CompletableFuture<FileScanResult> result,
+        ProjectIndexContext context
+    ) throws InterruptedException, ExecutionException {
+        while (true) {
+            context.checkActive();
+            try {
+                return result.get(25, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException _) {
+                // Project cancellation also closes the scan scope while its work is queued or blocked.
+            }
+        }
+    }
+
+    private static FileScanResult scanOne(
+        ProjectDiagnosticsContext diagnosticsContext,
+        ScanTarget target,
+        WorkspaceRequestContext request
+    ) {
         long fileStartedAt = System.nanoTime();
+        ProjectIndexContext indexContext = diagnosticsContext.indexContext();
         try {
+            indexContext.checkActive();
+            request.checkActive();
             String source = Files.readString(target.path());
             var snapshot = new TextDocumentSnapshot(
                 DocumentId.create(),
@@ -158,14 +205,37 @@ public final class ProjectDiagnosticsScanner {
 
             DiagnosticsProvider<?> provider = createDiagnosticsProvider(diagnosticsContext, target);
             if (provider instanceof DiagnosticsProvider<?> tprovider) {
-                List<EditorDiagnostic> diagnostics = tprovider.compute(snapshot).stream()
-                    .map(EditorDiagnostic.class::cast)
-                    .toList();
+                var workspace = new WorkspaceSnapshot(request.workspaceSnapshot().projectId(),
+                    Map.of(snapshot.id(), snapshot), request.workspaceSnapshot().configuration(),
+                    request.workspaceSnapshot().revision());
+                Duration budget = Duration.ofSeconds(30);
+                var session = indexContext.session();
+                CancellationToken cancellation = () -> request.cancellationToken().isCancellationRequested()
+                    || indexContext.cancellationToken().isCancellationRequested()
+                    || session != null && (session.isClosed()
+                        || session.configurationGeneration() != indexContext.configurationGeneration());
+                var feature = new FeatureRequestContext(workspace, snapshot, cancellation, Deadline.after(budget));
+                List<EditorDiagnostic> diagnostics = ProviderExecutor.shared().execute(
+                    tprovider.getClass().getName() + ":project-diagnostics", feature, budget,
+                    () -> {
+                        var result = tprovider.compute(feature);
+                        if (!result.belongsTo(feature))
+                            throw new IllegalStateException(
+                                "Diagnostics provider returned a result for a different request");
+                        return result.value().stream().map(EditorDiagnostic.class::cast).toList();
+                    });
+                request.checkActive();
+                indexContext.checkActive();
                 return new FileScanResult(target.path(), target.support().languageId(), diagnostics, null,
                     fileStartedAt);
             }
             return new FileScanResult(target.path(), target.support().languageId(), List.of(), null, fileStartedAt);
 
+        } catch (CancellationException exception) {
+            request.checkActive();
+            indexContext.checkActive();
+            return new FileScanResult(target.path(), target.support().languageId(), List.of(), exception,
+                fileStartedAt);
         } catch (Exception | StackOverflowError exception) {
             return new FileScanResult(target.path(), target.support().languageId(), List.of(), exception,
                 fileStartedAt);
@@ -188,6 +258,7 @@ public final class ProjectDiagnosticsScanner {
     private static List<ScanTarget> scanTargets(ProjectIndexContext context) {
         List<ScanTarget> targets = new ArrayList<>();
         for (LanguageSupport support : LanguageSupportRegistry.all()) {
+            context.checkActive();
             if (!support.supportsDiagnostics() || support.diagnosticsFactory() == null)
                 continue;
 
@@ -257,6 +328,7 @@ public final class ProjectDiagnosticsScanner {
 
         Set<Path> files = new LinkedHashSet<>();
         for (Path root : roots) {
+            context.checkActive();
             if (root == null || Files.notExists(root))
                 continue;
             if (Files.isRegularFile(root)) {
@@ -267,7 +339,7 @@ public final class ProjectDiagnosticsScanner {
             }
 
             try (Stream<Path> paths = Files.walk(root)) {
-                paths.filter(Files::isRegularFile)
+                paths.peek(_ -> context.checkActive()).filter(Files::isRegularFile)
                     .filter(support::supports)
                     .map(path -> path.toAbsolutePath().normalize())
                     .forEach(files::add);
@@ -275,6 +347,7 @@ public final class ProjectDiagnosticsScanner {
                 Railroad.LOGGER.warn("Failed to enumerate diagnostic source root {}", root, exception);
             }
         }
+        context.checkActive();
         return files.stream().sorted().toList();
     }
 
@@ -282,6 +355,7 @@ public final class ProjectDiagnosticsScanner {
         ProjectIndexContext context,
         int scannedFiles,
         List<FileDiagnostics> files,
+        List<FileScanResult> failures,
         Map<Diagnostic.Kind, Integer> countsByKind,
         Map<String, Integer> countsByCode
     ) {
@@ -291,11 +365,21 @@ public final class ProjectDiagnosticsScanner {
         report.append("Root: ").append(context.projectRoot()).append('\n');
         report.append("Generated: ").append(Instant.now()).append('\n');
         report.append("Scanned files: ").append(scannedFiles).append('\n');
+        report.append("Failed files: ").append(failures.size()).append('\n');
         report.append("Affected files: ").append(files.size()).append('\n');
         report.append("Diagnostics: ").append(diagnosticCount).append('\n');
         countsByKind.forEach((kind, count) -> report.append("  ").append(kind).append(": ").append(count).append('\n'));
         report.append("\nBy code:\n");
         countsByCode.forEach((code, count) -> report.append("  ").append(code).append(": ").append(count).append('\n'));
+
+        if (!failures.isEmpty()) {
+            report.append("\nIncomplete analysis:\n");
+            for (FileScanResult failure : failures) {
+                report.append("  ").append(displayPath(context.projectRoot(), failure.path())).append(": ")
+                    .append(failure.failure().getClass().getSimpleName()).append(" - ")
+                    .append(Objects.toString(failure.failure().getMessage(), "Provider failed")).append('\n');
+            }
+        }
 
         for (FileDiagnostics file : files) {
             report.append("\n")

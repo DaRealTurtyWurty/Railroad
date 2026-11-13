@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.ide.sst.project;
 
 import dev.railroadide.railroad.ide.classparser.stub.ClassStub;
+import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticAnalyzer;
 
 import java.io.IOException;
@@ -17,9 +18,10 @@ import java.util.Map;
 public final class JavaJdkSymbolIndex extends JavaStubSymbolIndex {
     private JavaJdkSymbolIndex(
         Map<String, ClassStub> classStubsByQualifiedName,
-        Map<String, Path> sourceByQualifiedName
+        Map<String, Path> sourceByQualifiedName,
+        Runnable activityCheck
     ) {
-        super(classStubsByQualifiedName, sourceByQualifiedName);
+        super(classStubsByQualifiedName, sourceByQualifiedName, activityCheck);
     }
 
     /**
@@ -29,8 +31,20 @@ public final class JavaJdkSymbolIndex extends JavaStubSymbolIndex {
      * @return the selected JDK index, or a current-runtime index on fallback
      */
     public static JavaJdkSymbolIndex build(Path jdkHome) {
+        return build(jdkHome, ActivityCheckpoint::checkInterrupted);
+    }
+
+    /**
+     * Indexes a selected JDK with cooperative controls during scanning and lookup-table construction.
+     *
+     * @param jdkHome JDK home, or null for the running runtime
+     * @param activityCheck request activity check
+     * @return complete immutable binary index
+     */
+    public static JavaJdkSymbolIndex build(Path jdkHome, Runnable activityCheck) {
+        activityCheck.run();
         if (jdkHome == null || Files.notExists(jdkHome))
-            return fromCurrentRuntime();
+            return fromCurrentRuntime(activityCheck);
 
         List<Path> roots = new ArrayList<>();
         Path rtJar = jdkHome.resolve("jre/lib/rt.jar");
@@ -46,19 +60,22 @@ public final class JavaJdkSymbolIndex extends JavaStubSymbolIndex {
                     roots.addAll(
                         paths.filter(path -> path.getFileName().toString().endsWith(".jmod")).sorted().toList());
                 } catch (IOException _) {
-                    return fromCurrentRuntime();
+                    return fromCurrentRuntime(activityCheck);
                 }
             }
         }
 
         if (roots.isEmpty())
-            return fromCurrentRuntime();
+            return fromCurrentRuntime(activityCheck);
 
-        JavaLibrarySymbolIndex index = JavaLibrarySymbolIndex.build(roots);
+        JavaLibrarySymbolIndex index = JavaLibrarySymbolIndex.build(roots, activityCheck);
         Map<String, ClassStub> classStubsByQualifiedName = new LinkedHashMap<>(index.classStubsByQualifiedName());
         Map<String, Path> sourceByQualifiedName = new LinkedHashMap<>();
-        classStubsByQualifiedName.keySet().forEach(qualifiedName -> sourceByQualifiedName.put(qualifiedName, jdkHome));
-        return new JavaJdkSymbolIndex(classStubsByQualifiedName, sourceByQualifiedName);
+        classStubsByQualifiedName.keySet().forEach(qualifiedName -> {
+            ActivityCheckpoint.poll(activityCheck);
+            sourceByQualifiedName.put(qualifiedName, jdkHome);
+        });
+        return new JavaJdkSymbolIndex(classStubsByQualifiedName, sourceByQualifiedName, activityCheck);
     }
 
     /**
@@ -67,12 +84,26 @@ public final class JavaJdkSymbolIndex extends JavaStubSymbolIndex {
      * @return the current-runtime symbol index
      */
     public static JavaJdkSymbolIndex fromCurrentRuntime() {
+        return fromCurrentRuntime(ActivityCheckpoint::checkInterrupted);
+    }
+
+    /**
+     * Reuses or scans runtime stubs while checking the current request.
+     *
+     * @param activityCheck request activity check
+     * @return complete immutable runtime index
+     */
+    public static JavaJdkSymbolIndex fromCurrentRuntime(Runnable activityCheck) {
+        activityCheck.run();
         Map<String, ClassStub> classStubsByQualifiedName = new LinkedHashMap<>(
-            JavaSemanticAnalyzer.loadJdkClassStubsByQualifiedName());
+            JavaSemanticAnalyzer.loadJdkClassStubsByQualifiedName(activityCheck));
         Map<String, Path> sourceByQualifiedName = new LinkedHashMap<>();
         Path runtimeHome = Path.of(System.getProperty("java.home")).toAbsolutePath().normalize();
         classStubsByQualifiedName.keySet()
-            .forEach(qualifiedName -> sourceByQualifiedName.put(qualifiedName, runtimeHome));
-        return new JavaJdkSymbolIndex(classStubsByQualifiedName, sourceByQualifiedName);
+            .forEach(qualifiedName -> {
+                ActivityCheckpoint.poll(activityCheck);
+                sourceByQualifiedName.put(qualifiedName, runtimeHome);
+            });
+        return new JavaJdkSymbolIndex(classStubsByQualifiedName, sourceByQualifiedName, activityCheck);
     }
 }

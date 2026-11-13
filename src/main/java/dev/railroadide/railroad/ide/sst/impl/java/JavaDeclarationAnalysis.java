@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.ide.sst.impl.java;
 
 import dev.railroadide.railroad.ide.sst.project.JavaSymbolIndex;
+import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import dev.railroadide.railroad.ide.sst.semantic.api.*;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
@@ -22,7 +23,9 @@ public final class JavaDeclarationAnalysis {
      * @param compilationUnit the compilation-unit syntax root
      */
     public static void collect(Context context, SyntaxNode compilationUnit) {
+        context.activityCheck.run();
         new DeclarationCollector(context).visitCompilationUnit(compilationUnit);
+        context.activityCheck.run();
     }
 
     /**
@@ -37,6 +40,7 @@ public final class JavaDeclarationAnalysis {
         private final Map<SyntaxNode, Symbol> resolvedSymbolByNode = new IdentityHashMap<>();
         private final Map<SyntaxNode, Type> inferredTypeByNode = new IdentityHashMap<>();
         public final @Nullable JavaSymbolIndex projectIndex;
+        public final Runnable activityCheck;
         @Nullable
         public String currentPackageName;
 
@@ -54,10 +58,35 @@ public final class JavaDeclarationAnalysis {
             SemanticModel.Builder builder,
             @Nullable JavaSymbolIndex projectIndex
         ) {
+            this(syntaxRoot, rootScope, builder, projectIndex, ActivityCheckpoint::checkInterrupted);
+        }
+
+        /**
+         * Creates invocation-local state with a cooperative work checkpoint.
+         *
+         * @param syntaxRoot syntax-tree root
+         * @param rootScope compilation-unit scope
+         * @param builder destination for semantic facts
+         * @param projectIndex optional captured external symbols
+         * @param activityCheck request activity check; never retained in the completed model
+         */
+        public Context(
+            SyntaxNode syntaxRoot,
+            Scope rootScope,
+            SemanticModel.Builder builder,
+            @Nullable JavaSymbolIndex projectIndex,
+            Runnable activityCheck
+        ) {
             this.syntaxRoot = syntaxRoot;
             this.rootScope = rootScope;
             this.builder = builder;
             this.projectIndex = projectIndex;
+            this.activityCheck = Objects.requireNonNull(activityCheck, "activityCheck");
+        }
+
+        /** Polls the invocation's bounded cooperative work budget. */
+        public void poll() {
+            ActivityCheckpoint.poll(activityCheck);
         }
 
         private void attachScope(SyntaxNode node, Scope scope) {
@@ -77,6 +106,7 @@ public final class JavaDeclarationAnalysis {
 
             SyntaxNode current = node;
             while (true) {
+                poll();
                 var parent = current.parent();
                 if (parent.isEmpty())
                     return rootScope;
@@ -156,6 +186,7 @@ public final class JavaDeclarationAnalysis {
         public List<Symbol> allTypeSymbols() {
             List<Symbol> symbols = new ArrayList<>();
             for (Symbol symbol : declaredSymbolByNode.values()) {
+                poll();
                 if (isTypeSymbol(symbol.kind())) {
                     symbols.add(symbol);
                 }
@@ -184,6 +215,7 @@ public final class JavaDeclarationAnalysis {
                 return null;
             SyntaxNode current = node;
             while (true) {
+                poll();
                 var parent = current.parent();
                 if (parent.isEmpty())
                     return null;
@@ -208,6 +240,7 @@ public final class JavaDeclarationAnalysis {
             SyntaxNode current = node;
             Symbol topLevel = null;
             while (true) {
+                poll();
                 var parent = current.parent();
                 if (parent.isEmpty())
                     return topLevel;
@@ -240,6 +273,7 @@ public final class JavaDeclarationAnalysis {
             if (JavaSyntaxKinds.BLOCK.id().equals(kindId)) {
                 Scope blockScope = scope.child();
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     if (JavaSyntaxKinds.IF_STATEMENT.id().equals(child.kind().id())) {
                         blockScope = visitIfStatement(child, blockScope, currentTypeQualifiedName);
                     } else {
@@ -258,6 +292,7 @@ public final class JavaDeclarationAnalysis {
                     ? scope
                     : visitCondition(condition, scope, currentTypeQualifiedName).whenTrue();
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     if (child != condition) {
                         visitNode(child, bodyScope, currentTypeQualifiedName);
                     }
@@ -282,6 +317,7 @@ public final class JavaDeclarationAnalysis {
             if (JavaSyntaxKinds.SWITCH_RULE.id().equals(kindId)) {
                 Scope ruleScope = scope.child();
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     visitNode(child, ruleScope, currentTypeQualifiedName);
                 }
                 return;
@@ -289,6 +325,7 @@ public final class JavaDeclarationAnalysis {
             if (JavaSyntaxKinds.FOR_STATEMENT.id().equals(kindId)) {
                 Scope loopScope = scope.child();
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     if (JavaSyntaxKinds.BASIC_FOR_STATEMENT.id().equals(child.kind().id())) {
                         loopScope = visitBasicForHeader(child, loopScope, currentTypeQualifiedName);
                     } else {
@@ -300,6 +337,7 @@ public final class JavaDeclarationAnalysis {
             if (JavaSyntaxKinds.TRY_STATEMENT.id().equals(kindId)) {
                 Scope tryScope = scope.child();
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     visitNode(child, tryScope, currentTypeQualifiedName);
                 }
                 return;
@@ -307,6 +345,7 @@ public final class JavaDeclarationAnalysis {
             if (JavaSyntaxKinds.CATCH_CLAUSE.id().equals(kindId)) {
                 Scope catchScope = scope.child();
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     visitNode(child, catchScope, currentTypeQualifiedName);
                 }
                 return;
@@ -314,6 +353,7 @@ public final class JavaDeclarationAnalysis {
             if (JavaSyntaxKinds.LAMBDA_EXPRESSION.id().equals(kindId)) {
                 Scope lambdaScope = scope.child();
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     visitNode(child, lambdaScope, currentTypeQualifiedName);
                 }
                 return;
@@ -354,12 +394,14 @@ public final class JavaDeclarationAnalysis {
             } else if (JavaSyntaxKinds.METHOD_DECLARATION.id().equals(kindId)) {
                 Scope methodScope = declareMethod(node, scope, currentTypeQualifiedName);
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     visitNode(child, methodScope, currentTypeQualifiedName);
                 }
                 return;
             } else if (JavaSyntaxKinds.CONSTRUCTOR_DECLARATION.id().equals(kindId)) {
                 Scope constructorScope = declareConstructor(node, scope, currentTypeQualifiedName);
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     visitNode(child, constructorScope, currentTypeQualifiedName);
                 }
                 return;
@@ -374,6 +416,7 @@ public final class JavaDeclarationAnalysis {
             }
 
             for (SyntaxNode child : node.children()) {
+                context.poll();
                 visitNode(child, scope, currentTypeQualifiedName);
             }
         }
@@ -425,11 +468,13 @@ public final class JavaDeclarationAnalysis {
             if (JavaSyntaxKinds.INSTANCEOF_EXPRESSION.id().equals(kind)) {
                 Scope matched = scope.child();
                 for (SyntaxNode child : node.children()) {
+                    context.poll();
                     visitNode(child, JavaSyntaxKinds.PATTERN.id().equals(child.kind().id()) ? matched : scope, owner);
                 }
                 return new ConditionScopes(matched, scope);
             }
             for (SyntaxNode child : node.children()) {
+                context.poll();
                 visitNode(child, scope, owner);
             }
             return new ConditionScopes(scope, scope);
@@ -441,6 +486,7 @@ public final class JavaDeclarationAnalysis {
             boolean conditionEnded = false;
             Scope matched = scope;
             for (SyntaxNode child : node.children()) {
+                context.poll();
                 if (hasDirectToken(child, JavaTokenType.SEMICOLON)
                     && JavaSyntaxKinds.LOCAL_VARIABLE_DECLARATION_STATEMENT.id().equals(child.kind().id())) {
                     visitNode(child, scope, owner);
@@ -508,6 +554,7 @@ public final class JavaDeclarationAnalysis {
             String simpleName = identifierAfterKeyword(declarationNode, declarationKeyword);
             if (simpleName == null || simpleName.isBlank()) {
                 for (SyntaxNode child : declarationNode.children()) {
+                    context.poll();
                     visitNode(child, scope, enclosingTypeQualifiedName);
                 }
                 return;
@@ -518,6 +565,7 @@ public final class JavaDeclarationAnalysis {
 
             Scope typeScope = scope.child();
             for (SyntaxNode child : declarationNode.children()) {
+                context.poll();
                 visitNode(child, typeScope, qualifiedName);
             }
         }
@@ -562,6 +610,7 @@ public final class JavaDeclarationAnalysis {
 
         private void declareFields(SyntaxNode fieldDeclaration, Scope scope, @Nullable String ownerQualifiedName) {
             for (SyntaxNode child : fieldDeclaration.children()) {
+                context.poll();
                 if (!JavaSyntaxKinds.VARIABLE_DECLARATOR.id().equals(child.kind().id()))
                     continue;
 
@@ -580,6 +629,7 @@ public final class JavaDeclarationAnalysis {
             @Nullable String ownerQualifiedName
         ) {
             for (SyntaxNode child : localVariableDeclaration.children()) {
+                context.poll();
                 if (!JavaSyntaxKinds.VARIABLE_DECLARATOR.id().equals(child.kind().id()))
                     continue;
 

@@ -19,6 +19,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.stream.Stream;
 import org.eclipse.core.runtime.NullProgressMonitor;
+import dev.railroadide.railroad.ide.sst.request.api.*;
 
 /**
  * Signature help provider backed by Eclipse JDT. Responsible solely for
@@ -43,27 +44,42 @@ public record JdtJavaSignatureHelpProvider(@Nullable Path filePath, String[] sys
 
     @Override
     public @Nullable SignatureHelp compute(DocumentSnapshot snapshot, int caretPosition) {
-        return compute(snapshot, caretPosition, systemModulePaths, null);
+        return compute(snapshot, caretPosition, systemModulePaths, null, JavaSignatureSources::checkCancelled);
     }
 
     @Override
     public @Nullable SignatureHelp compute(WorkspaceSnapshot workspace, DocumentId id, int caretPosition) {
-        DocumentSnapshot snapshot = workspace.document(id).orElseThrow();
+        return compute(new FeatureRequestContext(workspace, workspace.document(id).orElseThrow(),
+            CancellationToken.none(), Deadline.none()), caretPosition).value();
+    }
+
+    @Override
+    public FeatureResult<SignatureHelp> compute(FeatureRequestContext context, int caretPosition) {
+        context.checkActive();
+        SignatureHelp result = computeCaptured(context, caretPosition);
+        context.checkActive();
+        return new FeatureResult<>(context, result);
+    }
+
+    private @Nullable SignatureHelp computeCaptured(FeatureRequestContext context, int caretPosition) {
+        DocumentSnapshot snapshot = context.documentSnapshot();
         if (!(snapshot instanceof TextDocumentSnapshot text) || !"java".equals(text.languageId()))
             return null;
-        JavaSignatureSources.checkCancelled();
-        JavaWorkspaceAnalysis analysis = JavaLanguageSupport.analysisContextProvider().index(workspace, id);
-        JavaSignatureSources.checkCancelled();
-        try (JavaSignatureSourceCache.Lease sources = SOURCES.acquire(analysis, text)) {
+        context.checkActive();
+        JavaWorkspaceAnalysis analysis = JavaLanguageSupport.analysisContextProvider().index(context);
+        context.checkActive();
+        try (JavaSignatureSourceCache.Lease sources = SOURCES.acquire(analysis, text, context::checkActive)) {
             List<String> classpath = new ArrayList<>(analysis.classpath().stream().map(Path::toString).toList());
             Path jmods = analysis.jdkHome().resolve("jmods");
             if (Files.isDirectory(jmods)) {
                 try (Stream<Path> modules = Files.list(jmods)) {
-                    modules.filter(path -> path.getFileName().toString().endsWith(".jmod"))
+                    modules.peek(_ -> context.checkActive())
+                        .filter(path -> path.getFileName().toString().endsWith(".jmod"))
                         .sorted().map(Path::toString).forEach(classpath::add);
                 }
             } else {
                 for (String runtime : List.of("jre/lib/rt.jar", "lib/rt.jar")) {
+                    context.checkActive();
                     Path archive = analysis.jdkHome().resolve(runtime);
                     if (Files.isRegularFile(archive)) {
                         classpath.add(archive.toString());
@@ -72,7 +88,7 @@ public record JdtJavaSignatureHelpProvider(@Nullable Path filePath, String[] sys
                 }
             }
             return compute(snapshot, caretPosition, classpath.toArray(String[]::new),
-                new String[]{sources.directory().toString()});
+                new String[]{sources.directory().toString()}, context::checkActive);
         } catch (IOException exception) {
             throw new UncheckedIOException("Cannot prepare captured Java sources for signature help", exception);
         }
@@ -82,7 +98,8 @@ public record JdtJavaSignatureHelpProvider(@Nullable Path filePath, String[] sys
         DocumentSnapshot snapshot,
         int caretPosition,
         String[] classpath,
-        String[] sourceRoots
+        String[] sourceRoots,
+        Runnable activityCheck
     ) {
         if (!(snapshot instanceof TextDocumentSnapshot textSnapshot)
             || !JavaLanguageSupport.LANGUAGE_ID.equals(textSnapshot.languageId()))
@@ -102,19 +119,22 @@ public record JdtJavaSignatureHelpProvider(@Nullable Path filePath, String[] sys
         parser.setEnvironment(classpath, sourceRoots,
             sourceRoots == null ? null : new String[]{StandardCharsets.UTF_8.name()}, false);
 
-        JavaSignatureSources.checkCancelled();
+        activityCheck.run();
         CompilationUnit unit = (CompilationUnit) parser.createAST(new NullProgressMonitor() {
             @Override
             public boolean isCanceled() {
+                activityCheck.run();
                 return Thread.currentThread().isInterrupted() || super.isCanceled();
             }
         });
+        activityCheck.run();
         int searchAt = Math.max(0,
             Math.min(Math.max(document.length() - 1, 0), caretPosition > 0 ? caretPosition - 1 : 0));
         var finder = new NodeFinder(unit, searchAt, 0);
         ASTNode node = finder.getCoveringNode();
 
         while (node != null) {
+            activityCheck.run();
             SignatureHelp result = switch (node) {
                 case MethodInvocation invocation ->
                     buildSignatureHelpForMethodInvocation(invocation, caretPosition, document);
