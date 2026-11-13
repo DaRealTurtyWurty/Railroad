@@ -333,7 +333,8 @@ public class CodeEditorHighlightingRequestTest {
             Thread.UncaughtExceptionHandler previousHandler = Thread.currentThread().getUncaughtExceptionHandler();
             Thread.currentThread().setUncaughtExceptionHandler((_, failure) -> failures.add(failure));
             Project project = new RailroadProject(directory, "Highlighting request", new WritableImage(1, 1));
-            var pane = new TestEditor(project, id, file, new CodeEditorConfig("java", null, null, null, provider));
+            var pane = new TestEditor(project, id, file,
+                new CodeEditorConfig("java", null, null, null, null, provider));
             store.publishBacking(pane.captureSnapshot());
             if (attach) {
                 pane.setDocumentStore(store);

@@ -7,6 +7,7 @@ import dev.railroadide.logger.LoggerManager;
 import dev.railroadide.logger.LoggerService;
 import dev.railroadide.railroad.command.Commands;
 import dev.railroadide.railroad.config.ConfigHandler;
+import dev.railroadide.railroad.ide.DefaultIDEStateService;
 import dev.railroadide.railroad.ide.WorkspaceModes;
 import dev.railroadide.railroad.ide.language.LanguageSupports;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationTypes;
@@ -140,6 +141,7 @@ public class Railroad extends Application {
             new InitializationStep("Registering workspace modes", WorkspaceModes::initialize),
             new InitializationStep("Registering workspace content targets", WorkspaceContentTargets::initialize),
             new InitializationStep("Loading configuration", ConfigHandler::initConfig),
+            new InitializationStep("Initializing IDE state", DefaultIDEStateService::getInstance),
             new InitializationStep("Scanning plugins",
                 () -> PluginManager.loadPlugins(ConfigHandler.getConfigDirectory().resolve("plugins"))),
             new InitializationStep("Registering commands", Commands::initialize),

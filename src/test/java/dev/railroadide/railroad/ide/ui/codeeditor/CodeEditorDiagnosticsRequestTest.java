@@ -338,7 +338,8 @@ public class CodeEditorDiagnosticsRequestTest {
         var provider = new ControlledProvider(computation);
         TestEditor editor = onFx(() -> {
             Project project = new RailroadProject(directory, "Diagnostics request", new WritableImage(1, 1));
-            var pane = new TestEditor(project, id, file, new CodeEditorConfig("java", null, provider, null, null));
+            var pane = new TestEditor(project, id, file,
+                new CodeEditorConfig("java", null, provider, null, null, null));
             store.publishBacking(pane.captureSnapshot());
             pane.setDocumentStore(store);
             return pane;

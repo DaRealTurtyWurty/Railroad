@@ -2,12 +2,13 @@ package dev.railroadide.railroad.ide.ui.codeeditor;
 
 import dev.railroadide.railroad.ide.completion.CompletionProvider;
 import dev.railroadide.railroad.ide.diagnostics.DiagnosticsProvider;
-import dev.railroadide.railroad.ide.language.LanguageSupport;
 import dev.railroadide.railroad.ide.language.LanguageCapabilities;
+import dev.railroadide.railroad.ide.language.LanguageSupport;
 import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
-import dev.railroadide.railroad.ide.sst.provider.api.SstCapabilities;
 import dev.railroadide.railroad.ide.signature.SignatureHelpProvider;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentUri;
+import dev.railroadide.railroad.ide.sst.provider.api.NavigationProvider;
+import dev.railroadide.railroad.ide.sst.provider.api.SstCapabilities;
 import dev.railroadide.railroad.ide.sst.request.api.CancellationToken;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import org.jspecify.annotations.Nullable;
@@ -22,14 +23,16 @@ import java.util.Objects;
  * @param completionProvider completion service, or null to disable completion
  * @param diagnosticsProvider diagnostics service, or null when unavailable
  * @param signatureHelpProvider signature help service, or null when unavailable
+ * @param navigationProvider navigation service, or null when unavailable
  * @param highlightingProvider syntax style provider, or null when unavailable
  * @param providerLifetime cancellation token invalidating providers and their unpublished results on unload
  */
 public record CodeEditorConfig(
     String languageId,
     @Nullable CompletionProvider completionProvider,
-    @Nullable DiagnosticsProvider diagnosticsProvider,
+    @Nullable DiagnosticsProvider<?> diagnosticsProvider,
     @Nullable SignatureHelpProvider signatureHelpProvider,
+    @Nullable NavigationProvider navigationProvider,
     @Nullable SyntaxHighlightingProvider highlightingProvider,
     CancellationToken providerLifetime
 ) {
@@ -39,18 +42,20 @@ public record CodeEditorConfig(
      * @param languageId identifier of the document language
      * @param completionProvider completion service, or null to disable completion
      * @param diagnosticsProvider diagnostics service, or null when unavailable
+     * @param navigationProvider navigation service, or null when unavailable
      * @param signatureHelpProvider signature help service, or null when unavailable
      * @param highlightingProvider syntax style provider, or null when unavailable
      */
     public CodeEditorConfig(
         String languageId,
         @Nullable CompletionProvider completionProvider,
-        @Nullable DiagnosticsProvider diagnosticsProvider,
+        @Nullable DiagnosticsProvider<?> diagnosticsProvider,
         @Nullable SignatureHelpProvider signatureHelpProvider,
+        @Nullable NavigationProvider navigationProvider,
         @Nullable SyntaxHighlightingProvider highlightingProvider
     ) {
-        this(languageId, completionProvider, diagnosticsProvider, signatureHelpProvider, highlightingProvider,
-            CancellationToken.none());
+        this(languageId, completionProvider, diagnosticsProvider, signatureHelpProvider, navigationProvider,
+            highlightingProvider, CancellationToken.none());
     }
 
     /**
@@ -60,6 +65,7 @@ public record CodeEditorConfig(
      * @param completionProvider completion service, or null to disable completion
      * @param diagnosticsProvider diagnostics service, or null when unavailable
      * @param signatureHelpProvider signature help service, or null when unavailable
+     * @param navigationProvider navigation service, or null when unavailable
      * @param highlightingProvider syntax style provider, or null when unavailable
      * @param providerLifetime external lifetime shared with captured requests
      */
@@ -110,8 +116,9 @@ public record CodeEditorConfig(
 
         var session = LanguageSupportRegistry.runtime().session(project, languageSupport.id(), "");
         CompletionProvider completionProvider = session.capability(SstCapabilities.COMPLETION).orElse(null);
-        DiagnosticsProvider diagnosticsProvider = session.capability(SstCapabilities.DIAGNOSTICS).orElse(null);
+        DiagnosticsProvider<?> diagnosticsProvider = session.capability(SstCapabilities.DIAGNOSTICS).orElse(null);
         SignatureHelpProvider signatureHelpProvider = session.capability(SstCapabilities.SIGNATURE_HELP).orElse(null);
+        NavigationProvider navigationProvider = session.capability(SstCapabilities.NAVIGATION).orElse(null);
 
         if (highlightingProvider == null) {
             highlightingProvider = session.capability(LanguageCapabilities.HIGHLIGHTING).orElse(null);
@@ -122,6 +129,7 @@ public record CodeEditorConfig(
             completionProvider,
             diagnosticsProvider,
             signatureHelpProvider,
+            navigationProvider,
             highlightingProvider,
             session.cancellationToken());
     }

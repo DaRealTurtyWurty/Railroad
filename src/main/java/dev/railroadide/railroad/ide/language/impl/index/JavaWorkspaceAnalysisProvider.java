@@ -245,12 +245,12 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
     /**
      * Bounded cache occupancy and cumulative counters; explicit clearing is not an eviction.
      *
-     * @param workspaces  number of retained workspace analysis results
+     * @param workspaces number of retained workspace analysis results
      * @param sourceFiles number of retained source revision indexes
-     * @param binaries    number of retained binary configuration indexes
-     * @param hits        cumulative successful lookups across all three caches
-     * @param misses      cumulative lookups without a retained entry across all three caches
-     * @param evictions   cumulative automatic entry removals across all three caches
+     * @param binaries number of retained binary configuration indexes
+     * @param hits cumulative successful lookups across all three caches
+     * @param misses cumulative lookups without a retained entry across all three caches
+     * @param evictions cumulative automatic entry removals across all three caches
      */
     public record CacheUsage(long workspaces, long sourceFiles, long binaries, long hits, long misses, long evictions) {
     }

@@ -58,7 +58,7 @@ public class CodeEditorWorkspaceTest {
         TestEditor editor = onFx(() -> {
             Project project = new RailroadProject(directory, "Debounced workspace", new WritableImage(1, 1));
             var pane = new TestEditor(project, id, file,
-                new CodeEditorConfig("java", null, provider, null, null));
+                new CodeEditorConfig("java", null, provider, null, null, null));
             store.publishBacking(pane.captureSnapshot());
             pane.setDocumentStore(store);
             return pane;
@@ -164,7 +164,7 @@ public class CodeEditorWorkspaceTest {
         TestEditor editor = onFx(() -> {
             Project project = new RailroadProject(directory, "Workspace retry", new WritableImage(1, 1));
             var pane = new TestEditor(project, id, file,
-                new CodeEditorConfig("java", null, provider, null, null));
+                new CodeEditorConfig("java", null, provider, null, null, null));
             store.publishBacking(pane.captureSnapshot());
             pane.setDocumentStore(store);
             return pane;
@@ -247,7 +247,7 @@ public class CodeEditorWorkspaceTest {
         };
         CodeEditorPane editor = onFx(() -> {
             Project project = new RailroadProject(directory, "Live completion", new WritableImage(1, 1));
-            var config = new CodeEditorConfig("java", completion, null, null, null);
+            var config = new CodeEditorConfig("java", completion, null, null, null, null);
             CodeEditorPane pane = new CodeEditorPane(project, id, file, config) {
                 @Override
                 protected boolean shouldRequestSignatureHelp(String text, int caret, boolean changed) {
@@ -377,7 +377,7 @@ public class CodeEditorWorkspaceTest {
             Project project = new RailroadProject(directory, "Workspace request", new WritableImage(1, 1));
             var config = new CodeEditorConfig("java", feature.equals("completion") ? completion : null,
                 feature.equals("diagnostics") ? diagnostics : null, feature.equals("signature") ? signature : null,
-                null);
+                null, null);
             var pane = new TestEditor(project, id, file, config);
             store.publishBacking(pane.captureSnapshot());
             pane.setDocumentStore(store);

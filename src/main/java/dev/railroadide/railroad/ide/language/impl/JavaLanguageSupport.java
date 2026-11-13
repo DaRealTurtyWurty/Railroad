@@ -1,37 +1,29 @@
 package dev.railroadide.railroad.ide.language.impl;
 
-import dev.railroadide.railroad.ide.completion.CompletionProvider;
 import dev.railroadide.railroad.ide.completion.JavaCompletionProvider;
-import dev.railroadide.railroad.ide.diagnostics.DiagnosticsProvider;
 import dev.railroadide.railroad.ide.diagnostics.JavaDiagnosticsProvider;
 import dev.railroadide.railroad.ide.language.BaseLanguageSupport;
 import dev.railroadide.railroad.ide.language.EditorOpenView;
+import dev.railroadide.railroad.ide.language.LanguageCapabilities;
 import dev.railroadide.railroad.ide.language.impl.index.JavaAnalysisContextProvider;
 import dev.railroadide.railroad.ide.language.impl.index.JavaLanguageIndexContextContributor;
 import dev.railroadide.railroad.ide.language.impl.index.JavaProjectLanguageIndexer;
-import dev.railroadide.railroad.ide.language.index.ProjectIndexContext;
-import dev.railroadide.railroad.ide.language.index.LanguageIndexContextContributor;
-import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexPersistence;
-import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexer;
-import dev.railroadide.railroad.ide.signature.JdtJavaSignatureHelpProvider;
 import dev.railroadide.railroad.ide.signature.JavaSignatureSourceCache;
-import dev.railroadide.railroad.ide.signature.SignatureHelpProvider;
+import dev.railroadide.railroad.ide.signature.JdtJavaSignatureHelpProvider;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSstServices;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxParser;
 import dev.railroadide.railroad.ide.sst.project.JavaProjectSemanticPersistence;
+import dev.railroadide.railroad.ide.sst.provider.api.*;
+import dev.railroadide.railroad.ide.sst.request.api.FeatureResult;
 import dev.railroadide.railroad.ide.syntaxhighlighting.TreeSitterJavaSyntaxHighlighting;
 import dev.railroadide.railroad.ide.ui.JavaCodeEditorPane;
 import dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorConfig;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
-import org.jspecify.annotations.NonNull;
+import dev.railroadide.railroad.utility.ShutdownHooks;
 
 import java.nio.file.Path;
 import java.util.Set;
-import dev.railroadide.railroad.ide.sst.provider.api.*;
-import dev.railroadide.railroad.ide.language.LanguageCapabilities;
-import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxParser;
-import dev.railroadide.railroad.ide.sst.impl.java.JavaSstServices;
-import dev.railroadide.railroad.ide.sst.request.api.FeatureResult;
-import dev.railroadide.railroad.utility.ShutdownHooks;
 
 /**
  * Integrates Java editing, diagnostics, completion, signature help, and semantic project indexes.
@@ -71,14 +63,14 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
             SstCapabilities.INDEX_QUERY, SstCapabilities.DIAGNOSTICS,
             SstCapabilities.COMPLETION, SstCapabilities.SIGNATURE_HELP, LanguageCapabilities.INDEXER,
             LanguageCapabilities.PERSISTENCE, LanguageCapabilities.INDEX_CONTEXT, LanguageCapabilities.INDEX_WARMUP,
-            LanguageCapabilities.HIGHLIGHTING);
+            LanguageCapabilities.HIGHLIGHTING, SstCapabilities.NAVIGATION);
     }
 
     @Override
     public LanguageSession openSession(LanguageSessionContext context) {
         Project project = context.services().find(LanguageCapabilities.PROJECT).orElseThrow();
         var semantics = new JavaSstServices();
-        var session = new LanguageSession(CapabilityRegistry.builder()
+        return new LanguageSession(CapabilityRegistry.builder()
             .add(LanguageCapabilities.HIGHLIGHTING, TreeSitterJavaSyntaxHighlighting::computeHighlighting)
             .add(SstCapabilities.DIAGNOSTICS, new JavaDiagnosticsProvider(project, null, semantics::capture))
             .add(SstCapabilities.COMPLETION, new JavaCompletionProvider(project, null, semantics::capture))
@@ -93,8 +85,8 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
             .add(LanguageCapabilities.PERSISTENCE, new JavaProjectSemanticPersistence())
             .add(LanguageCapabilities.INDEX_CONTEXT, new JavaLanguageIndexContextContributor())
             .add(LanguageCapabilities.INDEX_WARMUP, ANALYSIS_CONTEXT_PROVIDER::index)
+            .add(SstCapabilities.NAVIGATION, semantics)
             .build());
-        return session;
     }
 
     /**

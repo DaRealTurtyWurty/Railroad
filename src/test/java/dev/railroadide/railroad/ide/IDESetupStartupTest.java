@@ -29,7 +29,7 @@ public class IDESetupStartupTest {
         var project = new RailroadProject(root, "Failure", new WritableImage(1, 1));
         var manager = new ProjectManager(() -> {
         }, event -> Railroad.EVENT_BUS.publish(event));
-        assertNotNull(Services.IDE_STATE);
+        assertNotNull(DefaultIDEStateService.getInstance());
         var session = new AtomicReference<ProjectLanguageIndexService.Session>();
         assertThrows(IllegalStateException.class, () -> IDESetup.constructProjectView(manager, project, () -> {
             session.set(Services.PROJECT_LANGUAGE_INDEX_SERVICE.session(project));
@@ -64,7 +64,7 @@ public class IDESetupStartupTest {
     public void eagerWorkerRetainsAcceptedSessionForSourceAndBuildEvents() throws Exception {
         WorkspaceModes.initialize();
         LanguageSupports.initialize();
-        assertNotNull(Services.IDE_STATE);
+        assertNotNull(DefaultIDEStateService.getInstance());
         root = root.toRealPath();
         Path source = root.resolve("src/main/java/demo/A.java");
         Files.createDirectories(source.getParent());

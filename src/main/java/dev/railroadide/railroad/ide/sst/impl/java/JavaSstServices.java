@@ -1,12 +1,19 @@
 package dev.railroadide.railroad.ide.sst.impl.java;
 
-import dev.railroadide.railroad.ide.language.impl.index.JavaWorkspaceAnalysisProvider;
 import dev.railroadide.railroad.ide.language.impl.index.JavaWorkspaceAnalysis;
-import dev.railroadide.railroad.ide.sst.document.api.*;
+import dev.railroadide.railroad.ide.language.impl.index.JavaWorkspaceAnalysisProvider;
+import dev.railroadide.railroad.ide.sst.document.api.DocumentSnapshot;
+import dev.railroadide.railroad.ide.sst.document.api.Location;
+import dev.railroadide.railroad.ide.sst.document.api.TextDocumentSnapshot;
 import dev.railroadide.railroad.ide.sst.provider.api.*;
-import dev.railroadide.railroad.ide.sst.request.api.*;
+import dev.railroadide.railroad.ide.sst.request.api.FeatureRequestContext;
+import dev.railroadide.railroad.ide.sst.request.api.FeatureResult;
+import dev.railroadide.railroad.ide.sst.request.api.RequestContext;
+import dev.railroadide.railroad.ide.sst.request.api.WorkspaceRequestContext;
 import dev.railroadide.railroad.ide.sst.semantic.api.SemanticModel;
+import dev.railroadide.railroad.ide.sst.semantic.api.SemanticNavigationResolver;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
+
 import java.util.*;
 
 /** Session-owned Java implementations of the neutral semantic and declaration query contracts. */
@@ -15,7 +22,8 @@ public final class JavaSstServices
         SemanticProvider,
         IndexExtractionProvider,
         IndexQueryProvider,
-        AutoCloseable {
+        AutoCloseable,
+        NavigationProvider {
     private final JavaWorkspaceAnalysisProvider workspaces = new JavaWorkspaceAnalysisProvider();
 
     /**
@@ -69,6 +77,15 @@ public final class JavaSstServices
         }
         context.checkActive();
         return new FeatureResult<>(context, List.copyOf(found));
+    }
+
+    @Override
+    public FeatureResult<List<Location<?>>> definitions(FeatureRequestContext context, int offset) {
+        SemanticModel model = analyze(context).value();
+        Optional<Location.TextLocation> definition = SemanticNavigationResolver.definitionAt(model, offset);
+        List<Location<?>> targets = definition.<List<Location<?>>>map(List::of).orElseGet(List::of);
+        context.checkActive();
+        return new FeatureResult<>(context, targets);
     }
 
     @Override

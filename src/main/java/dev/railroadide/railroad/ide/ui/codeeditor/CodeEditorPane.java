@@ -10,6 +10,7 @@ import dev.railroadide.railroad.ide.diagnostics.EditorDiagnostic.TextEditorDiagn
 import dev.railroadide.railroad.ide.signature.SignatureHelp;
 import dev.railroadide.railroad.ide.signature.SignatureHelpProvider;
 import dev.railroadide.railroad.ide.sst.document.api.*;
+import dev.railroadide.railroad.ide.sst.provider.api.NavigationProvider;
 import dev.railroadide.railroad.ide.sst.request.api.CancellationTokenSource;
 import dev.railroadide.railroad.ide.sst.request.api.CancellationToken;
 import dev.railroadide.railroad.ide.sst.request.api.Deadline;
@@ -66,6 +67,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
     protected final @Nullable DiagnosticsProvider<TextEditorDiagnostic> diagnosticsProvider;
     protected final @Nullable SignatureHelpProvider signatureHelpProvider;
     protected final @Nullable SyntaxHighlightingProvider highlightingProvider;
+    protected final @Nullable NavigationProvider navigationProvider;
 
     protected final SstScheduler.Scope featureRequests = SstScheduler.shared().newScope();
     private static final Duration INTERACTIVE_BUDGET = Duration.ofSeconds(2);
@@ -126,6 +128,9 @@ public abstract class CodeEditorPane extends TextEditorPane {
     private @Nullable FeatureRequestContext activeSignatureContext;
     // endregion
 
+    private @Nullable CancellationTokenSource activeNavigationCancellation;
+    private @Nullable FeatureRequestContext activeNavigationContext;
+
     // region Bracket Highlighting state
     protected static final Map<Character, Character> OPENING_BRACKETS = Map.of('(', ')', '{', '}', '[', ']');
     protected static final Map<Character, Character> CLOSING_BRACKETS = Map.of(')', '(', '}', '{', ']', '[');
@@ -146,6 +151,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
      * @param config language-service configuration for the editor
      * @throws NullPointerException if any argument is {@code null}
      */
+    @SuppressWarnings("unchecked")
     protected CodeEditorPane(Project project, DocumentId documentId, Path filePath, CodeEditorConfig config) {
         super(documentId, filePath, config.languageId());
         this.project = Objects.requireNonNull(project, "project");
@@ -153,8 +159,9 @@ public abstract class CodeEditorPane extends TextEditorPane {
         Objects.requireNonNull(config, "config");
         this.providerLifetime = config.providerLifetime();
         this.completionProvider = config.completionProvider();
-        this.diagnosticsProvider = config.diagnosticsProvider();
+        this.diagnosticsProvider = (DiagnosticsProvider<TextEditorDiagnostic>) config.diagnosticsProvider();
         this.signatureHelpProvider = config.signatureHelpProvider();
+        this.navigationProvider = config.navigationProvider();
         this.highlightingProvider = config.highlightingProvider() != null
             ? config.highlightingProvider()
             : text -> StyleSpans.singleton(Collections.emptyList(), text.length());
@@ -181,6 +188,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
             invalidateHighlightRequest();
             invalidateDiagnosticsRequest();
             invalidateCompletionRequest();
+            invalidateNavigationRequest();
             visibleDiagnostics = List.of();
             recomputeLineDecorations();
             diagnosticPopup.hide();
@@ -197,6 +205,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         if (supportsSignatureHelp()) {
             installSignatureHelp();
         }
+        installNavigation();
         installBracketHighlighting();
         installDiagnosticPopupHandlers();
 
@@ -225,6 +234,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         signatureGeneration.incrementAndGet();
         invalidateHighlightRequest();
         invalidateDiagnosticsRequest();
+        invalidateNavigationRequest();
         hideAutoComplete();
         hideSignatureHelp();
         featureRequests.close();
@@ -243,6 +253,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         }
         invalidateHighlightRequest();
         invalidateDiagnosticsRequest();
+        invalidateNavigationRequest();
         hideAutoComplete();
         hideSignatureHelp();
         DocumentStore store = getDocumentStore();
@@ -285,6 +296,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         signatureGeneration.incrementAndGet();
         invalidateDiagnosticsRequest();
         invalidateCompletionRequest();
+        invalidateNavigationRequest();
         visibleDiagnostics = List.of();
         recomputeLineDecorations();
         diagnosticPopup.hide();
@@ -314,6 +326,108 @@ public abstract class CodeEditorPane extends TextEditorPane {
         WorkspaceSnapshot latest = store.capture();
         return latest.documents().equals(workspace.documents())
             && latest.configuration().equals(workspace.configuration());
+    }
+
+    private void invalidateNavigationRequest() {
+        featureRequests.cancel("navigation");
+        if (activeNavigationCancellation != null) {
+            activeNavigationCancellation.cancel();
+            activeNavigationCancellation = null;
+        }
+        activeNavigationContext = null;
+    }
+
+    private void installNavigation() {
+        if (navigationProvider == null)
+            return;
+
+        caretPositionProperty().addListener(
+            (observable, previous, current) -> invalidateNavigationRequest());
+        addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (event.getCode() == KeyCode.F12
+                && !event.isShiftDown()
+                && !event.isControlDown()
+                && !event.isAltDown()
+                && !event.isMetaDown()) {
+                requestDefinition();
+                event.consume();
+            }
+        });
+    }
+
+    private void requestDefinition() {
+        invalidateNavigationRequest();
+
+        NavigationProvider provider = navigationProvider;
+        if (codeEditorClosed || providerLifetime.isCancellationRequested() || provider == null)
+            return;
+
+        WorkspaceSnapshot workspace = captureFeatureWorkspace();
+        if (workspace == null
+            || !(workspace.document(documentId).orElse(null) instanceof TextDocumentSnapshot snapshot))
+            return;
+
+        int offset = getCaretPosition();
+        var cancellation = new CancellationTokenSource(providerLifetime);
+        var context = new FeatureRequestContext(workspace, snapshot, cancellation.token(),
+            Deadline.after(INTERACTIVE_BUDGET));
+        activeNavigationCancellation = cancellation;
+        activeNavigationContext = context;
+
+        featureRequests.submit("navigation", RequestPriority.NAVIGATION, context,
+            cancellation, () -> ProviderExecutor.shared().execute(
+                snapshot.languageId() + ":navigation", context, INTERACTIVE_BUDGET,
+                () -> provider.definitions(context, offset)))
+            .thenAccept(result -> Platform.runLater(() -> {
+                if (activeNavigationContext != context)
+                    return;
+
+                boolean current = result != null && result.belongsTo(context)
+                    && !context.cancellationToken().isCancellationRequested()
+                    && !context.deadline().isExpired()
+                    && getCaretPosition() == offset
+                    && isCurrent(workspace);
+                invalidateNavigationRequest();
+                if (current) {
+                    applyDefinition(result.value(), snapshot);
+                }
+            }))
+            .exceptionally(throwable -> {
+                Platform.runLater(() -> {
+                    if (activeNavigationContext == context) {
+                        invalidateNavigationRequest();
+                    }
+                });
+                Throwable cause = throwable;
+                while ((cause instanceof CompletionException || cause instanceof ExecutionException)
+                    && cause.getCause() != null) {
+                    cause = cause.getCause();
+                }
+                if (!(cause instanceof CancellationException)) {
+                    Railroad.LOGGER.error("Failed to resolve definition", cause);
+                }
+                return null;
+            });
+    }
+
+    private void applyDefinition(@Nullable List<Location<?>> targets, TextDocumentSnapshot snapshot) {
+        if (targets == null || targets.isEmpty())
+            return;
+        if (!(targets.getFirst() instanceof Location.TextLocation target)
+            || !target.documentId().equals(documentId))
+            return;
+
+        try {
+            target.validateAgainst(snapshot);
+        } catch (IllegalArgumentException | IndexOutOfBoundsException exception) {
+            Railroad.LOGGER.warn("Navigation provider returned an invalid location", exception);
+            return;
+        }
+
+        hideAutoComplete();
+        hideSignatureHelp();
+        moveTo(target.range().start);
+        requestFollowCaret();
     }
 
     // region Gutter

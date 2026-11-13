@@ -134,6 +134,15 @@ public final class JavaDeclarationAnalysis {
         public void resolve(SyntaxNode referenceNode, Symbol symbol) {
             resolvedSymbolByNode.put(referenceNode, symbol);
             builder.resolve(referenceNode, symbol);
+
+            if (referenceNode.kind().equals(JavaSyntaxKinds.NAME_EXPRESSION)) {
+                for (SyntaxNode child : referenceNode.children()) {
+                    if (child.kind().equals(JavaSyntaxKinds.tokenKind(JavaTokenType.IDENTIFIER))) {
+                        resolvedSymbolByNode.put(child, symbol);
+                        builder.resolve(child, symbol);
+                    }
+                }
+            }
         }
 
         /**

@@ -377,7 +377,8 @@ public class CodeEditorSignatureRequestTest {
             Thread.UncaughtExceptionHandler previousHandler = Thread.currentThread().getUncaughtExceptionHandler();
             Thread.currentThread().setUncaughtExceptionHandler((_, failure) -> failures.add(failure));
             Project project = new RailroadProject(directory, "Signature request", new WritableImage(1, 1));
-            var pane = new TestEditor(project, id, file, new CodeEditorConfig("java", null, null, provider, null));
+            var pane = new TestEditor(project, id, file,
+                new CodeEditorConfig("java", null, null, provider, null, null));
             store.publishBacking(pane.captureSnapshot());
             pane.setDocumentStore(store);
             var stage = new Stage();
