@@ -3,6 +3,7 @@ package dev.railroadide.railroad.ide.language;
 import dev.railroadide.railroad.ide.language.index.*;
 import dev.railroadide.railroad.ide.sst.provider.api.CapabilityKey;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
+import dev.railroadide.railroad.ide.ui.codeeditor.EditorFeatures;
 import dev.railroadide.railroad.ide.ui.codeeditor.SyntaxHighlightingProvider;
 
 /**
@@ -39,6 +40,12 @@ public final class LanguageCapabilities {
      */
     public static final CapabilityKey<SyntaxHighlightingProvider> HIGHLIGHTING = new CapabilityKey<>(
         "railroad:highlighting", SyntaxHighlightingProvider.class);
+
+    /**
+     * Session service that adds language-specific decorations and typing rules to open code editors.
+     */
+    public static final CapabilityKey<EditorFeatures> EDITOR_FEATURES = new CapabilityKey<>(
+        "railroad:editor-features", EditorFeatures.class);
 
     private LanguageCapabilities() {
     }

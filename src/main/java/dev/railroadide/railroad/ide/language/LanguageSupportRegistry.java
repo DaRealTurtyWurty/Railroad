@@ -216,13 +216,7 @@ public final class LanguageSupportRegistry {
                     null, languageId());
 
             var editor = new CodeEditorPane(project, documentId, file,
-                CodeEditorConfig.fromLanguageSupport(project, file, this, null)) {
-                @Override
-                protected boolean shouldRequestSignatureHelp(String text, int caret, boolean textChanged) {
-                    return textChanged;
-                }
-            };
-
+                CodeEditorConfig.fromLanguageSupport(project, file, this, null));
             return new EditorOpenView(editor, editor, languageId());
         }
     }

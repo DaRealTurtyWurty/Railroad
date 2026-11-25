@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.ide.ui.codeeditor;
 
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.utility.javafx.JavaFXUtils;
 import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.command.*;
 import dev.railroadide.railroad.ide.completion.CompletionItem;
@@ -73,8 +74,9 @@ import javafx.geometry.Rectangle2D;
 
 /**
  * Provides a text editor with configurable highlighting, completion, diagnostics, and signature help.
+ * Language-specific decorations and typing rules come from the configured {@link EditorFeatures}.
  */
-public abstract class CodeEditorPane extends TextEditorPane {
+public class CodeEditorPane extends TextEditorPane {
     protected final Project project;
     protected final @Nullable CompletionProvider completionProvider;
     protected final @Nullable DiagnosticsProvider<TextEditorDiagnostic> diagnosticsProvider;
@@ -110,6 +112,8 @@ public abstract class CodeEditorPane extends TextEditorPane {
     protected final Popup diagnosticPopup = new Popup();
 
     private final CancellationToken providerLifetime;
+    private final EditorFeatures editorFeatures;
+    private @Nullable AutoCloseable installedEditorFeatures;
     private @Nullable CancellationTokenSource activeDiagnosticsCancellation;
     private @Nullable FeatureRequestContext activeDiagnosticsContext;
     // endregion
@@ -196,7 +200,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
      * @throws NullPointerException if any argument is {@code null}
      */
     @SuppressWarnings("unchecked")
-    protected CodeEditorPane(Project project, DocumentId documentId, Path filePath, CodeEditorConfig config) {
+    public CodeEditorPane(Project project, DocumentId documentId, Path filePath, CodeEditorConfig config) {
         super(documentId, filePath, config.languageId());
         this.project = Objects.requireNonNull(project, "project");
         Objects.requireNonNull(filePath, "filePath");
@@ -208,6 +212,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
         this.navigationProvider = config.navigationProvider();
         this.renameProvider = config.renameProvider();
         this.codeActionProvider = config.codeActionProvider();
+        this.editorFeatures = config.editorFeatures() != null ? config.editorFeatures() : EditorFeatures.DEFAULT;
         this.codeActions = codeActionProvider == null
             ? null
             : new CodeActionController(codeActionProvider, providerLifetime, this::getDocumentStore,
@@ -286,7 +291,31 @@ public abstract class CodeEditorPane extends TextEditorPane {
         installContextMenu();
         installBracketHighlighting();
         installDiagnosticPopupHandlers();
+        installEditorFeatures();
+    }
 
+    private void installEditorFeatures() {
+        if (editorFeatures == EditorFeatures.DEFAULT || providerLifetime.isCancellationRequested())
+            return;
+
+        try {
+            installedEditorFeatures = editorFeatures.install(this);
+        } catch (RuntimeException exception) {
+            Railroad.LOGGER.error("Failed to install editor features for {}", getFilePath(), exception);
+        }
+    }
+
+    private EditorFeatures editorFeatures() {
+        return providerLifetime.isCancellationRequested() ? EditorFeatures.DEFAULT : editorFeatures;
+    }
+
+    /**
+     * Returns the project whose files and workspace this editor displays.
+     *
+     * @return the owning project
+     */
+    public Project getProject() {
+        return project;
     }
 
     @Override
@@ -299,6 +328,18 @@ public abstract class CodeEditorPane extends TextEditorPane {
             return;
 
         codeEditorClosed = true;
+        AutoCloseable installed = installedEditorFeatures;
+        installedEditorFeatures = null;
+        if (installed != null) {
+            JavaFXUtils.runOnApplicationThread(() -> {
+                try {
+                    installed.close();
+                } catch (Exception exception) {
+                    Railroad.LOGGER.error("Failed to remove editor features for {}", getFilePath(), exception);
+                }
+            });
+        }
+
         workspaceFeaturesDelay.stop();
         if (workspaceSubscription != null) {
             workspaceSubscription.close();
@@ -1607,7 +1648,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
                     return;
                 }
 
-                if (!Character.isJavaIdentifierPart(text.charAt(offset)))
+                if (!editorFeatures().isIdentifierPart(text.charAt(offset)))
                     return;
             }
         } catch (CancellationException _) {
@@ -1767,7 +1808,8 @@ public abstract class CodeEditorPane extends TextEditorPane {
         String line = getParagraph(getCurrentParagraph()).getText();
         int column = getCaretColumn();
         int nameEnd = column;
-        while (nameEnd < line.length() && Character.isJavaIdentifierPart(line.codePointAt(nameEnd))) {
+        EditorFeatures features = editorFeatures();
+        while (nameEnd < line.length() && features.isIdentifierPart(line.codePointAt(nameEnd))) {
             nameEnd += Character.charCount(line.codePointAt(nameEnd));
         }
 
@@ -1851,7 +1893,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
             } else if (completionTriggerOffset >= 0 && change.getPosition() > completionTriggerOffset
                 && change.getPosition() >= completionReplacementStart
                 && change.getRemovalEnd() == completionPrefixEnd
-                && inserted.codePoints().allMatch(Character::isJavaIdentifierPart)) {
+                && inserted.codePoints().allMatch(editorFeatures()::isIdentifierPart)) {
                 completionPrefixEnd = end;
                 if (completionCandidates.isEmpty()) {
                     triggerCompletion(completionTriggerOffset, end);
@@ -2135,10 +2177,22 @@ public abstract class CodeEditorPane extends TextEditorPane {
         activeSignatureHelp.set(List.of());
     }
 
-    protected abstract boolean shouldRequestSignatureHelp(String text, int caret, boolean textChanged);
+    /**
+     * Decides whether the caret position warrants a signature help request, using the configured editor features.
+     *
+     * @param text current editor text
+     * @param caret caret offset in {@code text}
+     * @param textChanged whether the request follows an edit rather than a caret move
+     * @return whether signature help should be requested
+     */
+    protected boolean shouldRequestSignatureHelp(String text, int caret, boolean textChanged) {
+        return editorFeatures().shouldRequestSignatureHelp(text, caret, textChanged,
+            !activeSignatureHelp.get().isEmpty());
+    }
     // endregion
 
     // region Bracket Highlighting
+
     private void installBracketHighlighting() {
         caretPositionProperty().addListener(
             (obs, oldPos, newPos) -> updateBracketHighlight(newPos));

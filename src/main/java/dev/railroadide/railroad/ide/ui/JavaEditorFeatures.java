@@ -5,11 +5,11 @@ import dev.railroadide.railroad.command.CommandContext;
 import dev.railroadide.railroad.command.RunCommands;
 import dev.railroadide.railroad.ide.runconfig.EditorJavaLaunch;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
-import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
 import dev.railroadide.railroad.ide.ui.codeeditor.BreakpointGutterBinding;
-import dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorConfig;
 import dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorPane;
+import dev.railroadide.railroad.ide.ui.codeeditor.EditorFeatures;
 import dev.railroadide.railroad.ide.ui.codeeditor.GutterColumn;
+import dev.railroadide.railroad.ide.ui.codeeditor.JavaImportFolding;
 import dev.railroadide.railroad.localization.L18n;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.ui.localized.LocalizedTooltip;
@@ -19,27 +19,24 @@ import javafx.scene.control.ContextMenu;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.MouseButton;
+import org.jspecify.annotations.Nullable;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.reactfx.Subscription;
 
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.Deque;
 
 /**
- * Adds Java call-context detection for signature help to the configured code editor.
+ * Java editor behaviour: breakpoints, run and test markers for launchable code, import folding, and signature help
+ * requested from inside call arguments.
  */
-public class JavaCodeEditorPane extends CodeEditorPane {
-    private Subscription launchChanges = Subscription.EMPTY;
-    private List<EditorJavaLaunch> launches = List.of();
-    private String parsedSource;
-    private long launchRequest;
-    private final BreakpointGutterBinding breakpointBinding;
+public final class JavaEditorFeatures implements EditorFeatures {
+    private static final String LAUNCH_COLUMN_ID = "java-launch";
     private static final int SIGNATURE_SCAN_WINDOW = 2048;
     private static final Set<String> NON_CALLABLE_PREFIX_KEYWORDS = Set.of(
         "if",
@@ -51,96 +48,13 @@ public class JavaCodeEditorPane extends CodeEditorPane {
         "try",
         "do");
 
-    /**
-     * Creates a Java editor with the supplied language-service configuration.
-     *
-     * @param project project whose files and workspace are being displayed
-     * @param documentId authoritative logical identity shared with the editor tab
-     * @param item file to open in the editor
-     * @param config language-service configuration for the editor
-     */
-    public JavaCodeEditorPane(Project project, DocumentId documentId, Path item, CodeEditorConfig config) {
-        super(project, documentId, item, config);
-        breakpointBinding = new BreakpointGutterBinding(getGutter(), this, this::getFilePath,
-            Services.BREAKPOINT_SERVICE);
-        if (EditorJavaLaunch.supports(project, item)) {
-            getGutter().addColumn(new GutterColumn("java-launch", 15, this::launchMarker));
-            launchChanges = multiPlainChanges().successionEnds(Duration.ofMillis(250))
-                .subscribe(_ -> refreshLaunches());
-            refreshLaunches();
-        }
-    }
-
-    private void refreshLaunches() {
-        long request = ++launchRequest;
-        String source = getText();
-        String filename = getFilePath().getFileName().toString();
-        boolean tests = project.getGradleManager().isGradleProject();
-        CompletableFuture.supplyAsync(() -> EditorJavaLaunch.find(source, filename).stream()
-            .filter(launch -> tests || launch.testMethod() == null).toList())
-            .thenAccept(found -> Platform.runLater(() -> {
-                if (request == launchRequest && !isEditorClosed() && getText().equals(source)) {
-                    parsedSource = source;
-                    if (!launches.equals(found)) {
-                        launches = found;
-                        getGutter().refresh();
-                    }
-                }
-            }));
-    }
-
-    private Node launchMarker(int line) {
-        List<EditorJavaLaunch> targets = launches.stream().filter(launch -> launch.line() == line).toList();
-        if (targets.isEmpty())
-            return null;
-
-        var marker = new FontIcon(FontAwesomeSolid.PLAY);
-        marker.getStyleClass().add("editor-main-marker");
-        var tooltip = new LocalizedTooltip("railroad.editor.launch.tooltip");
-        marker.accessibleTextProperty().bind(tooltip.textProperty());
-        Tooltip.install(marker, tooltip);
-        marker.setOnMouseClicked(event -> {
-            if (event.getButton() != MouseButton.PRIMARY || !getText().equals(parsedSource))
-                return;
-
-            var menu = new ContextMenu();
-            for (EditorJavaLaunch launch : targets) {
-                menu.getItems().addAll(launchAction(launch, false), launchAction(launch, true));
-            }
-
-            menu.show(marker, event.getScreenX(), event.getScreenY());
-            event.consume();
-        });
-
-        return marker;
-    }
-
-    private MenuItem launchAction(EditorJavaLaunch launch, boolean debug) {
-        var item = new MenuItem(
-            L18n.localize(debug ? "railroad.editor.launch.debug" : "railroad.editor.launch.run", launch.displayName()));
-        item.setOnAction(_ -> {
-            if (isEditorClosed() || !launches.contains(launch) || !getText().equals(parsedSource))
-                return;
-
-            RunConfiguration<?> configuration = launch.configuration(project, getFilePath());
-            (debug ? RunCommands.DEBUG : RunCommands.RUN)
-                .execute(CommandContext.withArgument(project, this, configuration));
-        });
-
-        return item;
+    @Override
+    public AutoCloseable install(CodeEditorPane editor) {
+        return new Installation(editor);
     }
 
     @Override
-    public void close() {
-        super.close();
-        if (isEditorClosed()) {
-            launchChanges.unsubscribe();
-            breakpointBinding.close();
-        }
-    }
-
-    @Override
-    protected boolean shouldRequestSignatureHelp(String text, int caret, boolean textChanged) {
+    public boolean shouldRequestSignatureHelp(String text, int caret, boolean textChanged, boolean helpShown) {
         if (text == null || text.isEmpty() || caret < 0 || caret > text.length())
             return false;
 
@@ -148,10 +62,7 @@ public class JavaCodeEditorPane extends CodeEditorPane {
         if (openParen < 0)
             return false;
 
-        if (textChanged)
-            return true;
-
-        if (!activeSignatureHelp.get().isEmpty())
+        if (textChanged || helpShown)
             return true;
 
         if (caret == 0)
@@ -278,5 +189,102 @@ public class JavaCodeEditorPane extends CodeEditorPane {
 
         String word = text.substring(start, index + 1);
         return !NON_CALLABLE_PREFIX_KEYWORDS.contains(word);
+    }
+
+    private static final class Installation implements AutoCloseable {
+        private final CodeEditorPane editor;
+        private final Project project;
+        private final BreakpointGutterBinding breakpoints;
+        private final JavaImportFolding importFolding;
+        private Subscription launchChanges = Subscription.EMPTY;
+        private List<EditorJavaLaunch> launches = List.of();
+        private @Nullable String parsedSource;
+        private long launchRequest;
+        private boolean closed;
+
+        private Installation(CodeEditorPane editor) {
+            this.editor = editor;
+            project = editor.getProject();
+            breakpoints = new BreakpointGutterBinding(editor.getGutter(), editor, editor::getFilePath,
+                Services.BREAKPOINT_SERVICE);
+            importFolding = new JavaImportFolding(editor);
+            if (EditorJavaLaunch.supports(project, editor.getFilePath())) {
+                editor.getGutter().addColumn(new GutterColumn(LAUNCH_COLUMN_ID, 15, this::launchMarker));
+                launchChanges = editor.multiPlainChanges().successionEnds(Duration.ofMillis(250))
+                    .subscribe(_ -> refreshLaunches());
+                refreshLaunches();
+            }
+        }
+
+        private void refreshLaunches() {
+            long request = ++launchRequest;
+            String source = editor.getText();
+            String filename = editor.getFilePath().getFileName().toString();
+            boolean tests = project.getGradleManager().isGradleProject();
+            CompletableFuture.supplyAsync(() -> EditorJavaLaunch.find(source, filename).stream()
+                .filter(launch -> tests || launch.testMethod() == null).toList())
+                .thenAccept(found -> Platform.runLater(() -> {
+                    if (request == launchRequest && !closed && editor.getText().equals(source)) {
+                        parsedSource = source;
+                        if (!launches.equals(found)) {
+                            launches = found;
+                            editor.getGutter().refresh();
+                        }
+                    }
+                }));
+        }
+
+        private @Nullable Node launchMarker(int line) {
+            List<EditorJavaLaunch> targets = launches.stream().filter(launch -> launch.line() == line).toList();
+            if (targets.isEmpty())
+                return null;
+
+            var marker = new FontIcon(FontAwesomeSolid.PLAY);
+            marker.getStyleClass().add("editor-main-marker");
+            var tooltip = new LocalizedTooltip("railroad.editor.launch.tooltip");
+            marker.accessibleTextProperty().bind(tooltip.textProperty());
+            Tooltip.install(marker, tooltip);
+            marker.setOnMouseClicked(event -> {
+                if (event.getButton() != MouseButton.PRIMARY || !editor.getText().equals(parsedSource))
+                    return;
+
+                var menu = new ContextMenu();
+                for (EditorJavaLaunch launch : targets) {
+                    menu.getItems().addAll(launchAction(launch, false), launchAction(launch, true));
+                }
+
+                menu.show(marker, event.getScreenX(), event.getScreenY());
+                event.consume();
+            });
+
+            return marker;
+        }
+
+        private MenuItem launchAction(EditorJavaLaunch launch, boolean debug) {
+            var item = new MenuItem(L18n.localize(debug ? "railroad.editor.launch.debug" : "railroad.editor.launch.run",
+                launch.displayName()));
+            item.setOnAction(_ -> {
+                if (closed || !launches.contains(launch) || !editor.getText().equals(parsedSource))
+                    return;
+
+                RunConfiguration<?> configuration = launch.configuration(project, editor.getFilePath());
+                (debug ? RunCommands.DEBUG : RunCommands.RUN)
+                    .execute(CommandContext.withArgument(project, editor, configuration));
+            });
+
+            return item;
+        }
+
+        @Override
+        public void close() {
+            if (closed)
+                return;
+
+            closed = true;
+            launchChanges.unsubscribe();
+            editor.getGutter().removeColumn(LAUNCH_COLUMN_ID);
+            importFolding.close();
+            breakpoints.close();
+        }
     }
 }

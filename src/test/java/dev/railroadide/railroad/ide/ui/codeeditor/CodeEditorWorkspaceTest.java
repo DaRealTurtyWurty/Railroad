@@ -7,7 +7,8 @@ import dev.railroadide.railroad.ide.diagnostics.EditorDiagnostic.TextEditorDiagn
 import dev.railroadide.railroad.ide.signature.*;
 import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
-import dev.railroadide.railroad.ide.ui.JavaCodeEditorPane;
+import dev.railroadide.railroad.ide.sst.request.api.CancellationToken;
+import dev.railroadide.railroad.ide.ui.JavaEditorFeatures;
 import dev.railroadide.railroad.project.RailroadProject;
 import javafx.application.Platform;
 import javafx.scene.image.WritableImage;
@@ -46,10 +47,10 @@ public class CodeEditorWorkspaceTest {
         Files.writeString(file, "class Example {\n public static void main(String[] args) {}\n}");
         var markerReady = new CountDownLatch(1);
         var markerMoved = new CountDownLatch(1);
-        JavaCodeEditorPane editor = onFx(() -> {
+        CodeEditorPane editor = onFx(() -> {
             var project = new RailroadProject(directory, "Main gutter", new WritableImage(1, 1));
-            var pane = new JavaCodeEditorPane(project, DocumentId.create(), file,
-                new CodeEditorConfig("java", null, null, null, null, null));
+            var pane = new CodeEditorPane(project, DocumentId.create(), file, new CodeEditorConfig("java", null, null,
+                null, null, null, null, null, new JavaEditorFeatures(), CancellationToken.none()));
             pane.paragraphGraphicFactoryProperty().addListener((_, _, factory) -> {
                 if (factory.apply(1).lookup(".editor-main-marker") != null) {
                     markerReady.countDown();

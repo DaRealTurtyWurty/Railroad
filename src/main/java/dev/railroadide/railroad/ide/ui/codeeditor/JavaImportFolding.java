@@ -16,6 +16,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.text.Text;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 import org.kordamp.ikonli.javafx.FontIcon;
+import org.reactfx.Subscription;
 import java.util.Objects;
 import java.util.Optional;
 import javafx.geometry.Bounds;
@@ -23,12 +24,14 @@ import javafx.geometry.Bounds;
 /**
  * Lets the user fold a Java file's import block from a gutter chevron, with a placeholder while folded.
  */
-public final class JavaImportFolding {
+public final class JavaImportFolding implements AutoCloseable {
     private static final PseudoClass HAS_CARET = PseudoClass.getPseudoClass("has-caret");
+    private static final String COLUMN_ID = "java-import-fold";
     private final TextEditorPane editor;
     private Range range;
     private StackPane placeholder;
     private boolean closed;
+    private final Subscription textChanges;
     private final AnimationTimer placeholderTimer = new AnimationTimer() {
         @Override
         public void handle(long now) {
@@ -37,14 +40,15 @@ public final class JavaImportFolding {
     };
 
     /**
-     * Adds the fold control to an editor's gutter.
+     * Adds the fold control to an editor's gutter and keeps it in step with the editor's text.
      *
      * @param editor editor showing a Java file
      */
     public JavaImportFolding(TextEditorPane editor) {
         this.editor = editor;
         update();
-        editor.getGutter().addTrailingColumn(new GutterColumn("java-import-fold", 16, line -> {
+        textChanges = editor.plainTextChanges().subscribe(_ -> update());
+        editor.getGutter().addTrailingColumn(new GutterColumn(COLUMN_ID, 16, line -> {
             if (range == null || line != range.start() + 1)
                 return null;
 
@@ -163,11 +167,17 @@ public final class JavaImportFolding {
     }
 
     /**
-     * Stops showing the folded-imports placeholder.
+     * Removes the fold control, placeholder and text listener from the editor.
      */
+    @Override
     public void close() {
+        if (closed)
+            return;
+
         closed = true;
+        textChanges.unsubscribe();
         hidePlaceholder();
+        editor.getGutter().removeColumn(COLUMN_ID);
     }
 
     /**

@@ -53,6 +53,7 @@ public class JavaImportFoldingVisualTest {
         try {
             onFx(() -> {
                 var editor = new TextEditorPane(DocumentId.create(), file, "java");
+                new JavaImportFolding(editor);
                 editorRef.set(editor);
                 var root = new StackPane(editor);
                 var scene = new Scene(root, 700, 350);

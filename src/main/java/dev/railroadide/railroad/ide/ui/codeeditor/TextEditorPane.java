@@ -84,7 +84,6 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
 
     @Getter
     private final EditorGutter gutter;
-    private final JavaImportFolding importFolding;
 
     private final AtomicReference<String> lastSavedText = new AtomicReference<>("");
     private volatile String lineSeparator = "\n";
@@ -226,7 +225,6 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         setMouseOverTextDelay(Duration.ofMillis(500));
 
         initialContentLoaded = loadInitialContent();
-        importFolding = "java".equalsIgnoreCase(languageId) ? new JavaImportFolding(this) : null;
         // Loading is not an edit; undoing it would empty the editor and, once saved, the file.
         getUndoManager().forgetHistory();
         backingReadFailed = !initialContentLoaded;
@@ -745,10 +743,6 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
 
         editorSubscriptions.forEach(EditorSubscription::close);
 
-        if (importFolding != null) {
-            JavaFXUtils.runOnApplicationThread(importFolding::close);
-        }
-
         JavaFXUtils.runOnApplicationThread(this::closeExternalChangeDialog);
         shutdownRegistration.close();
         Settings.TAB_WIDTH.removeListener(tabWidthListener);
@@ -953,10 +947,6 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
 
     private void subscribeToChanges() {
         dirtySubscription = plainTextChanges().subscribe(_ -> {
-            if (importFolding != null) {
-                importFolding.update();
-            }
-
             discardChangesOnClose = false;
             if (documentStore != null) {
                 documentStore.latestVersion(documentId)

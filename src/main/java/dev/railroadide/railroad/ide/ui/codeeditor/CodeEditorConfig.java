@@ -30,6 +30,7 @@ import dev.railroadide.railroad.ide.sst.provider.api.LanguageSession;
  * @param renameProvider rename service, or null when unavailable
  * @param codeActionProvider code action service, or null when unavailable
  * @param highlightingProvider syntax style provider, or null when unavailable
+ * @param editorFeatures language-specific editor decorations and typing rules, or null for the defaults
  * @param providerLifetime cancellation token invalidating providers and their unpublished results on unload
  */
 public record CodeEditorConfig(
@@ -41,11 +42,12 @@ public record CodeEditorConfig(
     @Nullable RenameProvider renameProvider,
     @Nullable CodeActionProvider codeActionProvider,
     @Nullable SyntaxHighlightingProvider highlightingProvider,
+    @Nullable EditorFeatures editorFeatures,
     CancellationToken providerLifetime
 ) {
     /**
      * Creates configuration for directly owned providers with no external unload lifetime, rename or code action
-     * service.
+     * service, or editor features.
      *
      * @param languageId identifier of the document language
      * @param completionProvider completion service, or null to disable completion
@@ -63,11 +65,11 @@ public record CodeEditorConfig(
         @Nullable SyntaxHighlightingProvider highlightingProvider
     ) {
         this(languageId, completionProvider, diagnosticsProvider, signatureHelpProvider, navigationProvider, null,
-            null, highlightingProvider, CancellationToken.none());
+            null, highlightingProvider, null, CancellationToken.none());
     }
 
     /**
-     * Creates configuration without rename or code action services.
+     * Creates configuration without rename or code action services or editor features.
      *
      * @param languageId identifier of the document language
      * @param completionProvider completion service, or null to disable completion
@@ -87,7 +89,7 @@ public record CodeEditorConfig(
         CancellationToken providerLifetime
     ) {
         this(languageId, completionProvider, diagnosticsProvider, signatureHelpProvider, navigationProvider, null,
-            null, highlightingProvider, providerLifetime);
+            null, highlightingProvider, null, providerLifetime);
     }
 
     /**
@@ -101,6 +103,7 @@ public record CodeEditorConfig(
      * @param renameProvider rename service, or null when unavailable
      * @param codeActionProvider code action service, or null when unavailable
      * @param highlightingProvider syntax style provider, or null when unavailable
+     * @param editorFeatures language-specific editor decorations and typing rules, or null for the defaults
      * @param providerLifetime external lifetime shared with captured requests
      */
     public CodeEditorConfig {
@@ -169,6 +172,7 @@ public record CodeEditorConfig(
             renameProvider,
             codeActionProvider,
             highlightingProvider,
+            session.capability(LanguageCapabilities.EDITOR_FEATURES).orElse(null),
             session.cancellationToken());
     }
 }

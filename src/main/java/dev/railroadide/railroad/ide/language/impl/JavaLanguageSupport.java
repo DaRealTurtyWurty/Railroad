@@ -17,7 +17,8 @@ import dev.railroadide.railroad.ide.sst.project.JavaProjectSemanticPersistence;
 import dev.railroadide.railroad.ide.sst.provider.api.*;
 import dev.railroadide.railroad.ide.sst.request.api.FeatureResult;
 import dev.railroadide.railroad.ide.syntaxhighlighting.TreeSitterJavaSyntaxHighlighting;
-import dev.railroadide.railroad.ide.ui.JavaCodeEditorPane;
+import dev.railroadide.railroad.ide.ui.JavaEditorFeatures;
+import dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorPane;
 import dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorConfig;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.utility.ShutdownHooks;
@@ -48,7 +49,7 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
 
     @Override
     public EditorOpenView open(Project project, DocumentId documentId, Path file) {
-        var editorPane = new JavaCodeEditorPane(
+        var editorPane = new CodeEditorPane(
             project,
             documentId,
             file,
@@ -63,7 +64,8 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
             SstCapabilities.INDEX_QUERY, SstCapabilities.DIAGNOSTICS,
             SstCapabilities.COMPLETION, SstCapabilities.SIGNATURE_HELP, LanguageCapabilities.INDEXER,
             LanguageCapabilities.PERSISTENCE, LanguageCapabilities.INDEX_CONTEXT, LanguageCapabilities.INDEX_WARMUP,
-            LanguageCapabilities.HIGHLIGHTING, SstCapabilities.NAVIGATION, SstCapabilities.RENAME,
+            LanguageCapabilities.HIGHLIGHTING, LanguageCapabilities.EDITOR_FEATURES, SstCapabilities.NAVIGATION,
+            SstCapabilities.RENAME,
             SstCapabilities.CODE_ACTIONS);
     }
 
@@ -73,6 +75,7 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
         var semantics = new JavaSstServices(JavaLibrarySources.shared(), ANALYSIS_CONTEXT_PROVIDER::index);
         return new LanguageSession(CapabilityRegistry.builder()
             .add(LanguageCapabilities.HIGHLIGHTING, TreeSitterJavaSyntaxHighlighting::computeHighlighting)
+            .add(LanguageCapabilities.EDITOR_FEATURES, new JavaEditorFeatures())
             .add(SstCapabilities.DIAGNOSTICS, new JavaDiagnosticsProvider(project, null, semantics::capture))
             .add(SstCapabilities.COMPLETION, new JavaCompletionProvider(project, null, semantics::capture))
             .add(SstCapabilities.SIGNATURE_HELP, new JavaSignatureHelpProvider(semantics::capture))
