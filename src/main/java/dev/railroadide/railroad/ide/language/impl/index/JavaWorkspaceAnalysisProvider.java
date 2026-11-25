@@ -31,7 +31,7 @@ import com.google.common.cache.CacheStats;
  * Builds reusable Java analysis inputs exclusively from captured documents and configuration.
  */
 public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
-    private static final Path RUNNING_JDK = Path.of(System.getProperty("java.home")).toAbsolutePath().normalize();
+
     private static final ExecutorService BINARY_LOADS = Executors.newThreadPerTaskExecutor(
         Thread.ofVirtual().name("railroad-java-binaries-", 0).factory());
     private final Cache<WorkspaceKey, WorkspaceBuild> workspaces;
@@ -174,7 +174,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
             Path file = document == null ? null : document.uri().filePath().orElse(null);
             SourceContext scope = sourceContext(workspace.configuration(), file, document);
             Set<Path> roots = scope.sourceSet() == null
-                ? sourceRoots(workspace.configuration())
+                ? JvmSourceSets.sourceRoots(workspace.configuration())
                 : scope.sourceSet().visibleRoots();
             DocumentId extra = document != null && !includedSource(document, roots, scope, workspace.configuration())
                 ? request
@@ -468,66 +468,26 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
             .map(path -> roots.stream().anyMatch(path::startsWith)).orElse(true);
     }
 
-    private static Set<Path> sourceRoots(WorkspaceConfigurationSnapshot configuration) {
-        Set<Path> roots = new HashSet<>();
-        for (String module : configuration.moduleIds()) {
-            roots.addAll(sourceRoots(configuration, module));
-        }
-
-        return Set.copyOf(roots);
-    }
-
-    private static List<Path> sourceRoots(WorkspaceConfigurationSnapshot configuration, String module) {
-        String sources = configuration.settings().getOrDefault("module." + module + ".sources", "");
-        return sources.lines().filter(line -> !line.isBlank())
-            .map(line -> line.replaceFirst(":(?:test:)?generated=(?:true|false)$", ""))
-            .map(Path::of).map(JvmSourceSets::lookupPath).toList();
-    }
-
-    private static String moduleForPath(WorkspaceConfigurationSnapshot configuration, Path path) {
-        if (path == null)
-            return null;
-
-        Path file = JvmSourceSets.lookupPath(path);
-        String owner = null;
-        int bestSource = -1;
-        int bestDirectory = -1;
-        for (String module : configuration.moduleIds().stream().sorted().toList()) {
-            String prefix = "module." + module + ".";
-            Map<String, String> settings = configuration.settings();
-            if (!settings.containsKey(prefix + "classpath") && !settings.containsKey(prefix + "modulePath")
-                && !settings.containsKey(prefix + "dependencies"))
-                continue;
-
-            String directory = settings.get(prefix + "directory");
-            int directoryDepth = directory == null || directory.isBlank()
-                ? -1
-                : matchingDepth(file, JvmSourceSets.lookupPath(Path.of(directory)));
-            int sourceDepth = sourceRoots(configuration, module).stream()
-                .mapToInt(root -> matchingDepth(file, root)).max().orElse(-1);
-            if (sourceDepth > bestSource || sourceDepth == bestSource && directoryDepth > bestDirectory) {
-                owner = module;
-                bestSource = sourceDepth;
-                bestDirectory = directoryDepth;
-            }
-        }
-
-        return owner;
-    }
-
-    private static int matchingDepth(Path file, Path root) {
-        return file.startsWith(root) ? root.getNameCount() : -1;
-    }
-
     /**
-     * Collects normalized, distinct binary roots in sorted module order, excluding workspace output directories.
-     * Within each module, compile classpath and module path roots retain their configured order.
+     * Collects the workspace's binary roots.
      *
      * @param configuration captured module settings
      * @return immutable ordered binary roots
+     * @see JvmSourceSets#classpath(WorkspaceConfigurationSnapshot, String)
      */
     public static List<Path> classpath(WorkspaceConfigurationSnapshot configuration) {
-        return classpath(configuration, null);
+        return JvmSourceSets.classpath(configuration, null);
+    }
+
+    /**
+     * Selects the workspace JDK home.
+     *
+     * @param configuration captured module settings
+     * @return absolute normalized JDK home
+     * @see JvmSourceSets#jdkHome(WorkspaceConfigurationSnapshot)
+     */
+    public static Path jdkHome(WorkspaceConfigurationSnapshot configuration) {
+        return JvmSourceSets.jdkHome(configuration);
     }
 
     /**
@@ -556,7 +516,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
     ) {
         var sets = JvmSourceSets.of(configuration);
         JvmSourceSets.Scope owner = sets.owner(file);
-        String module = owner == null ? moduleForPath(configuration, file) : owner.module();
+        String module = owner == null ? JvmSourceSets.module(configuration, file) : owner.module();
         if (module != null && (document == null || document.origin().provenance() != ProvenanceKind.ATTACHED_SOURCE))
             return new SourceContext(module, null, owner);
 
@@ -611,7 +571,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
             if (sourceSet != null)
                 return sourceSet.classpath();
 
-            List<Path> roots = JavaWorkspaceAnalysisProvider.classpath(configuration, module);
+            List<Path> roots = JvmSourceSets.classpath(configuration, module);
             if (module == null || archive == null)
                 return roots;
 
@@ -629,56 +589,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
 
     private static String moduleForArchive(WorkspaceConfigurationSnapshot configuration, Path archive) {
         List<String> owners = configuration.moduleIds().stream()
-            .filter(module -> classpath(configuration, module).contains(archive)).sorted().toList();
+            .filter(module -> JvmSourceSets.classpath(configuration, module).contains(archive)).sorted().toList();
         return owners.size() == 1 ? owners.getFirst() : null;
-    }
-
-    private static List<Path> classpath(WorkspaceConfigurationSnapshot configuration, String selectedModule) {
-        Set<Path> roots = new LinkedHashSet<>();
-        Set<Path> outputs = new HashSet<>(JvmSourceSets.of(configuration).outputs());
-        for (String module : configuration.moduleIds()) {
-            for (String kind : List.of("output", "testOutput")) {
-                String output = configuration.settings().get("module." + module + "." + kind);
-                if (output != null && !output.isBlank()) {
-                    outputs.add(Path.of(output).toAbsolutePath().normalize());
-                }
-            }
-        }
-
-        List<String> modules = selectedModule == null
-            ? configuration.moduleIds().stream().sorted().toList()
-            : List.of(selectedModule);
-        for (String module : modules) {
-            String prefix = "module." + module + ".";
-            Map<String, String> settings = configuration.settings();
-            List<String> kinds = settings.containsKey(prefix + "classpath")
-                || settings.containsKey(prefix + "modulePath")
-                    ? List.of("classpath", "modulePath")
-                    : List.of("dependencies");
-            for (String kind : kinds) {
-                String value = settings.get(prefix + kind);
-                if (value != null) {
-                    value.lines().filter(line -> !line.isBlank()).map(Path::of)
-                        .map(path -> path.toAbsolutePath().normalize()).filter(path -> !outputs.contains(path))
-                        .forEach(roots::add);
-                }
-            }
-        }
-
-        return List.copyOf(roots);
-    }
-
-    /**
-     * Selects the first configured JDK home in sorted module order, then the Gradle or running JDK.
-     *
-     * @param configuration captured module settings
-     * @return absolute normalized JDK home
-     */
-    public static Path jdkHome(WorkspaceConfigurationSnapshot configuration) {
-        String home = configuration.moduleIds().stream().sorted()
-            .map(module -> configuration.settings().get("module." + module + ".jdkHome"))
-            .filter(Objects::nonNull).filter(value -> !value.isBlank()).findFirst()
-            .orElse(configuration.settings().get("gradle.jdkHome"));
-        return home == null || home.isBlank() ? RUNNING_JDK : Path.of(home).toAbsolutePath().normalize();
     }
 }

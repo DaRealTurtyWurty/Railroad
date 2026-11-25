@@ -4,10 +4,12 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnapshot;
+import org.jspecify.annotations.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * The compile inputs of each source set in one imported JVM build, read from the workspace configuration that
@@ -36,6 +38,7 @@ public final class JvmSourceSets {
     ) {
     }
 
+    private static final Path RUNNING_JDK = Path.of(System.getProperty("java.home")).toAbsolutePath().normalize();
     private final Map<Path, Scope> owners = new LinkedHashMap<>();
     private final Path importRoot;
     private final Path openRoot;
@@ -191,6 +194,156 @@ public final class JvmSourceSets {
      */
     public Set<Path> outputs() {
         return outputs;
+    }
+
+    /**
+     * The binary inputs a source file compiles against.
+     *
+     * @param module module owning the file, or {@code null} when no module owns it
+     * @param classpath ordered binary roots
+     * @param jdkHome JDK the file compiles against
+     */
+    public record CompileInputs(@Nullable String module, List<Path> classpath, Path jdkHome) {
+    }
+
+    /**
+     * Selects the classpath and JDK of the source set owning a file, falling back to its module's, or the whole
+     * workspace's when no module owns the file.
+     *
+     * @param configuration captured module settings
+     * @param file source file, or {@code null} for the workspace fallback
+     * @return the file's compile inputs
+     */
+    public static CompileInputs compileInputs(WorkspaceConfigurationSnapshot configuration, @Nullable Path file) {
+        Scope owner = of(configuration).owner(file);
+        if (owner != null)
+            return new CompileInputs(owner.module(), owner.classpath(),
+                owner.jdkHome() != null ? owner.jdkHome() : jdkHome(configuration));
+
+        String module = module(configuration, file);
+        return new CompileInputs(module, classpath(configuration, module), jdkHome(configuration));
+    }
+
+    /**
+     * Collects normalized, distinct binary roots excluding workspace output directories, for one module or, when
+     * none is selected, every module in sorted order. Within each module, compile classpath and module path roots
+     * retain their configured order.
+     *
+     * @param configuration captured module settings
+     * @param selectedModule module whose roots are collected, or {@code null} for every module
+     * @return immutable ordered binary roots
+     */
+    public static List<Path> classpath(WorkspaceConfigurationSnapshot configuration, @Nullable String selectedModule) {
+        Set<Path> roots = new LinkedHashSet<>();
+        Set<Path> outputs = new HashSet<>(of(configuration).outputs());
+        for (String module : configuration.moduleIds()) {
+            for (String kind : List.of("output", "testOutput")) {
+                String output = configuration.settings().get("module." + module + "." + kind);
+                if (output != null && !output.isBlank()) {
+                    outputs.add(Path.of(output).toAbsolutePath().normalize());
+                }
+            }
+        }
+
+        List<String> modules = selectedModule == null
+            ? configuration.moduleIds().stream().sorted().toList()
+            : List.of(selectedModule);
+        for (String module : modules) {
+            String prefix = "module." + module + ".";
+            Map<String, String> settings = configuration.settings();
+            List<String> kinds = settings.containsKey(prefix + "classpath")
+                || settings.containsKey(prefix + "modulePath")
+                    ? List.of("classpath", "modulePath")
+                    : List.of("dependencies");
+            for (String kind : kinds) {
+                String value = settings.get(prefix + kind);
+                if (value != null) {
+                    value.lines().filter(line -> !line.isBlank()).map(Path::of)
+                        .map(path -> path.toAbsolutePath().normalize()).filter(path -> !outputs.contains(path))
+                        .forEach(roots::add);
+                }
+            }
+        }
+
+        return List.copyOf(roots);
+    }
+
+    /**
+     * Selects the first configured JDK home in sorted module order, then the Gradle or running JDK.
+     *
+     * @param configuration captured module settings
+     * @return absolute normalized JDK home
+     */
+    public static Path jdkHome(WorkspaceConfigurationSnapshot configuration) {
+        String home = configuration.moduleIds().stream().sorted()
+            .map(module -> configuration.settings().get("module." + module + ".jdkHome"))
+            .filter(Objects::nonNull).filter(value -> !value.isBlank()).findFirst()
+            .orElse(configuration.settings().get("gradle.jdkHome"));
+        return home == null || home.isBlank() ? RUNNING_JDK : Path.of(home).toAbsolutePath().normalize();
+    }
+
+    /**
+     * Collects the source roots declared by every module.
+     *
+     * @param configuration captured module settings
+     * @return normalized source roots
+     */
+    public static Set<Path> sourceRoots(WorkspaceConfigurationSnapshot configuration) {
+        Set<Path> roots = new HashSet<>();
+        for (String module : configuration.moduleIds()) {
+            roots.addAll(sourceRoots(configuration, module));
+        }
+
+        return Set.copyOf(roots);
+    }
+
+    private static List<Path> sourceRoots(WorkspaceConfigurationSnapshot configuration, String module) {
+        String sources = configuration.settings().getOrDefault("module." + module + ".sources", "");
+        return sources.lines().filter(line -> !line.isBlank())
+            .map(line -> line.replaceFirst(":(?:test:)?generated=(?:true|false)$", ""))
+            .map(Path::of).map(JvmSourceSets::lookupPath).toList();
+    }
+
+    /**
+     * Finds the module whose source roots, or failing that whose directory, most specifically contain a path.
+     *
+     * @param configuration captured module settings
+     * @param path file to look up, or {@code null}
+     * @return owning module, or {@code null} when no module with binary inputs contains the path
+     */
+    public static @Nullable String module(WorkspaceConfigurationSnapshot configuration, @Nullable Path path) {
+        if (path == null)
+            return null;
+
+        Path file = lookupPath(path);
+        String owner = null;
+        int bestSource = -1;
+        int bestDirectory = -1;
+        for (String module : configuration.moduleIds().stream().sorted().toList()) {
+            String prefix = "module." + module + ".";
+            Map<String, String> settings = configuration.settings();
+            if (!settings.containsKey(prefix + "classpath") && !settings.containsKey(prefix + "modulePath")
+                && !settings.containsKey(prefix + "dependencies"))
+                continue;
+
+            String directory = settings.get(prefix + "directory");
+            int directoryDepth = directory == null || directory.isBlank()
+                ? -1
+                : matchingDepth(file, lookupPath(Path.of(directory)));
+            int sourceDepth = sourceRoots(configuration, module).stream()
+                .mapToInt(root -> matchingDepth(file, root)).max().orElse(-1);
+            if (sourceDepth > bestSource || sourceDepth == bestSource && directoryDepth > bestDirectory) {
+                owner = module;
+                bestSource = sourceDepth;
+                bestDirectory = directoryDepth;
+            }
+        }
+
+        return owner;
+    }
+
+    private static int matchingDepth(Path file, Path root) {
+        return file.startsWith(root) ? root.getNameCount() : -1;
     }
 
     private static List<Path> paths(Map<String, String> settings, String key) {
