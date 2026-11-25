@@ -21,7 +21,7 @@ public class LanguageSupportsTest {
 
             assertEquals(first, second);
             assertTrue(LanguageSupportRegistry.contains(JavaLanguageSupport.LANGUAGE_ID));
-            assertEquals(5, second.size());
+            assertEquals(6, second.size());
         } finally {
             LanguageSupports.reset();
             LanguageSupports.initialize();
