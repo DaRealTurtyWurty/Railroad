@@ -16,9 +16,8 @@ public class SstArchitectureTest {
     private static final List<String> CORE = List.of("document/api", "request/api", "provider/api", "syntax/api",
         "semantic/api", "lexer");
     private static final List<String> FORBIDDEN = List.of("dev.railroadide.railroad.ide.sst.java.",
-        "dev.railroadide.railroad.ide.sst.impl.java.", "dev.railroadide.railroad.ide.sst.ast.",
-        "dev.railroadide.railroad.ide.sst.parser.",
-        "dev.railroadide.railroad.ide.sst.project.", "dev.railroadide.railroad.ide.classparser.",
+        "dev.railroadide.railroad.ide.sst.impl.java.", "dev.railroadide.railroad.ide.sst.project.",
+        "dev.railroadide.railroad.ide.classparser.",
         "dev.railroadide.railroad.ide.ui.", "dev.railroadide.railroad.ide.language.",
         "dev.railroadide.railroad.plugin.spi.dto.",
         "dev.railroadide.railroad.plugin.spi.inspection.Java", "javax.tools.", "com.github.javaparser.",

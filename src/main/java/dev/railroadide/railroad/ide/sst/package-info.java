@@ -106,9 +106,7 @@
  * caches stay in the thread-confined analysis context and do not escape into models.
  * SyntaxKind's concurrent interning table retains kind IDs, not snapshots; providers
  * should use a finite vocabulary of stable kinds rather than per-document IDs.
- * The legacy Java AST is a separate parser representation, not a published SST snapshot;
- * mutable collections there are a legacy-AST migration, not an immutable syntax-tree
- * guarantee. These limitations are explicit follow-up work, not claims of completed
+ * These limitations are explicit follow-up work, not claims of completed
  * indexing or workspace infrastructure.
  *
  * <h2>Verification</h2>
