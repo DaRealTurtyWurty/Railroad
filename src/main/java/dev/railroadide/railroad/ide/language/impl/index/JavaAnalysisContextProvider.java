@@ -1,5 +1,8 @@
 package dev.railroadide.railroad.ide.language.impl.index;
 
+import dev.railroadide.railroad.ide.language.jvm.JvmIndexContext;
+import dev.railroadide.railroad.ide.language.jvm.JvmProjectModel;
+import dev.railroadide.railroad.ide.language.jvm.JvmSourceSets;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexService.Session;
 import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnapshot;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentSnapshot;
@@ -54,7 +57,7 @@ public final class JavaAnalysisContextProvider implements AutoCloseable {
     private static final String EPOCH = "index.binary.epoch";
     private volatile boolean closed;
 
-    private record SourceIndexKey(JavaProjectSemanticIndex index, JavaSourceSets.Scope scope) {
+    private record SourceIndexKey(JavaProjectSemanticIndex index, JvmSourceSets.Scope scope) {
     }
 
     private static final class Cache {
@@ -380,8 +383,7 @@ public final class JavaAnalysisContextProvider implements AutoCloseable {
 
         JavaProjectSemanticIndex projectIndex = Services.PROJECT_LANGUAGE_INDEX_SERVICE.indexTyped(context,
             JavaLanguageSupport.LANGUAGE_ID);
-        JavaLanguageIndexContext javaContext = context.language(JavaLanguageSupport.LANGUAGE_ID,
-            JavaLanguageIndexContext.class);
+        JvmIndexContext javaContext = context.language(JavaLanguageSupport.LANGUAGE_ID, JvmIndexContext.class);
 
         Cache cache = cache(context.session());
         Runnable activityCheck = () -> {
@@ -395,7 +397,7 @@ public final class JavaAnalysisContextProvider implements AutoCloseable {
         List<JavaSymbolIndex> delegates = new ArrayList<>();
 
         if (javaContext != null) {
-            WorkspaceConfigurationSnapshot gradle = javaContext.gradleConfiguration();
+            WorkspaceConfigurationSnapshot gradle = javaContext.model().gradleConfiguration();
             List<Path> roots;
             Path archive;
             Path jdk;
@@ -406,7 +408,7 @@ public final class JavaAnalysisContextProvider implements AutoCloseable {
                     projectIndex = cache.load(cache.sources, key, "railroad.activity.indexing_project", activityCheck,
                         () -> {
                             var visible = JavaProjectSemanticIndex.builder();
-                            var sets = JavaSourceSets.of(gradle);
+                            var sets = JvmSourceSets.of(gradle);
                             for (JavaProjectSemanticIndex.SourceFileIndex entry : key.index().files().values()) {
                                 activityCheck.run();
                                 if (sets.visible(key.scope(), entry.path())) {
@@ -422,8 +424,8 @@ public final class JavaAnalysisContextProvider implements AutoCloseable {
                 roots = scope.classpath(gradle);
                 archive = scope.archive();
             } else {
-                jdk = javaContext.jdkHome();
-                roots = libraryRoots(javaContext);
+                jdk = javaContext.model().jdkHome();
+                roots = libraryRoots(javaContext.model());
                 var sources = JavaLibrarySources.shared();
                 archive = (document == null ? sources.ownerArchive(file, roots) : sources.ownerArchive(document, roots))
                     .orElse(null);
@@ -459,7 +461,7 @@ public final class JavaAnalysisContextProvider implements AutoCloseable {
         return new CompositeJavaSymbolIndex(delegates);
     }
 
-    private static List<Path> libraryRoots(JavaLanguageIndexContext context) {
+    private static List<Path> libraryRoots(JvmProjectModel context) {
         Set<Path> roots = new LinkedHashSet<>();
         roots.addAll(context.classpathRoots());
         roots.addAll(context.modulePathRoots());
@@ -514,7 +516,7 @@ public final class JavaAnalysisContextProvider implements AutoCloseable {
     }
 
     private static void logIndexSummary(
-        JavaLanguageIndexContext context,
+        JvmIndexContext context,
         int binaryRoots,
         Path jdkHome,
         @Nullable JavaProjectSemanticIndex projectIndex,

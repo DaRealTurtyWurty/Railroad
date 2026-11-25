@@ -1,0 +1,395 @@
+package dev.railroadide.railroad.ide.language.jvm;
+
+import coursierapi.CacheLogger;
+import coursierapi.Fetch;
+import coursierapi.MavenRepository;
+import coursierapi.Repository;
+import coursierapi.error.CoursierError;
+import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.gradle.model.GradleBuildModel;
+import dev.railroadide.railroad.gradle.service.GradleModelService;
+import dev.railroadide.railroad.ide.ProjectWorkspaceConfiguration;
+import dev.railroadide.railroad.ide.activity.ActivityProgress;
+import dev.railroadide.railroad.ide.activity.DownloadProgress;
+import dev.railroadide.railroad.maven.DefaultMavenModelService;
+import dev.railroadide.railroad.maven.MavenModelService;
+import dev.railroadide.railroad.plugin.spi.dto.Project;
+import dev.railroadide.railroad.project.facet.FacetManager;
+import dev.railroadide.railroad.utility.FileUtils;
+import dev.railroadide.railroadplugin.dto.RailroadContentRoot;
+import dev.railroadide.railroadplugin.dto.RailroadModule;
+import dev.railroadide.railroadplugin.dto.RailroadSourceDirectory;
+import org.apache.maven.model.Build;
+import org.apache.maven.model.Dependency;
+import org.apache.maven.model.Model;
+
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.function.Consumer;
+
+/**
+ * Resolves a JVM project's source roots, dependency paths and JDK from its Gradle, Maven or plain layout. Maven and
+ * plain projects use Maven's conventional {@code src/main/java} and {@code src/test/java} source roots unless the
+ * build declares others.
+ */
+public final class JvmProjectResolver {
+    private static final MavenModelService MAVEN_MODELS = new DefaultMavenModelService();
+
+    private JvmProjectResolver() {
+    }
+
+    /**
+     * Resolves indexing inputs. Gradle projects contribute source roots and their imported module settings; binary
+     * roots come from those settings. Maven resolution failures are logged and leave the affected roots empty.
+     *
+     * @param project project whose configuration is being resolved
+     * @return resolved project model
+     */
+    public static JvmProjectModel resolve(Project project) {
+        Optional<GradleBuildModel> gradleModel = loadGradleModel(project);
+        if (project.hasFacet(FacetManager.GRADLE))
+            return new JvmProjectModel(resolveSourceRoots(project, gradleModel),
+                resolveGeneratedRoots(project, gradleModel), List.of(), List.of(), List.of(), null,
+                gradleModel.map(ProjectWorkspaceConfiguration::captureGradleConfiguration).orElse(null));
+
+        return new JvmProjectModel(
+            resolveSourceRoots(project, gradleModel),
+            resolveGeneratedRoots(project, gradleModel),
+            resolveDependencyRoots(project),
+            resolveClasspathRoots(project),
+            resolveModuleRoots(project),
+            resolveJdkHome());
+    }
+
+    /**
+     * Resolves inputs for a captured workspace on a worker. Maven contributes dependency artifacts only;
+     * project output directories and module source directories cannot supply stale compiled declarations.
+     * Resolution failures propagate so the owner can retain its last usable configuration.
+     *
+     * @param project project whose configuration is being resolved
+     * @return resolved source roots and external dependencies
+     * @throws IllegalStateException if Maven configuration or dependencies cannot be resolved
+     */
+    public static JvmProjectModel resolveWorkspace(Project project) {
+        if (project.hasFacet(FacetManager.GRADLE) || !project.hasFacet(FacetManager.MAVEN))
+            return resolve(project);
+
+        Model model = MAVEN_MODELS.loadEffectiveModel(project.getPath())
+            .orElseThrow(() -> new IllegalStateException("Cannot resolve Maven model for " + project.getPath()));
+        List<Path> dependencies = new ArrayList<>();
+        addMavenDependencyRoots(project, model, dependencies, true);
+        List<Path> roots = normalizePaths(dependencies);
+        Build build = model.getBuild();
+        Path buildDirectory = resolveMavenBuildDirectory(project, model);
+        return new JvmProjectModel(normalizePaths(List.of(
+            resolveProjectPath(project, build != null ? build.getSourceDirectory() : null, "src/main/java"),
+            resolveProjectPath(project, build != null ? build.getTestSourceDirectory() : null, "src/test/java"))),
+            normalizePaths(List.of(buildDirectory.resolve("generated-sources"),
+                buildDirectory.resolve("generated-test-sources"))),
+            roots, roots, List.of(), resolveJdkHome());
+    }
+
+    private static List<Path> resolveSourceRoots(Project project, Optional<GradleBuildModel> gradleModel) {
+        List<Path> sourceRoots = new ArrayList<>();
+        if (project.hasFacet(FacetManager.GRADLE)) {
+            gradleModel.ifPresent(model -> {
+                for (RailroadModule module : model.project().getModules()) {
+                    for (RailroadContentRoot sourceSet : module.getContentRoots()) {
+                        for (RailroadSourceDirectory sourceDir : sourceSet.getSourceDirectories()) {
+                            if (!sourceDir.isGenerated()) {
+                                sourceRoots.add(sourceDir.getDirectory().toPath());
+                            }
+                        }
+
+                        for (RailroadSourceDirectory sourceDir : sourceSet.getTestSourceDirectories()) {
+                            if (!sourceDir.isGenerated()) {
+                                sourceRoots.add(sourceDir.getDirectory().toPath());
+                            }
+                        }
+                    }
+                }
+            });
+        } else if (project.hasFacet(FacetManager.MAVEN)) {
+            consumeMavenModel(project, model -> {
+                Build build = model.getBuild();
+                sourceRoots.add(
+                    resolveProjectPath(project, build != null ? build.getSourceDirectory() : null, "src/main/java"));
+                sourceRoots.add(resolveProjectPath(project,
+                    build != null ? build.getTestSourceDirectory() : null, "src/test/java"));
+            });
+        } else {
+            sourceRoots.add(project.getPath().resolve("src/main/java"));
+            sourceRoots.add(project.getPath().resolve("src/test/java"));
+        }
+
+        return normalizePaths(sourceRoots);
+    }
+
+    private static List<Path> resolveGeneratedRoots(Project project, Optional<GradleBuildModel> gradleModel) {
+        List<Path> generatedRoots = new ArrayList<>();
+        if (project.hasFacet(FacetManager.GRADLE)) {
+            gradleModel.ifPresent(model -> {
+                for (RailroadModule module : model.project().getModules()) {
+                    for (RailroadContentRoot sourceSet : module.getContentRoots()) {
+                        for (RailroadSourceDirectory sourceDir : sourceSet.getSourceDirectories()) {
+                            if (sourceDir.isGenerated()) {
+                                generatedRoots.add(sourceDir.getDirectory().toPath());
+                            }
+                        }
+
+                        for (RailroadSourceDirectory sourceDir : sourceSet.getTestSourceDirectories()) {
+                            if (sourceDir.isGenerated()) {
+                                generatedRoots.add(sourceDir.getDirectory().toPath());
+                            }
+                        }
+                    }
+                }
+            });
+        } else if (project.hasFacet(FacetManager.MAVEN)) {
+            consumeMavenModel(project, model -> {
+                Path buildDirectory = resolveMavenBuildDirectory(project, model);
+                generatedRoots.add(buildDirectory.resolve("generated-sources"));
+                generatedRoots.add(buildDirectory.resolve("generated-test-sources"));
+            });
+        }
+
+        return normalizePaths(generatedRoots);
+    }
+
+    private static List<Path> resolveDependencyRoots(Project project) {
+        List<Path> dependencyRoots = new ArrayList<>();
+        if (project.hasFacet(FacetManager.MAVEN)) {
+            consumeMavenModel(project, model -> addMavenDependencyRoots(project, model, dependencyRoots));
+        } else {
+            addLocalJarRoots(project, dependencyRoots);
+        }
+
+        return normalizePaths(dependencyRoots);
+    }
+
+    private static List<Path> resolveClasspathRoots(Project project) {
+        List<Path> classpathRoots = new ArrayList<>();
+        if (project.hasFacet(FacetManager.MAVEN)) {
+            consumeMavenModel(project, model -> {
+                addMavenDependencyRoots(project, model, classpathRoots);
+
+                Path buildDirectory = resolveMavenBuildDirectory(project, model);
+                addReadableDirectory(classpathRoots, buildDirectory.resolve("classes"));
+                addReadableDirectory(classpathRoots, buildDirectory.resolve("test-classes"));
+            });
+        } else {
+            addLocalJarRoots(project, classpathRoots);
+        }
+
+        return normalizePaths(classpathRoots);
+    }
+
+    private static List<Path> resolveModuleRoots(Project project) {
+        List<Path> moduleRoots = new ArrayList<>();
+        if (project.hasFacet(FacetManager.MAVEN)) {
+            addMavenModuleRoots(project.getPath(), moduleRoots);
+        }
+
+        return normalizePaths(moduleRoots);
+    }
+
+    private static Path resolveJdkHome() {
+        String javaHome = System.getProperty("java.home");
+        if (javaHome == null || javaHome.isBlank())
+            return null;
+
+        Path path = Path.of(javaHome);
+        if (Files.exists(path) && Files.isDirectory(path) && Files.isReadable(path))
+            return FileUtils.normalizePath(path);
+
+        return null;
+    }
+
+    private static void addMavenDependencyRoots(Project project, Model model, List<Path> roots) {
+        addMavenDependencyRoots(project, model, roots, false);
+    }
+
+    private static void addMavenDependencyRoots(Project project, Model model, List<Path> roots, boolean failOnError) {
+        List<Dependency> dependencies = model.getDependencies();
+        if (dependencies == null || dependencies.isEmpty())
+            return;
+
+        for (Dependency dependency : dependencies) {
+            addMavenSystemDependencyRoot(project, dependency, roots);
+        }
+
+        coursierapi.Dependency[] coursierDependencies = dependencies.stream()
+            .filter(JvmProjectResolver::shouldResolveWithCoursier)
+            .map(dependency -> coursierapi.Dependency.of(
+                dependency.getGroupId(),
+                dependency.getArtifactId(),
+                dependency.getVersion()))
+            .toArray(coursierapi.Dependency[]::new);
+
+        if (coursierDependencies.length == 0)
+            return;
+
+        MavenRepository[] repositories = model.getRepositories().stream()
+            .map(org.apache.maven.model.Repository::getUrl)
+            .filter(Objects::nonNull)
+            .filter(url -> !url.isBlank())
+            .map(MavenRepository::of)
+            .toArray(MavenRepository[]::new);
+
+        Fetch fetch = Fetch.create()
+            .addRepositories(repositories)
+            .addRepositories(Repository.central())
+            .addDependencies(coursierDependencies);
+
+        var progress = ActivityProgress.current();
+        if (progress != ActivityProgress.NONE) {
+            var downloads = new DownloadProgress(progress);
+            fetch.getCache().withLogger(new CacheLogger() {
+                @Override
+                public void downloadLength(String url, long totalLength, long alreadyDownloaded, boolean watching) {
+                    downloads.update(url, alreadyDownloaded, totalLength);
+                }
+
+                @Override
+                public void downloadProgress(String url, long downloaded) {
+                    downloads.update(url, downloaded, -1);
+                }
+
+                @Override
+                public void downloadedArtifact(String url, boolean success) {
+                    downloads.finish(url);
+                }
+            });
+        }
+
+        try {
+            for (File jar : fetch.fetch()) {
+                addReadableFile(roots, jar.toPath());
+            }
+        } catch (CoursierError error) {
+            if (failOnError)
+                throw new IllegalStateException("Cannot resolve Maven dependencies for " + project.getPath(), error);
+
+            Railroad.LOGGER.error("Error resolving Maven dependencies for {}", project.getPath(), error);
+        }
+    }
+
+    private static boolean shouldResolveWithCoursier(Dependency dependency) {
+        if (dependency.getGroupId() == null || dependency.getArtifactId() == null || dependency.getVersion() == null)
+            return false;
+
+        if ("system".equals(dependency.getScope()) || "import".equals(dependency.getScope()))
+            return false;
+
+        String type = dependency.getType();
+        return type == null || type.isBlank() || "jar".equals(type) || "bundle".equals(type) || "test-jar".equals(type);
+    }
+
+    private static void addMavenSystemDependencyRoot(Project project, Dependency dependency, List<Path> roots) {
+        if (!"system".equals(dependency.getScope()) || dependency.getSystemPath() == null
+            || dependency.getSystemPath().isBlank())
+            return;
+
+        try {
+            addReadableFile(roots, resolveProjectPath(project, dependency.getSystemPath(), dependency.getSystemPath()));
+        } catch (InvalidPathException exception) {
+            Railroad.LOGGER.warn("Ignoring invalid Maven system dependency path '{}' in {}", dependency.getSystemPath(),
+                project.getPath(), exception);
+        }
+    }
+
+    private static void addMavenModuleRoots(Path projectRoot, List<Path> moduleRoots) {
+        Optional<Model> model = buildMavenModel(projectRoot);
+        if (model.isEmpty())
+            return;
+
+        List<String> modules = model.get().getModules();
+        if (modules == null || modules.isEmpty())
+            return;
+
+        for (String module : modules) {
+            if (module == null || module.isBlank())
+                continue;
+
+            Path moduleRoot = projectRoot.resolve(module);
+            addReadableDirectory(moduleRoots, moduleRoot);
+            addMavenModuleRoots(moduleRoot, moduleRoots);
+        }
+    }
+
+    private static void addLocalJarRoots(Project project, List<Path> roots) {
+        addLocalJarRoots(project.getPath().resolve("lib"), roots);
+        addLocalJarRoots(project.getPath().resolve("libs"), roots);
+    }
+
+    private static void addLocalJarRoots(Path directory, List<Path> roots) {
+        if (!Files.exists(directory) || !Files.isDirectory(directory) || !Files.isReadable(directory))
+            return;
+
+        try (var paths = Files.list(directory)) {
+            paths
+                .filter(path -> path.getFileName().toString().endsWith(".jar"))
+                .sorted()
+                .forEach(path -> addReadableFile(roots, path));
+        } catch (Exception exception) {
+            Railroad.LOGGER.error("Error resolving local JAR roots from {}", directory, exception);
+        }
+    }
+
+    private static Path resolveMavenBuildDirectory(Project project, Model model) {
+        Build build = model.getBuild();
+        return resolveProjectPath(project, build != null ? build.getDirectory() : null, "target");
+    }
+
+    private static Path resolveProjectPath(Project project, String value, String defaultValue) {
+        String path = value == null || value.isBlank() ? defaultValue : value;
+        return project.getPath().resolve(path);
+    }
+
+    private static void addReadableDirectory(List<Path> paths, Path path) {
+        if (path != null && Files.exists(path) && Files.isDirectory(path) && Files.isReadable(path)) {
+            paths.add(path);
+        }
+    }
+
+    private static void addReadableFile(List<Path> paths, Path path) {
+        if (path != null && Files.exists(path) && Files.isRegularFile(path) && Files.isReadable(path)) {
+            paths.add(path);
+        }
+    }
+
+    private static List<Path> normalizePaths(List<Path> paths) {
+        if (paths.isEmpty())
+            return List.of();
+
+        return new ArrayList<>(new LinkedHashSet<>(FileUtils.normalizePaths(paths)));
+    }
+
+    private static void consumeMavenModel(Project project, Consumer<Model> modelConsumer) {
+        MAVEN_MODELS.loadEffectiveModel(project.getPath()).ifPresent(modelConsumer);
+    }
+
+    private static Optional<Model> buildMavenModel(Path projectRoot) {
+        return MAVEN_MODELS.loadEffectiveModel(projectRoot);
+    }
+
+    /**
+     * Returns the imported Gradle model without waiting for one. When none is cached an import is started, and the
+     * workspace configuration refreshes project indexes once it publishes the model.
+     */
+    private static Optional<GradleBuildModel> loadGradleModel(Project project) {
+        if (!project.hasFacet(FacetManager.GRADLE))
+            return Optional.empty();
+
+        GradleModelService models = project.getGradleManager().getGradleModelService();
+        Optional<GradleBuildModel> cachedModel = models.getCachedModel();
+        if (cachedModel.isEmpty()) {
+            models.refreshModel(false);
+        }
+
+        return cachedModel;
+    }
+}

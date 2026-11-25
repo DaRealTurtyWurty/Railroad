@@ -32,7 +32,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
-import dev.railroadide.railroad.ide.language.impl.index.JavaLanguageIndexContext;
+import dev.railroadide.railroad.ide.language.index.WorkspaceConfigurationParticipant;
+import dev.railroadide.railroad.ide.language.jvm.JvmIndexContext;
+import dev.railroadide.railroad.ide.language.jvm.JvmProjectModel;
+import java.util.function.BiFunction;
+import java.util.function.Supplier;
 import dev.railroadide.railroad.ide.language.impl.index.JavaLanguageIndexContextContributor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarEntry;
@@ -73,13 +77,13 @@ public class ProjectWorkspaceConfigurationTest {
             var pending = new PendingResolution(Thread.currentThread(), new CompletableFuture<>());
             dependencies.add(pending);
             return pending.result().join();
-        }, session, (owner, candidate) -> {
+        }, session, preparing((owner, candidate) -> {
             var pending = new PendingBinary(Thread.currentThread(), candidate, new CompletableFuture<>());
             binaries.add(pending);
             // join deliberately ignores task interruption: publication must check ownership itself.
             pending.release().join();
             return provider.prepareConfiguration(owner, candidate);
-        })) {
+        }))) {
             PendingResolution a = awaitRequest(dependencies);
             a.result().complete(dependencyContext("A.jar"));
             PendingBinary binaryA = binaries.poll(10, TimeUnit.SECONDS);
@@ -145,7 +149,7 @@ public class ProjectWorkspaceConfigurationTest {
         var finished = new CountDownLatch(1);
         var indexes = JavaLanguageSupport.analysisContextProvider();
         try (var tracker = new ProjectWorkspaceConfiguration(project, store, _ -> null, session,
-            (owner, configuration) -> {
+            preparing((owner, configuration) -> {
                 if ("B".equals(configuration.settings().get("project.build.gradle.properties"))) {
                     entered.countDown();
                     boolean interrupted = false;
@@ -166,7 +170,7 @@ public class ProjectWorkspaceConfigurationTest {
                 }
 
                 return indexes.prepareConfiguration(owner, configuration);
-            })) {
+            }))) {
             tracker.ready().get(10, TimeUnit.SECONDS);
             WorkspaceSnapshot original = store.capture();
             Files.writeString(settings, "B");
@@ -358,12 +362,12 @@ public class ProjectWorkspaceConfigurationTest {
         service.setAccessible(true);
         service.set(project.getGradleManager(), models);
 
-        JavaLanguageIndexContext context = assertTimeoutPreemptively(Duration.ofSeconds(5),
-            () -> (JavaLanguageIndexContext) new JavaLanguageIndexContextContributor().resolve(project));
+        JvmIndexContext context = assertTimeoutPreemptively(Duration.ofSeconds(5),
+            () -> new JavaLanguageIndexContextContributor().resolve(project));
 
         assertEquals(1, requests.get());
         assertTrue(context.sourceRoots().isEmpty());
-        assertTrue(context.classpathRoots().isEmpty());
+        assertTrue(context.model().classpathRoots().isEmpty());
     }
 
     @Test
@@ -376,7 +380,7 @@ public class ProjectWorkspaceConfigurationTest {
         var store = new DefaultDocumentStore(project.getId(), ProjectWorkspaceConfiguration.initial(project));
         var indexes = JavaLanguageSupport.analysisContextProvider();
         try (var tracker = new ProjectWorkspaceConfiguration(project, store, _ -> null, session,
-            indexes::prepareConfiguration)) {
+            preparing(indexes::prepareConfiguration))) {
             tracker.ready().get(10, TimeUnit.SECONDS);
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
             while (service.current(project, JavaLanguageSupport.LANGUAGE_ID) == null && System.nanoTime() < deadline) {
@@ -399,9 +403,9 @@ public class ProjectWorkspaceConfigurationTest {
         ProjectLanguageIndexService.Session session = service.openProject(project);
         var store = new DefaultDocumentStore(project.getId(), ProjectWorkspaceConfiguration.initial(project));
         var indexes = JavaLanguageSupport.analysisContextProvider();
-        try (var _ = new ProjectWorkspaceConfiguration(project, store, _ -> null, session, (_, _) -> {
+        try (var _ = new ProjectWorkspaceConfiguration(project, store, _ -> null, session, preparing((_, _) -> {
             throw new IllegalStateException("Libraries are unavailable");
-        })) {
+        }))) {
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
             while (service.current(project, JavaLanguageSupport.LANGUAGE_ID) == null && System.nanoTime() < deadline) {
                 Thread.sleep(25);
@@ -685,10 +689,40 @@ public class ProjectWorkspaceConfigurationTest {
         };
     }
 
-    private JavaLanguageIndexContext dependencyContext(String jar) {
+    private JvmProjectModel dependencyContext(String jar) {
         List<Path> dependencies = List.of(directory.resolve(jar));
-        return new JavaLanguageIndexContext(List.of(directory.resolve("src/main/java")), List.of(),
+        return new JvmProjectModel(List.of(directory.resolve("src/main/java")), List.of(),
             dependencies, dependencies, List.of(), Path.of(System.getProperty("java.home")));
+    }
+
+    private static Supplier<List<WorkspaceConfigurationParticipant>> preparing(
+        BiFunction<ProjectLanguageIndexService.Session, WorkspaceConfigurationSnapshot, WorkspaceConfigurationSnapshot> prepare
+    ) {
+        var java = JavaLanguageSupport.analysisContextProvider();
+        WorkspaceConfigurationParticipant participant = new WorkspaceConfigurationParticipant() {
+            @Override
+            public WorkspaceConfigurationSnapshot prepare(
+                ProjectLanguageIndexService.Session session,
+                WorkspaceConfigurationSnapshot configuration
+            ) {
+                return prepare.apply(session, configuration);
+            }
+
+            @Override
+            public void adopt(
+                ProjectLanguageIndexService.Session session,
+                WorkspaceConfigurationSnapshot configuration
+            ) {
+                java.adoptConfiguration(session, configuration);
+            }
+
+            @Override
+            public void release(ProjectLanguageIndexService.Session session) {
+                java.closeSession(session);
+            }
+        };
+
+        return () -> List.of(participant);
     }
 
     private static PendingResolution awaitRequest(BlockingQueue<PendingResolution> requests) throws Exception {
@@ -703,7 +737,7 @@ public class ProjectWorkspaceConfigurationTest {
         return task.get(10, TimeUnit.SECONDS);
     }
 
-    private record PendingResolution(Thread worker, CompletableFuture<JavaLanguageIndexContext> result) {
+    private record PendingResolution(Thread worker, CompletableFuture<JvmProjectModel> result) {
         private void awaitFinished() throws Exception {
             worker.join(10_000);
             assertFalse(worker.isAlive());

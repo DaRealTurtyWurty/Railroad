@@ -1,6 +1,6 @@
 package dev.railroadide.railroad.ide;
 
-import dev.railroadide.railroad.ide.language.impl.JavaLanguageSupport;
+import dev.railroadide.railroad.ide.language.index.WorkspaceConfigurationParticipant;
 import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
 
 import dev.railroadide.railroad.Railroad;
@@ -81,9 +81,17 @@ public class DefaultIDEStateService implements IDEStateService {
             ProjectLanguageIndexService.Session previousSession = Services.PROJECT_LANGUAGE_INDEX_SERVICE
                 .session(currentProject);
             Services.PROJECT_LANGUAGE_INDEX_SERVICE.closeProject(previousSession);
-            JavaLanguageSupport.analysisContextProvider()
-                .closeSession(previousSession);
             if (currentProject != null) {
+                try {
+                    for (WorkspaceConfigurationParticipant participant : WorkspaceConfigurationParticipant
+                        .of(currentProject)) {
+                        participant.release(previousSession);
+                    }
+                } catch (RuntimeException exception) {
+                    Railroad.LOGGER.error("Unable to release workspace configuration state for the previous project",
+                        exception);
+                }
+
                 try {
                     LanguageSupportRegistry.runtime().closeProject(currentProject);
                 } catch (RuntimeException exception) {

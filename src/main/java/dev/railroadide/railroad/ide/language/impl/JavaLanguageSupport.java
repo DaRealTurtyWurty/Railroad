@@ -9,6 +9,9 @@ import dev.railroadide.railroad.ide.language.impl.index.JavaAnalysisContextProvi
 import dev.railroadide.railroad.ide.sst.project.JavaLibrarySources;
 import dev.railroadide.railroad.ide.language.impl.index.JavaLanguageIndexContextContributor;
 import dev.railroadide.railroad.ide.language.impl.index.JavaProjectLanguageIndexer;
+import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexService.Session;
+import dev.railroadide.railroad.ide.language.index.WorkspaceConfigurationParticipant;
+import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnapshot;
 import dev.railroadide.railroad.ide.signature.JavaSignatureHelpProvider;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSstServices;
@@ -64,6 +67,7 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
             SstCapabilities.INDEX_QUERY, SstCapabilities.DIAGNOSTICS,
             SstCapabilities.COMPLETION, SstCapabilities.SIGNATURE_HELP, LanguageCapabilities.INDEXER,
             LanguageCapabilities.PERSISTENCE, LanguageCapabilities.INDEX_CONTEXT, LanguageCapabilities.INDEX_WARMUP,
+            LanguageCapabilities.WORKSPACE_CONFIGURATION,
             LanguageCapabilities.HIGHLIGHTING, LanguageCapabilities.EDITOR_FEATURES, SstCapabilities.NAVIGATION,
             SstCapabilities.RENAME,
             SstCapabilities.CODE_ACTIONS);
@@ -87,10 +91,28 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
             .add(LanguageCapabilities.PERSISTENCE, new JavaProjectSemanticPersistence())
             .add(LanguageCapabilities.INDEX_CONTEXT, new JavaLanguageIndexContextContributor())
             .add(LanguageCapabilities.INDEX_WARMUP, ANALYSIS_CONTEXT_PROVIDER::index)
+            .add(LanguageCapabilities.WORKSPACE_CONFIGURATION, new JavaWorkspaceConfigurationParticipant())
             .add(SstCapabilities.NAVIGATION, semantics)
             .add(SstCapabilities.RENAME, semantics)
             .add(SstCapabilities.CODE_ACTIONS, semantics)
             .build());
+    }
+
+    private static final class JavaWorkspaceConfigurationParticipant implements WorkspaceConfigurationParticipant {
+        @Override
+        public WorkspaceConfigurationSnapshot prepare(Session session, WorkspaceConfigurationSnapshot configuration) {
+            return ANALYSIS_CONTEXT_PROVIDER.prepareConfiguration(session, configuration);
+        }
+
+        @Override
+        public void adopt(Session session, WorkspaceConfigurationSnapshot configuration) {
+            ANALYSIS_CONTEXT_PROVIDER.adoptConfiguration(session, configuration);
+        }
+
+        @Override
+        public void release(Session session) {
+            ANALYSIS_CONTEXT_PROVIDER.closeSession(session);
+        }
     }
 
     /**

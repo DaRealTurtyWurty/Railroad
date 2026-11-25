@@ -1,5 +1,7 @@
 package dev.railroadide.railroad.ide.language.impl.index;
 
+import dev.railroadide.railroad.ide.language.jvm.JvmIndexContext;
+import dev.railroadide.railroad.ide.language.jvm.JvmProjectModel;
 import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.ide.WorkspaceModes;
 import dev.railroadide.railroad.ide.language.index.ProjectIndexContext;
@@ -64,16 +66,18 @@ public class JavaCacheLifecycleTest {
                 }
             };
 
-            var language = new JavaLanguageIndexContext(List.of(), List.of(), cancellingRoots, List.of(), List.of(),
-                jdk);
+            var language = new JvmIndexContext("java",
+                new JvmProjectModel(List.of(), List.of(), cancellingRoots, List.of(), List.of(),
+                    jdk));
             var request = new ProjectIndexContext(project, root, Map.of("java", language), session,
                 session.configurationGeneration(), cancellation.token());
             assertThrows(CancellationException.class, () -> provider.index(request));
             assertTrue(cancellation.token().isCancellationRequested());
 
             archive(jar, "demo/Library", "newValue");
-            var retryLanguage = new JavaLanguageIndexContext(List.of(), List.of(), List.of(jar), List.of(), List.of(),
-                jdk);
+            var retryLanguage = new JvmIndexContext("java",
+                new JvmProjectModel(List.of(), List.of(), List.of(jar), List.of(), List.of(),
+                    jdk));
             var retry = new ProjectIndexContext(project, root, Map.of("java", retryLanguage), session);
             JavaSymbolIndex result = provider.index(retry);
             assertNotNull(result);
@@ -114,8 +118,9 @@ public class JavaCacheLifecycleTest {
 
         try (var provider = new JavaAnalysisContextProvider(); var workers = Executors.newFixedThreadPool(2)) {
             provider.adoptConfiguration(session, provider.prepareConfiguration(session, configuration(jar, jdk)));
-            var language = new JavaLanguageIndexContext(List.of(), List.of(), List.of(jar), List.of(), List.of(),
-                jdk);
+            var language = new JvmIndexContext("java",
+                new JvmProjectModel(List.of(), List.of(), List.of(jar), List.of(), List.of(),
+                    jdk));
             Future<JavaSymbolIndex> first = workers.submit(() -> provider.index(new ProjectIndexContext(project, root,
                 Map.of("java", language), session, session.configurationGeneration(), pausesWhileBuilding)));
             assertTrue(building.await(5, TimeUnit.SECONDS));
@@ -146,8 +151,9 @@ public class JavaCacheLifecycleTest {
             "module.:loader.directory", loader.getParent().toString(),
             "module.:loader.classpath", String.join("\n", loader.toString(), common.toString()),
             "module.:loader.jdkHome", jdk.toString()));
-        var language = new JavaLanguageIndexContext(List.of(), List.of(), List.of(), List.of(), List.of(), null,
-            configuration);
+        var language = new JvmIndexContext("java",
+            new JvmProjectModel(List.of(), List.of(), List.of(), List.of(), List.of(), null,
+                configuration));
         Project project = project();
         var service = Services.PROJECT_LANGUAGE_INDEX_SERVICE;
         ProjectLanguageIndexService.Session session = service.openProject(project);
@@ -180,8 +186,9 @@ public class JavaCacheLifecycleTest {
             "module.:.set.test.sources", test.toString(), "module.:.set.test.classpath", output.toString(),
             "module.:.set.main.outputs", output.toString(), "module.:.set.main.jdkHome", mainJdk.toString(),
             "module.:.set.test.jdkHome", testJdk.toString()));
-        var language = new JavaLanguageIndexContext(List.of(main, test), List.of(), List.of(), List.of(), List.of(),
-            null, raw);
+        var language = new JvmIndexContext("java",
+            new JvmProjectModel(List.of(main, test), List.of(), List.of(), List.of(), List.of(),
+                null, raw));
         Project project = project();
         var service = Services.PROJECT_LANGUAGE_INDEX_SERVICE;
         ProjectLanguageIndexService.Session session = service.openProject(project);
@@ -218,8 +225,9 @@ public class JavaCacheLifecycleTest {
                 new DefaultDocumentStore("test", prepared).capture(), CancellationToken.none(), Deadline.none()))
                 .symbols();
             services.close();
-            var language = new JavaLanguageIndexContext(List.of(), List.of(), List.of(), List.of(), List.of(), null,
-                raw);
+            var language = new JvmIndexContext("java",
+                new JvmProjectModel(List.of(), List.of(), List.of(), List.of(), List.of(), null,
+                    raw));
             JavaSymbolIndex live = provider
                 .index(new ProjectIndexContext(project, root, Map.of("java", language), session));
 

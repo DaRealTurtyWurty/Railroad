@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.language.impl.index;
 
+import dev.railroadide.railroad.ide.language.jvm.JvmSourceSets;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import dev.railroadide.railroad.ide.activity.ActivityProgress;
@@ -461,9 +462,9 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
 
         if (scope.sourceSet() != null)
             return document.uri().filePath()
-                .filter(path -> JavaSourceSets.of(configuration).visible(scope.sourceSet(), path)).isPresent();
+                .filter(path -> JvmSourceSets.of(configuration).visible(scope.sourceSet(), path)).isPresent();
 
-        return document.uri().filePath().map(JavaSourceSets::lookupPath)
+        return document.uri().filePath().map(JvmSourceSets::lookupPath)
             .map(path -> roots.stream().anyMatch(path::startsWith)).orElse(true);
     }
 
@@ -480,14 +481,14 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
         String sources = configuration.settings().getOrDefault("module." + module + ".sources", "");
         return sources.lines().filter(line -> !line.isBlank())
             .map(line -> line.replaceFirst(":(?:test:)?generated=(?:true|false)$", ""))
-            .map(Path::of).map(JavaSourceSets::lookupPath).toList();
+            .map(Path::of).map(JvmSourceSets::lookupPath).toList();
     }
 
     private static String moduleForPath(WorkspaceConfigurationSnapshot configuration, Path path) {
         if (path == null)
             return null;
 
-        Path file = JavaSourceSets.lookupPath(path);
+        Path file = JvmSourceSets.lookupPath(path);
         String owner = null;
         int bestSource = -1;
         int bestDirectory = -1;
@@ -501,7 +502,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
             String directory = settings.get(prefix + "directory");
             int directoryDepth = directory == null || directory.isBlank()
                 ? -1
-                : matchingDepth(file, JavaSourceSets.lookupPath(Path.of(directory)));
+                : matchingDepth(file, JvmSourceSets.lookupPath(Path.of(directory)));
             int sourceDepth = sourceRoots(configuration, module).stream()
                 .mapToInt(root -> matchingDepth(file, root)).max().orElse(-1);
             if (sourceDepth > bestSource || sourceDepth == bestSource && directoryDepth > bestDirectory) {
@@ -553,8 +554,8 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
         Path file,
         DocumentSnapshot document
     ) {
-        var sets = JavaSourceSets.of(configuration);
-        JavaSourceSets.Scope owner = sets.owner(file);
+        var sets = JvmSourceSets.of(configuration);
+        JvmSourceSets.Scope owner = sets.owner(file);
         String module = owner == null ? moduleForPath(configuration, file) : owner.module();
         if (module != null && (document == null || document.origin().provenance() != ProvenanceKind.ATTACHED_SOURCE))
             return new SourceContext(module, null, owner);
@@ -577,7 +578,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
      * @param archive binary owning an attached source, or null for a project source
      * @param sourceSet source set importing the archive, or null when unknown
      */
-    public record SourceContext(String module, Path archive, JavaSourceSets.Scope sourceSet) {
+    public record SourceContext(String module, Path archive, JvmSourceSets.Scope sourceSet) {
         /**
          * Creates a context without a known importing source set.
          *
@@ -634,7 +635,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
 
     private static List<Path> classpath(WorkspaceConfigurationSnapshot configuration, String selectedModule) {
         Set<Path> roots = new LinkedHashSet<>();
-        Set<Path> outputs = new HashSet<>(JavaSourceSets.of(configuration).outputs());
+        Set<Path> outputs = new HashSet<>(JvmSourceSets.of(configuration).outputs());
         for (String module : configuration.moduleIds()) {
             for (String kind : List.of("output", "testOutput")) {
                 String output = configuration.settings().get("module." + module + "." + kind);

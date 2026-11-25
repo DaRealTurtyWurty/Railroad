@@ -34,6 +34,11 @@ public final class LanguageCapabilities {
      */
     public static final CapabilityKey<IndexWarmup> INDEX_WARMUP = new CapabilityKey<>("railroad:index-warmup",
         IndexWarmup.class);
+    /**
+     * Session service that derives settings for, and adopts, each published workspace configuration.
+     */
+    public static final CapabilityKey<WorkspaceConfigurationParticipant> WORKSPACE_CONFIGURATION = new CapabilityKey<>(
+        "railroad:workspace-configuration", WorkspaceConfigurationParticipant.class);
 
     /**
      * Session service that supplies syntax styles for the editor.

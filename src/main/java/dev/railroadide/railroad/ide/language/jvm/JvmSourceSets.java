@@ -1,4 +1,4 @@
-package dev.railroadide.railroad.ide.language.impl.index;
+package dev.railroadide.railroad.ide.language.jvm;
 
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -10,11 +10,13 @@ import java.nio.file.Path;
 import java.util.*;
 
 /**
- * The Java compile inputs of each source set in one imported build.
+ * The compile inputs of each source set in one imported JVM build, read from the workspace configuration that
+ * {@link dev.railroadide.railroad.ide.ProjectWorkspaceConfiguration} publishes. Every JVM language resolves its
+ * classpath, JDK and visible source roots through this view rather than parsing the settings itself.
  */
-public final class JavaSourceSets {
-    private static final LoadingCache<WorkspaceConfigurationSnapshot, JavaSourceSets> CACHE = CacheBuilder.newBuilder()
-        .weakKeys().maximumSize(16).build(CacheLoader.from(JavaSourceSets::new));
+public final class JvmSourceSets {
+    private static final LoadingCache<WorkspaceConfigurationSnapshot, JvmSourceSets> CACHE = CacheBuilder.newBuilder()
+        .weakKeys().maximumSize(16).build(CacheLoader.from(JvmSourceSets::new));
 
     /**
      * The compile inputs of one source set.
@@ -40,7 +42,7 @@ public final class JavaSourceSets {
     private final List<Scope> scopes;
     private final Set<Path> outputs;
 
-    private JavaSourceSets(WorkspaceConfigurationSnapshot configuration) {
+    private JvmSourceSets(WorkspaceConfigurationSnapshot configuration) {
         Map<String, String> settings = configuration.settings();
         openRoot = settings.containsKey("gradle.openRoot")
             ? lookupPath(Path.of(settings.get("gradle.openRoot")))
@@ -94,7 +96,7 @@ public final class JavaSourceSets {
      * @param configuration captured workspace configuration
      * @return source sets described by the configuration
      */
-    public static JavaSourceSets of(WorkspaceConfigurationSnapshot configuration) {
+    public static JvmSourceSets of(WorkspaceConfigurationSnapshot configuration) {
         return CACHE.getUnchecked(configuration);
     }
 
@@ -193,6 +195,6 @@ public final class JavaSourceSets {
 
     private static List<Path> paths(Map<String, String> settings, String key) {
         return settings.getOrDefault(key, "").lines().filter(line -> !line.isBlank()).map(Path::of)
-            .map(JavaSourceSets::lookupPath).distinct().toList();
+            .map(JvmSourceSets::lookupPath).distinct().toList();
     }
 }

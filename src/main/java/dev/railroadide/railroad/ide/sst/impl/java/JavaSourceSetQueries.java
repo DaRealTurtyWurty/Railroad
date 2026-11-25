@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.ide.sst.impl.java;
 
 import dev.railroadide.railroad.ide.language.impl.index.*;
+import dev.railroadide.railroad.ide.language.jvm.JvmSourceSets;
 import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.graph.api.*;
 import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolIds;
@@ -19,8 +20,8 @@ public final class JavaSourceSetQueries {
     private final FeatureRequestContext request;
     private final Function<FeatureRequestContext, JavaWorkspaceAnalysis> capture;
     private final JavaWorkspaceAnalysis origin;
-    private final JavaSourceSets sets;
-    private final JavaSourceSets.Scope scope;
+    private final JvmSourceSets sets;
+    private final JvmSourceSets.Scope scope;
     private final boolean libraryView;
 
     /**
@@ -36,14 +37,14 @@ public final class JavaSourceSetQueries {
         this.request = request;
         this.capture = capture;
         this.origin = capture.apply(request);
-        this.sets = JavaSourceSets.of(request.workspaceSnapshot().configuration());
+        this.sets = JvmSourceSets.of(request.workspaceSnapshot().configuration());
         this.scope = owner(request.documentSnapshot());
         ProvenanceKind provenance = request.documentSnapshot().origin().provenance();
         this.libraryView = !sets.isEmpty() && (provenance == ProvenanceKind.ATTACHED_SOURCE
             || provenance == ProvenanceKind.DECOMPILED);
     }
 
-    private JavaSourceSets.Scope owner(DocumentSnapshot document) {
+    private JvmSourceSets.Scope owner(DocumentSnapshot document) {
         return document.origin().provenance() == ProvenanceKind.ATTACHED_SOURCE
             ? null
             : document.uri().filePath().map(sets::owner).orElse(null);
@@ -149,7 +150,7 @@ public final class JavaSourceSetQueries {
     private void visitScopes(
         Set<SymbolId> targets,
         boolean includeDependencies,
-        BiConsumer<JavaSourceSets.Scope, JavaWorkspaceAnalysis> visit
+        BiConsumer<JvmSourceSets.Scope, JavaWorkspaceAnalysis> visit
     ) {
         Map<String, SemanticIndexShard> declarations = new HashMap<>();
         for (SymbolId target : targets) {
@@ -166,7 +167,7 @@ public final class JavaSourceSetQueries {
         if (declarations.isEmpty())
             return;
 
-        Set<JavaSourceSets.Scope> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<JvmSourceSets.Scope> visited = Collections.newSetFromMap(new IdentityHashMap<>());
         visited.add(scope);
         WorkspaceSnapshot workspace = request.workspaceSnapshot();
         for (DocumentSnapshot document : workspace.documents().values()) {
@@ -174,7 +175,7 @@ public final class JavaSourceSetQueries {
             if (!(document instanceof TextDocumentSnapshot) || !"java".equals(document.languageId()))
                 continue;
 
-            JavaSourceSets.Scope candidate = owner(document);
+            JvmSourceSets.Scope candidate = owner(document);
             if (candidate == null || !visited.add(candidate))
                 continue;
 

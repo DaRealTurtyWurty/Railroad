@@ -6,7 +6,10 @@ import dev.railroadide.railroad.ide.language.index.ProjectIndexContext;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexCoordinator;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexService.Session;
 import dev.railroadide.railroad.Services;
-import dev.railroadide.railroad.ide.language.impl.JavaLanguageSupport;
+import dev.railroadide.railroad.ide.language.index.WorkspaceConfigurationParticipant;
+import dev.railroadide.railroad.ide.language.jvm.JvmIndexContext;
+import dev.railroadide.railroad.ide.language.jvm.JvmProjectModel;
+import dev.railroadide.railroad.ide.language.jvm.JvmProjectResolver;
 
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
@@ -21,8 +24,6 @@ import dev.railroadide.railroad.ide.sst.request.api.WorkspaceRequestContext;
 import dev.railroadide.railroad.ide.sst.provider.api.ProviderExecutor;
 import java.time.Duration;
 import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnapshot;
-import dev.railroadide.railroad.ide.language.impl.index.JavaLanguageIndexContext;
-import dev.railroadide.railroad.ide.language.impl.index.JavaLanguageIndexContextContributor;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.plugin.spi.event.EventListener;
 import dev.railroadide.railroad.plugin.spi.events.ProjectConfigurationChangedEvent;
@@ -45,7 +46,7 @@ import java.util.function.Consumer;
 import dev.railroadide.railroad.ide.sst.request.api.RequestContext;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.util.function.BiFunction;
+import java.util.function.Supplier;
 import org.gradle.tooling.model.DomainObjectSet;
 
 /**
@@ -53,6 +54,7 @@ import org.gradle.tooling.model.DomainObjectSet;
  */
 public final class ProjectWorkspaceConfiguration implements AutoCloseable {
     private static final String DEPENDENCIES_UNAVAILABLE = "dependencies.unavailable";
+    private static final String PREPARED = "index.prepared";
     private static final Duration CONFIGURATION_BUDGET = Duration.ofMinutes(2);
     private static final Duration WARMUP_BUDGET = Duration.ofMinutes(5);
     private static final List<String> BUILD_TOOL_FILES = List.of("pom.xml", "build.gradle", "build.gradle.kts",
@@ -68,8 +70,8 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
     private final ProjectDataStore.FileChangeListener settingsListener;
     private final GradleModelListener modelListener;
     private final EventListener<ProjectConfigurationChangedEvent> configurationListener;
-    private final Function<Project, JavaLanguageIndexContext> dependencyResolver;
-    private final BiFunction<Session, WorkspaceConfigurationSnapshot, WorkspaceConfigurationSnapshot> binaryPreparer;
+    private final Function<Project, JvmProjectModel> dependencyResolver;
+    private final Supplier<List<WorkspaceConfigurationParticipant>> participants;
     private final SstScheduler.Scope backgroundRequests = SstScheduler.shared().newScope();
     private Future<?> dependencyTask;
     private CompletableFuture<Void> resolution = CompletableFuture.completedFuture(null);
@@ -86,7 +88,7 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
      * @param store store receiving immutable configuration revisions
      */
     public ProjectWorkspaceConfiguration(Project project, DocumentStore store) {
-        this(project, store, new JavaLanguageIndexContextContributor()::resolveWorkspace,
+        this(project, store, JvmProjectResolver::resolveWorkspace,
             Services.PROJECT_LANGUAGE_INDEX_SERVICE.session(project));
     }
 
@@ -100,7 +102,7 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
     public ProjectWorkspaceConfiguration(
         Project project,
         DocumentStore store,
-        Function<Project, JavaLanguageIndexContext> dependencyResolver
+        Function<Project, JvmProjectModel> dependencyResolver
     ) {
         this(project, store, dependencyResolver, null);
     }
@@ -108,32 +110,31 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
     private ProjectWorkspaceConfiguration(
         Project project,
         DocumentStore store,
-        Function<Project, JavaLanguageIndexContext> dependencyResolver,
+        Function<Project, JvmProjectModel> dependencyResolver,
         Session indexSession
     ) {
-        this(project, store, dependencyResolver, indexSession,
-            (session, configuration) -> JavaLanguageSupport.analysisContextProvider().prepareConfiguration(session,
-                configuration));
+        this(project, store, dependencyResolver, indexSession, () -> WorkspaceConfigurationParticipant.of(project));
     }
 
     /**
-     * Creates configuration ownership with controlled dependency and artifact preparation.
+     * Creates configuration ownership with controlled dependency resolution and configuration participants.
      *
      * @param project configuration owner
      * @param store store receiving immutable configuration revisions
      * @param dependencyResolver resolver invoked on a background worker for Maven projects
      * @param indexSession active index session, or {@code null} for standalone configuration
-     * @param binaryPreparer prepares artifact identity on a background worker when a session is present
+     * @param participants supplies, for each publication, the participants that prepare and adopt it when a session
+     *            is present
      */
     public ProjectWorkspaceConfiguration(
         Project project,
         DocumentStore store,
-        Function<Project, JavaLanguageIndexContext> dependencyResolver,
+        Function<Project, JvmProjectModel> dependencyResolver,
         Session indexSession,
-        BiFunction<Session, WorkspaceConfigurationSnapshot, WorkspaceConfigurationSnapshot> binaryPreparer
+        Supplier<List<WorkspaceConfigurationParticipant>> participants
     ) {
         this.indexSession = indexSession;
-        this.binaryPreparer = Objects.requireNonNull(binaryPreparer);
+        this.participants = Objects.requireNonNull(participants);
         this.project = project;
         this.store = store;
         this.dependencyResolver = Objects.requireNonNull(dependencyResolver);
@@ -253,9 +254,10 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
      * @return initial settings including the captured Gradle modules when available
      */
     public static WorkspaceConfigurationSnapshot initial(ProjectIndexContext context) {
-        JavaLanguageIndexContext java = context.language(JavaLanguageSupport.LANGUAGE_ID,
-            JavaLanguageIndexContext.class);
-        WorkspaceConfigurationSnapshot gradle = java == null ? null : java.gradleConfiguration();
+        WorkspaceConfigurationSnapshot gradle = context.languages().values().stream()
+            .filter(JvmIndexContext.class::isInstance).map(JvmIndexContext.class::cast)
+            .map(language -> language.model().gradleConfiguration()).filter(Objects::nonNull).findFirst()
+            .orElse(null);
         if (gradle == null)
             return initial(context.project());
 
@@ -325,10 +327,10 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
         dependencyTask = submitBackground("dependencies", "railroad.activity.resolving_dependencies",
             CONFIGURATION_BUDGET, completed, request -> {
                 try {
-                    JavaLanguageIndexContext context = dependencyResolver.apply(project);
+                    JvmProjectModel model = dependencyResolver.apply(project);
                     request.checkActive();
                     Map<String, String> values = new TreeMap<>(inputs);
-                    captureJavaConfiguration(root, context, values);
+                    captureProjectModel(root, model, values);
                     synchronized (this) {
                         request.checkActive();
                         if (closed || generation != resolutionGeneration || !root.equals(project.getPath())
@@ -428,7 +430,7 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
     }
 
     /**
-     * Captures the imported module paths and ordered classpaths used by Java analysis.
+     * Captures the imported module paths and ordered classpaths used by JVM language analysis.
      *
      * @param model imported Gradle build
      * @return captured Gradle settings before publication into a workspace
@@ -571,7 +573,7 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
             previousInputs.keySet().removeIf(key -> key.startsWith("index."));
             Map<String, String> nextInputs = new TreeMap<>(values);
             nextInputs.keySet().removeIf(key -> key.startsWith("index."));
-            if (!forceBinaryRefresh && current.settings().containsKey("index.binary.fingerprint")
+            if (!forceBinaryRefresh && current.settings().containsKey(PREPARED)
                 && current.moduleIds().equals(ids) && previousInputs.equals(nextInputs)) {
                 // A revert to the published inputs also supersedes a different preparation in flight.
                 binaryGeneration++;
@@ -599,8 +601,17 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
                 CONFIGURATION_BUDGET,
                 completed, request -> {
                     try {
-                        var provider = JavaLanguageSupport.analysisContextProvider();
-                        WorkspaceConfigurationSnapshot prepared = binaryPreparer.apply(indexSession, candidate);
+                        List<WorkspaceConfigurationParticipant> owners = participants.get();
+                        WorkspaceConfigurationSnapshot prepared = candidate;
+                        for (WorkspaceConfigurationParticipant participant : owners) {
+                            request.checkActive();
+                            prepared = participant.prepare(indexSession, prepared);
+                        }
+
+                        Map<String, String> preparedValues = new TreeMap<>(prepared.settings());
+                        preparedValues.put(PREPARED, "true");
+                        prepared = new WorkspaceConfigurationSnapshot(prepared.revision(), prepared.moduleIds(),
+                            preparedValues);
                         synchronized (this) {
                             request.checkActive();
                             if (closed || indexSession.isClosed() || generation != binaryGeneration) {
@@ -609,7 +620,10 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
                             }
 
                             Services.PROJECT_LANGUAGE_INDEX_SERVICE.refreshProject(indexSession);
-                            provider.adoptConfiguration(indexSession, prepared);
+                            for (WorkspaceConfigurationParticipant participant : owners) {
+                                participant.adopt(indexSession, prepared);
+                            }
+
                             store.publishConfiguration(prepared);
                             if (!indexesWarmed) {
                                 indexesWarmed = true;
@@ -622,7 +636,7 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
                         completed.cancel(false);
                     } catch (Exception exception) {
                         if (!indexSession.isClosed()) {
-                            Railroad.LOGGER.warn("Cannot refresh Java binary inputs for {}", project.getPath(),
+                            Railroad.LOGGER.warn("Cannot prepare workspace configuration for {}", project.getPath(),
                                 exception);
                         }
 
@@ -680,9 +694,7 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
             .sorted().collect(Collectors.joining("\n")));
         captureMavenModules(project.getPath(), project.getPath(), values, new HashSet<>());
         if (!project.hasFacet(FacetManager.GRADLE) && !project.hasFacet(FacetManager.MAVEN)) {
-            captureJavaConfiguration(project.getPath(),
-                new JavaLanguageIndexContextContributor().resolveWorkspace(project),
-                values);
+            captureProjectModel(project.getPath(), JvmProjectResolver.resolveWorkspace(project), values);
         }
 
         for (String name : List.of("pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",
@@ -714,11 +726,7 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
         return values;
     }
 
-    private static void captureJavaConfiguration(
-        Path root,
-        JavaLanguageIndexContext context,
-        Map<String, String> values
-    ) {
+    private static void captureProjectModel(Path root, JvmProjectModel context, Map<String, String> values) {
         String prefix = "module.:.";
         values.put(prefix + "directory", root.toAbsolutePath().normalize().toString());
         values.put(prefix + "classpath", paths(context.classpathRoots().stream().map(Path::toFile).toList()));
