@@ -7,6 +7,7 @@ import javafx.css.PseudoClass;
 import javafx.scene.Node;
 import javafx.scene.layout.Region;
 import org.jspecify.annotations.Nullable;
+import org.fxmisc.richtext.CodeArea;
 
 import java.util.Objects;
 
@@ -25,6 +26,7 @@ public final class EditorFindHost extends Region {
     private final ChangeListener<Double> scrollListener = (_, _, _) -> requestLayout();
     private TextEditorPane editor;
     private FindReplaceBar bar;
+    private CodeArea renamePreview;
 
     /**
      * Creates a host for editor content.
@@ -80,7 +82,16 @@ public final class EditorFindHost extends Region {
      * @return whether a source editor is present
      */
     public boolean canFind() {
-        return editor != null;
+        return editor != null && renamePreview == null;
+    }
+
+    /**
+     * Returns the editing surface that receives clipboard and undo commands in this tab.
+     *
+     * @return active text surface, or null for non-text content
+     */
+    public @Nullable CodeArea editingSurface() {
+        return renamePreview == null ? editor : renamePreview;
     }
 
     /**
@@ -112,9 +123,27 @@ public final class EditorFindHost extends Region {
         return snapSizeY(Math.max(0, barHeight - scrollY));
     }
 
+    /**
+     * Places the temporary rename editor over the hosted document, or reveals the source when the session ends.
+     *
+     * @param preview inline rename editor, or null to remove it
+     */
+    public void setRenamePreview(@Nullable CodeArea preview) {
+        if (renamePreview != null) {
+            getChildren().remove(renamePreview);
+        }
+
+        renamePreview = preview;
+        if (preview != null) {
+            getChildren().add(preview);
+        }
+
+        requestLayout();
+    }
+
     @Override
     public void requestFocus() {
-        content.requestFocus();
+        (renamePreview == null ? content : renamePreview).requestFocus();
     }
 
     @Override
@@ -127,6 +156,10 @@ public final class EditorFindHost extends Region {
         double barHeight = barHeight(barWidth);
         double reserved = Math.min(reservedHeight(), height);
         content.resizeRelocate(left, top + reserved, width, height - reserved);
+        if (renamePreview != null) {
+            renamePreview.resizeRelocate(left, top + reserved, width, height - reserved);
+        }
+
         if (bar != null && bar.isVisible()) {
             bar.resizeRelocate(left, top, barWidth, barHeight);
             bar.pseudoClassStateChanged(OVERLAYING, reserved < barHeight);

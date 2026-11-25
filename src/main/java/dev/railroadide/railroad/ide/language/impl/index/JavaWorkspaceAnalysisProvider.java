@@ -463,8 +463,8 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
             return document.uri().filePath()
                 .filter(path -> JavaSourceSets.of(configuration).visible(scope.sourceSet(), path)).isPresent();
 
-        return document.uri().filePath().map(path -> roots.stream()
-            .anyMatch(path.toAbsolutePath().normalize()::startsWith)).orElse(true);
+        return document.uri().filePath().map(JavaSourceSets::lookupPath)
+            .map(path -> roots.stream().anyMatch(path::startsWith)).orElse(true);
     }
 
     private static Set<Path> sourceRoots(WorkspaceConfigurationSnapshot configuration) {
@@ -480,14 +480,14 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
         String sources = configuration.settings().getOrDefault("module." + module + ".sources", "");
         return sources.lines().filter(line -> !line.isBlank())
             .map(line -> line.replaceFirst(":(?:test:)?generated=(?:true|false)$", ""))
-            .map(Path::of).map(path -> path.toAbsolutePath().normalize()).toList();
+            .map(Path::of).map(JavaSourceSets::lookupPath).toList();
     }
 
     private static String moduleForPath(WorkspaceConfigurationSnapshot configuration, Path path) {
         if (path == null)
             return null;
 
-        Path file = path.toAbsolutePath().normalize();
+        Path file = JavaSourceSets.lookupPath(path);
         String owner = null;
         int bestSource = -1;
         int bestDirectory = -1;
@@ -501,7 +501,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
             String directory = settings.get(prefix + "directory");
             int directoryDepth = directory == null || directory.isBlank()
                 ? -1
-                : matchingDepth(file, Path.of(directory).toAbsolutePath().normalize());
+                : matchingDepth(file, JavaSourceSets.lookupPath(Path.of(directory)));
             int sourceDepth = sourceRoots(configuration, module).stream()
                 .mapToInt(root -> matchingDepth(file, root)).max().orElse(-1);
             if (sourceDepth > bestSource || sourceDepth == bestSource && directoryDepth > bestDirectory) {

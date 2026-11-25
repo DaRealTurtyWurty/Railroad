@@ -126,8 +126,13 @@ public final class JavaRenameEngine {
     public RenamePreparation prepare(int offset) {
         try {
             Target target = resolve(offset);
+            DocumentId document = target.caret().documentId();
+            Plan local = occurrences(target, target.name(), new Conflicts(), document);
+            List<TextRange> ranges = local.replacements(document).stream()
+                .filter(change -> change.start() < change.end())
+                .map(change -> new TextRange(change.start(), change.end())).toList();
             return new RenamePreparation.Renameable(target.id(), kindLabel(target.kind()), target.name(),
-                target.caret());
+                target.caret(), ranges);
         } catch (Rejection rejection) {
             return new RenamePreparation.Rejected(rejection.getMessage());
         }
@@ -156,18 +161,19 @@ public final class JavaRenameEngine {
                 + "started, and the name at the caret now refers to a different symbol", null)));
 
         var conflicts = new Conflicts();
-        validateName(target, newName, conflicts);
+        Plan plan = occurrences(target, newName, conflicts, null);
+        fileRename(target, newName, plan, conflicts);
         if (conflicts.blocking())
             return blocked(target.name(), newName, conflicts.list());
 
-        Plan plan = plan(target, newName, conflicts);
-        checkDeclarations(target, newName, plan, conflicts);
+        validateName(target, newName, conflicts);
+        if (!conflicts.blocking()) {
+            checkDeclarations(target, newName, plan, conflicts);
+        }
+
         if (!conflicts.blocking()) {
             verify(target, newName, plan, conflicts);
         }
-
-        if (conflicts.blocking())
-            return blocked(target.name(), newName, conflicts.list());
 
         unresolvedOccurrences(target, plan, conflicts);
         return new RenameProposal(target.name(), newName, edit(target, newName, plan), conflicts.list());
@@ -372,14 +378,14 @@ public final class JavaRenameEngine {
 
     // region Planning
 
-    private Plan plan(Target target, String newName, Conflicts conflicts) {
+    private Plan occurrences(Target target, String newName, Conflicts conflicts, @Nullable DocumentId only) {
         var plan = new Plan();
         boolean type = TYPE_KINDS.contains(target.kind());
         for (SymbolId id : target.family()) {
             for (ReferenceOccurrence reference : graph.referencesTo(id)) {
                 context.checkActive();
                 TextDocumentSnapshot document = documentOf(reference);
-                if (document == null)
+                if (document == null || only != null && !only.equals(document.id()))
                     continue;
 
                 List<TextRange> ranges = directRanges(document.text(), reference, target.name(), type);
@@ -397,8 +403,9 @@ public final class JavaRenameEngine {
             }
         }
 
+        Collection<SemanticIndexShard> shards = only == null ? sourceShards() : List.of(graph.shards().get(only));
         if (namedType(target.id())) {
-            for (SemanticIndexShard shard : sourceShards()) {
+            for (SemanticIndexShard shard : shards) {
                 TextDocumentSnapshot document = sources.get(shard.documentId());
                 for (ReferenceOccurrence reference : shard.references()) {
                     if (!reference.kind().equals(ReferenceKindId.IMPORT)
@@ -412,16 +419,15 @@ public final class JavaRenameEngine {
             }
         }
 
-        if (target.kind().equals(PARAMETER)) {
+        if (target.kind().equals(PARAMETER) && (only == null || only.equals(target.declaration().document().id()))) {
             parameterDocumentation(target).ifPresent(range -> plan.replace(target.declaration().document(), range,
                 newName));
         }
 
         if (annotationElement(target.descriptor())) {
-            annotationArguments(target, newName, plan, conflicts);
+            annotationArguments(target, newName, plan, conflicts, shards);
         }
 
-        fileRename(target, newName, plan, conflicts);
         plan.overlaps().forEach(document -> conflicts.add(error("Occurrences in " + fileName(document)
             + " overlap and cannot be renamed safely", null)));
         return plan;
@@ -564,10 +570,16 @@ public final class JavaRenameEngine {
      * gains an explicit element name. A usage whose annotation type is not resolved, such as an annotation nested in
      * another annotation's arguments, cannot be updated and blocks the rename if it might be of this type.
      */
-    private void annotationArguments(Target target, String newName, Plan plan, Conflicts conflicts) {
+    private void annotationArguments(
+        Target target,
+        String newName,
+        Plan plan,
+        Conflicts conflicts,
+        Collection<SemanticIndexShard> shards
+    ) {
         SymbolId annotation = target.descriptor().ownerId();
         String annotationName = simpleName(annotation);
-        for (SemanticIndexShard shard : sourceShards()) {
+        for (SemanticIndexShard shard : shards) {
             TextDocumentSnapshot document = sources.get(shard.documentId());
             if (annotationName == null || !document.text().contains(annotationName))
                 continue;
@@ -713,7 +725,14 @@ public final class JavaRenameEngine {
 
         Path renamed;
         try {
-            renamed = path.get().resolveSibling(newName + ".java");
+            Path filename = Path.of(newName + ".java");
+            if (filename.getRoot() != null || filename.getNameCount() != 1
+                || !filename.toString().equals(newName + ".java")) {
+                conflicts.add(error("The new name cannot be used as a file name", null));
+                return;
+            }
+
+            renamed = path.get().resolveSibling(filename);
         } catch (InvalidPathException exception) {
             conflicts.add(error("The new name cannot be used as a file name", null));
             return;

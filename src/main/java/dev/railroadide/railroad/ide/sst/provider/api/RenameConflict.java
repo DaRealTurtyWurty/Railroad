@@ -32,7 +32,8 @@ public record RenameConflict(Severity severity, String message, Location.@Nullab
      */
     public enum Severity {
         /**
-         * The rename would break or change the meaning of code and is not offered.
+         * The rename would break or change the meaning of code and requires an explicit override if an edit is
+         * available.
          */
         ERROR,
         /**

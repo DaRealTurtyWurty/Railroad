@@ -148,7 +148,8 @@ public class RenameDialogWorkspaceChangeTest {
         assertEquals(Optional.empty(), onFx(dialog::apply), "A stale preview must not be applied");
         assertEquals(CALC, Files.readString(root.resolve("p/Calc.java")));
         awaitPreview();
-        assertEquals(L18n.localize("railroad.rename.status.refreshed", 4, 3), onFx(dialog::statusText));
+        assertEquals(L18n.localize("railroad.rename.status.refreshed", L18n.localize("railroad.rename.occurrences", 4),
+            L18n.localize("railroad.rename.files", 3)), onFx(dialog::statusText));
         assertTrue(onFx(dialog::previewLines).stream().anyMatch(line -> line.contains("Calc.compute(1L)")),
             () -> String.valueOf(quietly(dialog::previewLines)));
 
@@ -216,10 +217,9 @@ public class RenameDialogWorkspaceChangeTest {
         RenamePreparation.Renameable symbol = assertInstanceOf(RenamePreparation.Renameable.class,
             services.prepareRename(context, offset).value());
         dialog = onFx(() -> {
-            var created = new RenameDialog(new RenameDialog.Request(services, CancellationToken.none(), store, use,
-                offset, symbol, () -> Optional.of(edits)));
-            created.setNewName(newName);
-            return created;
+            return new RenameDialog(new RenameDialog.Request(services, CancellationToken.none(), store, use,
+                offset, symbol, () -> Optional.of(edits)), newName, _ -> {
+                });
         });
     }
 

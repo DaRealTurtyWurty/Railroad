@@ -4,6 +4,8 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnapshot;
+import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 
@@ -40,8 +42,12 @@ public final class JavaSourceSets {
 
     private JavaSourceSets(WorkspaceConfigurationSnapshot configuration) {
         Map<String, String> settings = configuration.settings();
-        openRoot = settings.containsKey("gradle.openRoot") ? Path.of(settings.get("gradle.openRoot")) : null;
-        importRoot = settings.containsKey("gradle.importRoot") ? Path.of(settings.get("gradle.importRoot")) : null;
+        openRoot = settings.containsKey("gradle.openRoot")
+            ? lookupPath(Path.of(settings.get("gradle.openRoot")))
+            : null;
+        importRoot = settings.containsKey("gradle.importRoot")
+            ? lookupPath(Path.of(settings.get("gradle.importRoot")))
+            : null;
         record Input(String module, String name, String prefix, List<Path> roots) {
         }
 
@@ -92,8 +98,27 @@ public final class JavaSourceSets {
         return CACHE.getUnchecked(configuration);
     }
 
+    /**
+     * Expands Windows short names for comparisons with source roots supplied by build tools.
+     *
+     * @param path path to compare
+     * @return normalized lookup path
+     */
+    public static Path lookupPath(Path path) {
+        Path absolute = path.toAbsolutePath().normalize();
+        if (File.separatorChar == '\\' && absolute.toString().contains("~")) {
+            try {
+                return absolute.toFile().getCanonicalFile().toPath();
+            } catch (IOException _) {
+                return absolute;
+            }
+        }
+
+        return absolute;
+    }
+
     private Path importedPath(Path path) {
-        Path normalized = path.toAbsolutePath().normalize();
+        Path normalized = lookupPath(path);
         return openRoot != null && importRoot != null && normalized.startsWith(openRoot)
             ? importRoot.resolve(openRoot.relativize(normalized))
             : normalized;
@@ -168,6 +193,6 @@ public final class JavaSourceSets {
 
     private static List<Path> paths(Map<String, String> settings, String key) {
         return settings.getOrDefault(key, "").lines().filter(line -> !line.isBlank()).map(Path::of)
-            .map(path -> path.toAbsolutePath().normalize()).distinct().toList();
+            .map(JavaSourceSets::lookupPath).distinct().toList();
     }
 }

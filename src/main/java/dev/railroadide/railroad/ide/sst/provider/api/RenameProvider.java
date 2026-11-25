@@ -22,7 +22,7 @@ public interface RenameProvider {
      *
      * @param context captured document, workspace, cancellation token, and deadline
      * @param offset UTF-16 offset of the identifier to rename, or the offset just after it
-     * @return the renameable symbol and the identifier range at the position, or the reason it cannot be renamed
+     * @return the symbol and its linked identifier ranges in the requesting document, or a rejection
      */
     FeatureResult<RenamePreparation> prepareRename(FeatureRequestContext context, int offset);
 
@@ -37,7 +37,7 @@ public interface RenameProvider {
      * @param offset UTF-16 offset accepted by {@link #prepareRename}
      * @param symbol identity returned by {@link #prepareRename} as {@link RenamePreparation.Renameable#symbol()}
      * @param newName requested new name
-     * @return the proposed edit and its conflicts; the edit is absent when an error conflict prevents the rename
+     * @return the proposed edit and its conflicts; an edit with errors requires explicit confirmation
      */
     FeatureResult<RenameProposal> rename(FeatureRequestContext context, int offset, SymbolId symbol, String newName);
 }

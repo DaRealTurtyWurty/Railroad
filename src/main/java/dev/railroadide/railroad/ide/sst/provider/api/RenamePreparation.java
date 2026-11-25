@@ -1,8 +1,10 @@
 package dev.railroadide.railroad.ide.sst.provider.api;
 
 import dev.railroadide.railroad.ide.sst.document.api.Location;
+import dev.railroadide.railroad.ide.sst.document.api.TextRange;
 import dev.railroadide.railroad.ide.sst.semantic.api.SymbolId;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -17,9 +19,15 @@ public sealed interface RenamePreparation permits RenamePreparation.Renameable, 
      * @param kind user-facing kind of the symbol, such as {@code class} or {@code method}
      * @param name current name of the symbol
      * @param range identifier at the requested position, in the captured document revision
+     * @param occurrences ordered, non-overlapping identifier ranges linked in the requesting document
      */
-    record Renameable(SymbolId symbol, String kind, String name, Location.TextLocation range)
-        implements RenamePreparation {
+    record Renameable(
+        SymbolId symbol,
+        String kind,
+        String name,
+        Location.TextLocation range,
+        List<TextRange> occurrences
+    ) implements RenamePreparation {
         /**
          * Validates a renameable symbol.
          *
@@ -27,12 +35,25 @@ public sealed interface RenamePreparation permits RenamePreparation.Renameable, 
          * @param kind user-facing kind of the symbol
          * @param name current name of the symbol
          * @param range identifier at the requested position
+         * @param occurrences linked identifier ranges, including the requested position
          */
         public Renameable {
             Objects.requireNonNull(symbol, "symbol");
             Objects.requireNonNull(kind, "kind");
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(range, "range");
+            occurrences = List.copyOf(occurrences);
+            int end = -1;
+            for (TextRange occurrence : occurrences) {
+                if (occurrence.start < end || occurrence.length() == 0)
+                    throw new IllegalArgumentException("Rename occurrences must be ordered, nonempty and disjoint");
+
+                end = occurrence.end;
+            }
+
+            if (!occurrences.contains(range.range()))
+                throw new IllegalArgumentException("Rename occurrences must include the requested identifier");
+
             if (name.isBlank())
                 throw new IllegalArgumentException("Renameable symbols need a name");
         }

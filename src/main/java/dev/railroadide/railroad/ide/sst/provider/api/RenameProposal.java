@@ -11,7 +11,7 @@ import java.util.Objects;
  *
  * @param oldName current name of the symbol
  * @param newName requested name
- * @param edit snapshot-bound edit performing the rename, or {@code null} when an error conflict prevents it
+ * @param edit snapshot-bound edit performing the rename, or {@code null} when a complete edit cannot be constructed
  * @param conflicts conflicts in the order they were found
  */
 public record RenameProposal(
@@ -27,7 +27,7 @@ public record RenameProposal(
      * @param newName requested name
      * @param edit edit performing the rename, or {@code null}
      * @param conflicts conflicts found
-     * @throws IllegalArgumentException if an edit accompanies an error conflict, or neither is supplied
+     * @throws IllegalArgumentException if neither an edit nor an error is supplied
      */
     public RenameProposal {
         Objects.requireNonNull(oldName, "oldName");
@@ -35,20 +35,17 @@ public record RenameProposal(
         conflicts = List.copyOf(conflicts);
         boolean blocked = conflicts.stream()
             .anyMatch(conflict -> conflict.severity() == RenameConflict.Severity.ERROR);
-        if (blocked && edit != null)
-            throw new IllegalArgumentException("A rename with error conflicts cannot carry an edit");
-
         if (!blocked && edit == null)
             throw new IllegalArgumentException("A rename without error conflicts needs an edit");
     }
 
     /**
-     * Reports whether the rename can be applied.
+     * Reports whether the rename can be applied without overriding an error.
      *
-     * @return {@code true} when the proposal carries an edit
+     * @return {@code true} when the proposal has no error conflicts
      */
     public boolean applicable() {
-        return edit != null;
+        return conflicts.stream().noneMatch(conflict -> conflict.severity() == RenameConflict.Severity.ERROR);
     }
 
     /**

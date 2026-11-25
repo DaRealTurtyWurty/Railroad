@@ -288,6 +288,12 @@
     -fx-fill: transparent;
 }
 
+.code-area .inline-rename-occurrence {
+    -rtfx-background-color: -color-accent-subtle;
+    -rtfx-underline-color: -color-accent-emphasis;
+    -rtfx-underline-width: 1px;
+}
+
 .rename-dialog .rename-heading {
     -fx-font-size: 1.15em;
     -fx-font-weight: bold;

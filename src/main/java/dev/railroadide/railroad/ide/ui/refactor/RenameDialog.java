@@ -15,7 +15,6 @@ import dev.railroadide.railroad.ide.sst.request.api.*;
 import dev.railroadide.railroad.localization.L18n;
 import dev.railroadide.railroad.ui.RRButton;
 import dev.railroadide.railroad.ui.RRHBox;
-import dev.railroadide.railroad.ui.RRTextField;
 import dev.railroadide.railroad.ui.RRVBox;
 import dev.railroadide.railroad.ui.localized.LocalizedLabel;
 import dev.railroadide.railroad.ui.styling.ButtonVariant;
@@ -24,9 +23,12 @@ import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
+import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.input.KeyCode;
-import javafx.scene.layout.Priority;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TitledPane;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
@@ -39,31 +41,26 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
 
 /**
- * Asks for a symbol's new name, previews every file and change the rename makes together with its conflicts, and
- * applies the previewed edit through the project's workspace-edit service as one undoable step.
- * <p>
- * The first confirmation computes the preview; confirming again applies exactly the previewed edit. Changing the
- * name discards the preview. The rename is computed against a fresh capture of the editor's document store,
- * including unsaved documents, for the symbol that was prepared; it is rejected if the workspace changed so that
- * the caret names a different symbol. A rename depends on every document of its language it analysed, not only
- * those it edits, so a preview is never applied once such a document or the configuration has changed since it
- * was computed: the preview is computed again and shown for confirmation instead. The workspace-edit service
- * additionally rejects
- * the edit if an edited document changes during application. All methods must be called on the JavaFX
- * application thread.
+ * Reviews an inline rename against a captured workspace, and applies the confirmed edit as one undoable step.
+ * If another document changes during review, the new proposal requires fresh confirmation.
  */
 public final class RenameDialog implements AutoCloseable {
     private static final Duration RENAME_BUDGET = Duration.ofSeconds(60);
 
     private final Request request;
     private final SstScheduler.Scope requests = SstScheduler.shared().newScope();
-    private final RRTextField nameField = new RRTextField();
-    private final LocalizedLabel status = new LocalizedLabel("railroad.rename.status.enter_name");
+    private final String name;
+    private final Consumer<Boolean> finished;
+    private final RRButton continueButton = RRButton.secondary("railroad.rename.continue");
+    private final ScrollPane problems = new ScrollPane();
+    private final TitledPane details = new TitledPane();
+    private final LocalizedLabel status = new LocalizedLabel("railroad.rename.status.computing");
     private final RRVBox conflictList = new RRVBox(4);
     private final WorkspaceEditPreviewView changes = new WorkspaceEditPreviewView();
-    private final RRButton confirmButton = new RRButton("railroad.rename.preview");
+    private final RRButton confirmButton = new RRButton("railroad.rename.apply");
     private final RRVBox content;
     private @Nullable Stage stage;
     private @Nullable CancellationTokenSource activeCancellation;
@@ -71,7 +68,7 @@ public final class RenameDialog implements AutoCloseable {
     private @Nullable RenameProposal proposal;
     private @Nullable WorkspaceSnapshot previewed;
     private boolean refreshed;
-    private State state = State.EDITING;
+    private State state = State.COMPUTING;
     private boolean closed;
 
     /**
@@ -120,10 +117,6 @@ public final class RenameDialog implements AutoCloseable {
      */
     public enum State {
         /**
-         * The name is being edited and no preview is shown.
-         */
-        EDITING,
-        /**
          * The rename is being computed.
          */
         COMPUTING,
@@ -145,48 +138,55 @@ public final class RenameDialog implements AutoCloseable {
      * Builds the dialog without showing it.
      *
      * @param request captured rename inputs
+     * @param name name entered inline
+     * @param finished called once on close, with true when editing should resume
      */
-    public RenameDialog(Request request) {
+    public RenameDialog(Request request, String name, Consumer<Boolean> finished) {
         this.request = Objects.requireNonNull(request, "request");
-        var title = new LocalizedLabel("railroad.rename.heading", request.symbol().kind(), request.symbol().name());
+        this.name = Objects.requireNonNull(name, "name");
+        this.finished = Objects.requireNonNull(finished, "finished");
+        var title = new LocalizedLabel("railroad.rename.confirm", request.symbol().name(), name);
         title.getStyleClass().add("rename-heading");
+        title.setWrapText(true);
+        status.setWrapText(true);
+        conflictList.getStyleClass().add("rename-conflicts");
+        problems.setContent(conflictList);
+        problems.setFitToWidth(true);
+        problems.setPrefViewportHeight(100);
 
-        nameField.setText(request.symbol().name());
-        nameField.textProperty().addListener((_, _, _) -> discardPreview());
-        nameField.setOnKeyPressed(event -> {
-            if (event.getCode() == KeyCode.ENTER) {
-                confirm();
+        details.setText(L18n.localize("railroad.rename.changes"));
+        details.setContent(changes);
+        details.setExpanded(false);
+        details.setAnimated(false);
+        changes.setPrefHeight(165);
+        details.expandedProperty().addListener((_, _, _) -> resize());
+
+        confirmButton.setVariant(ButtonVariant.PRIMARY);
+        confirmButton.setDisable(true);
+        confirmButton.setOnAction(_ -> apply());
+        continueButton.setOnAction(_ -> close(true));
+        var discard = RRButton.secondary("railroad.rename.discard");
+        discard.setOnAction(_ -> close());
+        var buttons = new RRHBox(8, discard, continueButton, confirmButton);
+        buttons.setAlignment(Pos.CENTER_RIGHT);
+        content = new RRVBox(10, title, status, problems, details, buttons);
+        content.setPadding(new Insets(16));
+        content.setPrefWidth(450);
+        content.getStyleClass().add("rename-dialog");
+        content.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (event.getCode() == KeyCode.ESCAPE) {
                 event.consume();
-            } else if (event.getCode() == KeyCode.ESCAPE) {
                 close();
-                event.consume();
             }
         });
 
-        status.setWrapText(true);
-        conflictList.getStyleClass().add("rename-conflicts");
-        changes.getStyleClass().add("rename-preview");
-        changes.setPrefHeight(320);
-        RRVBox.setVgrow(changes, Priority.ALWAYS);
-
-        confirmButton.setVariant(ButtonVariant.PRIMARY);
-        confirmButton.setOnAction(_ -> confirm());
-        var cancelButton = new RRButton("railroad.rename.cancel");
-        cancelButton.setVariant(ButtonVariant.SECONDARY);
-        cancelButton.setOnAction(_ -> close());
-        var buttons = new RRHBox(10, cancelButton, confirmButton);
-        buttons.setAlignment(Pos.CENTER_RIGHT);
-
-        content = new RRVBox(12, title, new LocalizedLabel("railroad.rename.new_name"), nameField, status,
-            conflictList, changes, buttons);
-        content.setPadding(new Insets(20));
-        content.getStyleClass().add("rename-dialog");
+        clearPreview();
     }
 
     /**
-     * Shows the dialog with the current name selected.
+     * Shows a compact review of the inline edit.
      *
-     * @param owner window that owns the dialog, or {@code null}
+     * @param owner owning editor window
      */
     public void show(@Nullable Window owner) {
         if (closed || stage != null)
@@ -197,33 +197,9 @@ public final class RenameDialog implements AutoCloseable {
             .owner(owner)
             .modality(Modality.WINDOW_MODAL)
             .scene(new Scene(content))
-            .size(720, 560)
-            .minSize(520, 360)
             .build();
         stage.setOnHidden(_ -> close());
-        nameField.requestFocus();
-        nameField.selectAll();
-    }
-
-    /**
-     * Replaces the requested name, discarding any preview.
-     *
-     * @param name requested name
-     */
-    public void setNewName(String name) {
-        nameField.setText(Objects.requireNonNull(name, "name"));
-    }
-
-    /**
-     * Previews the rename when no preview is shown, or applies the shown preview. This is what pressing Enter or the
-     * primary button does.
-     */
-    public void confirm() {
-        if (state == State.PREVIEWED) {
-            apply();
-        } else if (state == State.EDITING || state == State.BLOCKED) {
-            preview();
-        }
+        preview();
     }
 
     /**
@@ -252,7 +228,6 @@ public final class RenameDialog implements AutoCloseable {
             return CompletableFuture.completedFuture(state);
         }
 
-        String name = nameField.getText();
         var cancellation = new CancellationTokenSource(request.providerLifetime());
         var context = new FeatureRequestContext(workspace, source, cancellation.token(),
             Deadline.after(RENAME_BUDGET));
@@ -395,6 +370,10 @@ public final class RenameDialog implements AutoCloseable {
 
     @Override
     public void close() {
+        close(false);
+    }
+
+    private void close(boolean resume) {
         if (closed)
             return;
 
@@ -405,13 +384,15 @@ public final class RenameDialog implements AutoCloseable {
             stage.setOnHidden(null);
             stage.hide();
         }
+
+        finished.accept(resume);
     }
 
     private void show(RenameProposal result, WorkspaceSnapshot workspace) {
         proposal = result;
         result.conflicts().forEach(conflict -> addMessage(describe(conflict),
             conflict.severity() == RenameConflict.Severity.ERROR ? "rename-error" : "rename-warning"));
-        if (!result.applicable()) {
+        if (result.edit() == null) {
             block("railroad.rename.status.conflicts");
             return;
         }
@@ -433,15 +414,29 @@ public final class RenameDialog implements AutoCloseable {
 
         previewed = workspace;
         state = State.PREVIEWED;
-        status.setKey(refreshed
-            ? "railroad.rename.status.refreshed"
-            : result.conflicts().isEmpty()
-                ? "railroad.rename.status.ready"
-                : "railroad.rename.status.ready_with_warnings",
-            count, preview.documents().size());
+        int files = preview.documents().size();
+        String occurrences = L18n.localize(count == 1 ? "railroad.rename.occurrence" : "railroad.rename.occurrences",
+            count);
+        String affectedFiles = L18n.localize(files == 1 ? "railroad.rename.file" : "railroad.rename.files", files);
+        status.setKey(!result.applicable()
+            ? "railroad.rename.status.conflicts"
+            : refreshed
+                ? "railroad.rename.status.refreshed"
+                : result.conflicts().isEmpty()
+                    ? "railroad.rename.status.ready"
+                    : "railroad.rename.status.ready_with_warnings",
+            occurrences, affectedFiles);
         confirmButton
             .setLocalizedText(result.conflicts().isEmpty() ? "railroad.rename.apply" : "railroad.rename.apply_anyway");
         confirmButton.setDisable(false);
+        boolean clean = result.conflicts().isEmpty();
+        confirmButton.setVariant(clean ? ButtonVariant.PRIMARY : ButtonVariant.DANGER);
+        confirmButton.setDefaultButton(clean);
+        visible(continueButton, !clean);
+        (clean ? confirmButton : continueButton).requestFocus();
+        visible(problems, !clean);
+        visible(details, true);
+        resize();
     }
 
     /**
@@ -506,27 +501,34 @@ public final class RenameDialog implements AutoCloseable {
     private void block(String key) {
         state = State.BLOCKED;
         status.setKey(key);
-        confirmButton.setLocalizedText("railroad.rename.preview");
-        confirmButton.setDisable(false);
-    }
-
-    private void discardPreview() {
-        cancelComputation();
-        proposal = null;
-        previewed = null;
-        refreshed = false;
-        clearPreview();
-        if (state != State.APPLIED) {
-            state = State.EDITING;
-            status.setKey("railroad.rename.status.enter_name");
-            confirmButton.setLocalizedText("railroad.rename.preview");
-            confirmButton.setDisable(false);
-        }
+        confirmButton.setLocalizedText("railroad.rename.apply_anyway");
+        confirmButton.setDisable(true);
+        confirmButton.setDefaultButton(false);
+        visible(problems, !conflictList.getChildren().isEmpty());
+        visible(continueButton, true);
+        continueButton.requestFocus();
+        resize();
     }
 
     private void clearPreview() {
         conflictList.getChildren().clear();
         changes.clear();
+        visible(problems, false);
+        visible(continueButton, false);
+        visible(details, false);
+        confirmButton.setDefaultButton(false);
+        confirmButton.setDisable(true);
+    }
+
+    private static void visible(Node node, boolean visible) {
+        node.setManaged(visible);
+        node.setVisible(visible);
+    }
+
+    private void resize() {
+        if (stage != null) {
+            stage.sizeToScene();
+        }
     }
 
     private void cancelComputation() {

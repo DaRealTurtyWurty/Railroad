@@ -21,6 +21,8 @@ import dev.railroadide.railroad.ide.ui.codeaction.CodeActionController;
 import dev.railroadide.railroad.ide.ui.codeaction.CodeActionMenu;
 import dev.railroadide.railroad.ide.ui.navigation.UsagesPane;
 import dev.railroadide.railroad.ide.ui.refactor.RenameDialog;
+import dev.railroadide.railroad.ide.ui.refactor.InlineRenameEditor;
+import dev.railroadide.railroad.ide.ui.codeeditor.find.EditorFindHost;
 import dev.railroadide.railroad.localization.L18n;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.settings.ParameterPopupPosition;
@@ -163,6 +165,8 @@ public abstract class CodeEditorPane extends TextEditorPane {
     private @Nullable CancellationTokenSource activeRenameCancellation;
     private @Nullable FeatureRequestContext activeRenameContext;
     private @Nullable RenameDialog activeRenameDialog;
+    private @Nullable InlineRenameEditor inlineRename;
+    private @Nullable EditorFindHost renameHost;
     private static final Duration CODE_ACTION_BULB_DELAY = Duration.ofMillis(250);
     private final @Nullable CodeActionController codeActions;
     private final PauseTransition codeActionBulbDelay = new PauseTransition(
@@ -246,6 +250,10 @@ public abstract class CodeEditorPane extends TextEditorPane {
             invalidateDiagnosticsRequest();
             invalidateNavigationRequest();
             invalidateRenameRequest();
+            if (activeRenameDialog == null) {
+                discardInlineRename();
+            }
+
             invalidateCodeActions();
             visibleDiagnostics = List.of();
             recomputeLineDecorations();
@@ -312,6 +320,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
             activeRenameDialog = null;
         }
 
+        discardInlineRename();
         invalidateCodeActions();
         if (codeActions != null) {
             codeActions.close();
@@ -762,6 +771,23 @@ public abstract class CodeEditorPane extends TextEditorPane {
             return;
 
         caretPositionProperty().addListener((observable, previous, current) -> invalidateRenameRequest());
+        addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (event.getCode() == KeyCode.ESCAPE && activeRenameContext != null) {
+                invalidateRenameRequest();
+                event.consume();
+            }
+        });
+
+        sceneProperty().addListener((_, _, scene) -> {
+            if (scene == null) {
+                invalidateRenameRequest();
+                if (activeRenameDialog != null) {
+                    activeRenameDialog.close();
+                }
+
+                discardInlineRename();
+            }
+        });
     }
 
     private void invalidateRenameRequest() {
@@ -785,10 +811,14 @@ public abstract class CodeEditorPane extends TextEditorPane {
     }
 
     /**
-     * Checks the symbol at the caret and, when it can be renamed, opens the rename dialog with a preview of every
-     * change; otherwise explains why it cannot be renamed. Call on the JavaFX thread.
+     * Starts editing the symbol and its linked occurrences inline. Call on the JavaFX thread.
      */
     public void rename() {
+        if (inlineRename != null) {
+            inlineRename.requestFocus();
+            return;
+        }
+
         invalidateRenameRequest();
         hideNavigationPopup();
 
@@ -827,7 +857,7 @@ public abstract class CodeEditorPane extends TextEditorPane {
                 switch (result.value()) {
                     case RenamePreparation.Rejected rejected -> showNavigationMessage(
                         L18n.localize("railroad.editor.rename.rejected", rejected.reason()));
-                    case RenamePreparation.Renameable symbol -> openRenameDialog(
+                    case RenamePreparation.Renameable symbol -> startInlineRename(
                         new RenameDialog.Request(provider, providerLifetime, store, snapshot, offset, symbol,
                             Services.IDE_STATE::getWorkspaceEdits));
                 }
@@ -857,24 +887,62 @@ public abstract class CodeEditorPane extends TextEditorPane {
             });
     }
 
-    private void openRenameDialog(RenameDialog.Request request) {
-        if (activeRenameDialog != null) {
-            activeRenameDialog.close();
-        }
+    private void startInlineRename(RenameDialog.Request request) {
+        EditorFindHost host = EditorFindHost.enclosing(this);
+        if (host == null || getScene() == null)
+            return;
 
-        var dialog = new RenameDialog(request);
-        activeRenameDialog = dialog;
-        dialog.show(getScene() == null ? null : getScene().getWindow());
+        hideAutoComplete();
+        hideSignatureHelp();
+        diagnosticPopup.hide();
+        var draft = new InlineRenameEditor(this, request.symbol(), name -> reviewRename(request, name),
+            this::discardInlineRename);
+        renameHost = host;
+        inlineRename = draft;
+        host.setRenamePreview(draft);
+        host.layout();
+        draft.scrollYToPixel(estimatedScrollYProperty().getValue());
+        draft.scrollXToPixel(estimatedScrollXProperty().getValue());
+        draft.requestFocus();
+        draft.requestFollowCaret();
     }
 
-    /**
-     * Returns the rename dialog opened by the last rename request, while it is open.
-     *
-     * @return open rename dialog, or {@code null}
-     */
-    protected final @Nullable RenameDialog activeRenameDialog() {
-        RenameDialog dialog = activeRenameDialog;
-        return dialog == null || dialog.isClosed() ? null : dialog;
+    private void reviewRename(RenameDialog.Request request, String name) {
+        if (activeRenameDialog != null)
+            return;
+
+        if (name.equals(request.symbol().name())) {
+            discardInlineRename();
+            return;
+        }
+
+        activeRenameDialog = new RenameDialog(request, name, resume -> {
+            activeRenameDialog = null;
+            if (resume && inlineRename != null && getText().equals(request.prepared().text())) {
+                inlineRename.requestFocus();
+            } else {
+                discardInlineRename();
+            }
+        });
+
+        activeRenameDialog.show(getScene().getWindow());
+    }
+
+    private void discardInlineRename() {
+        if (inlineRename == null)
+            return;
+
+        boolean restoreFocus = getScene() != null && (inlineRename.isFocused() || getScene().getFocusOwner() == null);
+        if (renameHost != null) {
+            renameHost.setRenamePreview(null);
+            renameHost = null;
+        }
+
+        inlineRename.dispose();
+        inlineRename = null;
+        if (restoreFocus && !codeEditorClosed) {
+            requestFocus();
+        }
     }
     // endregion
 

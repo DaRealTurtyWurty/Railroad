@@ -2,7 +2,7 @@ package dev.railroadide.railroad.command;
 
 import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.ide.projectexplorer.ProjectExplorerPane;
-import dev.railroadide.railroad.ide.ui.codeeditor.TextEditorPane;
+import org.fxmisc.richtext.CodeArea;
 import dev.railroadide.railroad.ide.ui.codeeditor.find.EditorFindHost;
 import dev.railroadide.railroad.ide.ui.editor.EditorTab;
 import dev.railroadide.railroad.settings.keybinds.KeybindData;
@@ -92,7 +92,7 @@ public final class EditCommands {
 
     private static String selectedText(CommandContext<?> context) {
         return switch (target(context)) {
-            case TextEditorPane editor -> editor.getSelectedText();
+            case CodeArea editor -> editor.getSelectedText();
             case TextInputControl text -> text.getSelectedText();
             case null, default -> null;
         };
@@ -121,12 +121,12 @@ public final class EditCommands {
             ? context.source()
             : context.source().getScene().getFocusOwner();
         for (Node node = focus; node != null; node = node.getParent()) {
-            if (node instanceof TextInputControl || node instanceof TextEditorPane
+            if (node instanceof TextInputControl || node instanceof CodeArea
                 || node instanceof ProjectExplorerPane)
                 return node;
         }
 
-        return Services.EDITOR_TAB_MANAGER.activeTab().map(t -> (Node) t.view().activeEditor()).orElse(null);
+        return Services.EDITOR_TAB_MANAGER.activeTab().map(t -> (Node) t.findHost().editingSurface()).orElse(null);
     }
 
     private static Command<Void> register(String action, KeyCode key) {
@@ -152,7 +152,7 @@ public final class EditCommands {
                 default -> false;
             };
 
-        if (target instanceof TextEditorPane text)
+        if (target instanceof CodeArea text)
             return switch (action) {
                 case "undo" -> text.isEditable() && text.isUndoAvailable();
                 case "redo" -> text.isEditable() && text.isRedoAvailable();
@@ -186,7 +186,7 @@ public final class EditCommands {
                 case "copy" -> text.copy();
                 case "paste" -> text.paste();
             }
-        } else if (target instanceof TextEditorPane text) {
+        } else if (target instanceof CodeArea text) {
             switch (action) {
                 case "undo" -> text.undo();
                 case "redo" -> text.redo();
