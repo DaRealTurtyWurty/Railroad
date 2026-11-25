@@ -99,6 +99,7 @@ railroad.runconfig.compound.configuration.configurations.entry_format=%s (%s)
 
 # Gradle configurations
 railroad.runconfig.gradle.configuration.title=Gradle Settings
+railroad.runconfig.gradle.configuration.testMethod.label=Test method
 railroad.runconfig.gradle.configuration.task.label=Task
 railroad.runconfig.gradle.configuration.task.prompt=e.g. build
 railroad.runconfig.gradle.configuration.projectPath.label=Gradle project directory
@@ -717,9 +718,11 @@ railroad.ide.problems.empty=No build problems.
 railroad.ide.dock_item.terminal=Terminal
 
 railroad.menu.run=Run
-railroad.editor.main.tooltip=Run or debug this main method
-railroad.editor.main.run=Run %s.main()
-railroad.editor.main.debug=Debug %s.main()
+railroad.editor.launch.tooltip=Run or debug this method
+railroad.editor.launch.run=Run %s
+railroad.editor.launch.debug=Debug %s
+railroad.ide.tests.rerun=Rerun failed test methods
+railroad.ide.tests.summary=Tests: %d passed, %d failed, %d skipped
 railroad.menu.run.run=Run
 railroad.menu.run.debug=Debug
 railroad.menu.run.stop=Stop

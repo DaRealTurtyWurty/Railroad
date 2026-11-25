@@ -19,6 +19,19 @@ import dev.railroadide.railroad.utility.javafx.JavaFXUtils;
 import javafx.beans.property.ReadOnlyBooleanProperty;
 import javafx.beans.property.ReadOnlyBooleanWrapper;
 import javafx.scene.control.ButtonBase;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ListView;
+import javafx.scene.control.Tooltip;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.MouseButton;
+import javafx.scene.layout.VBox;
+import dev.railroadide.railroad.Services;
+import dev.railroadide.railroad.ui.id.UIIds;
+import dev.railroadide.railroad.ide.runconfig.session.GradleTestResults;
+import dev.railroadide.railroad.ide.runconfig.defaults.data.GradleRunConfigurationData;
+import dev.railroadide.railroad.ide.ui.navigation.quickopen.GoToSearch;
+import dev.railroadide.railroad.ide.ui.navigation.quickopen.GoToContributor;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -36,6 +49,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javafx.scene.input.KeyEvent;
 
 /**
  * Shows the output of one run session and lets the user rerun, stop or type input to it.
@@ -49,6 +63,11 @@ public final class RunSessionView extends BorderPane implements AutoCloseable {
     private static final int TRIMMED_DISPLAYED_CHARS = MAX_DISPLAYED_CHARS - MAX_DISPLAYED_CHARS / 10;
 
     private final Project project;
+    private final Label testSummary = new Label();
+    private final ListView<GradleTestResults.FailedTest> failures = new ListView<>();
+    private final RRButton rerunFailures = toolButton(new RRButton(), "railroad.ide.tests.rerun",
+        FontAwesomeSolid.VIAL);
+    private final VBox testResults = new VBox(testSummary, failures);
     private final StyleClassedTextArea output = new StyleClassedTextArea();
     private final TextField input = new TextField();
     private final RRButton rerun = toolButton(new RRButton(), "railroad.ide.console.rerun", FontAwesomeSolid.REDO);
@@ -91,7 +110,40 @@ public final class RunSessionView extends BorderPane implements AutoCloseable {
 
         var spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        var toolbar = new HBox(rerun, stop, spacer, follow, wrap, clear);
+        rerunFailures.setOnAction(_ -> Services.UI_MANAGER.lookup(UIIds.IDE.RUN_CONTROLS)
+            .filter(controls -> controls.getProject() == project)
+            .ifPresent(controls -> controls.rerunFailedTests(session())));
+        rerunFailures.managedProperty().bind(rerunFailures.visibleProperty());
+        failures.setPrefHeight(110);
+        failures.setCellFactory(_ -> new ListCell<>() {
+            {
+                setOnMouseClicked(event -> {
+                    if (!isEmpty() && event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 1) {
+                        openFailure(getItem());
+                    }
+                });
+            }
+
+            @Override
+            protected void updateItem(GradleTestResults.FailedTest failure, boolean empty) {
+                super.updateItem(failure, empty);
+                setText(empty || failure == null
+                    ? null
+                    : failure.label() + "  " + failure.details().lines().findFirst().orElse(""));
+                setTooltip(empty || failure == null ? null : new Tooltip(failure.details()));
+            }
+        });
+
+        failures.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (event.getCode() == KeyCode.ENTER && failures.getSelectionModel().getSelectedItem() != null) {
+                openFailure(failures.getSelectionModel().getSelectedItem());
+                event.consume();
+            }
+        });
+
+        testResults.managedProperty().bind(testResults.visibleProperty());
+        failures.managedProperty().bind(failures.visibleProperty());
+        var toolbar = new HBox(rerun, rerunFailures, stop, spacer, follow, wrap, clear);
         toolbar.getStyleClass().add("console-toolbar");
 
         input.getStyleClass().add("console-input");
@@ -101,7 +153,7 @@ public final class RunSessionView extends BorderPane implements AutoCloseable {
         input.disableProperty().bind(ended);
         stop.disableProperty().bind(ended);
 
-        setTop(toolbar);
+        setTop(new VBox(toolbar, testResults));
         setCenter(scroll);
         setBottom(input);
         bind(session);
@@ -139,6 +191,9 @@ public final class RunSessionView extends BorderPane implements AutoCloseable {
         output.clear();
         session = next;
         ended.set(false);
+        testResults.setVisible(false);
+        rerunFailures.setVisible(false);
+        failures.getItems().clear();
 
         RunConfiguration<?> configuration = next.configuration();
         CommandButtons.bind(rerun, next.isDebug() ? RunCommands.DEBUG : RunCommands.RUN,
@@ -186,6 +241,7 @@ public final class RunSessionView extends BorderPane implements AutoCloseable {
             } else if (item.state() != null) {
                 appendStateLine(item.state());
                 ended.set(true);
+                showTestResults();
             }
         }
 
@@ -194,6 +250,26 @@ public final class RunSessionView extends BorderPane implements AutoCloseable {
         if (follow.isSelected()) {
             output.moveTo(output.getLength());
             output.requestFollowCaret();
+        }
+    }
+
+    private void showTestResults() {
+        GradleTestResults results = session.testResults();
+        failures.getItems().setAll(results.failures());
+        int failed = failures.getItems().size();
+        rerunFailures.setVisible(!results.failedTestArguments().isEmpty());
+        failures.setVisible(failed > 0);
+        testResults.setVisible(failed + results.passed() + results.skipped() > 0);
+        testSummary.setText(L18n.localize("railroad.ide.tests.summary", results.passed(), failed, results.skipped()));
+    }
+
+    private void openFailure(GradleTestResults.FailedTest failure) {
+        if (session.configuration().data() instanceof GradleRunConfigurationData data) {
+            failure.source(data, project.getGradleManager().getGradleModelService().getCachedModel().orElse(null))
+                .ifPresent(source -> {
+                    var position = new GoToSearch.Query("", source.line(), 1);
+                    GoToContributor.openInEditor(source.file(), position::offsetIn);
+                });
         }
     }
 

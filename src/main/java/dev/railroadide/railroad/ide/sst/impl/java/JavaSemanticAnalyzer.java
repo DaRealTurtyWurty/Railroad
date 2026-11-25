@@ -8540,13 +8540,25 @@ public final class JavaSemanticAnalyzer {
      * @return the identifier text, or {@code null} if no preceding identifier exists
      */
     public static @Nullable String identifierBeforeChildKind(SyntaxNode node, String childKindId) {
-        String lastIdentifier = null;
+        SyntaxToken token = identifierTokenBeforeChildKind(node, childKindId);
+        return token == null ? null : JavaUnicodeEscapes.translate(token.text());
+    }
+
+    /**
+     * Finds the identifier used by {@link #identifierBeforeChildKind}, retaining its source location.
+     *
+     * @param node parent whose immediate children are searched
+     * @param childKindId syntax kind at which to stop
+     * @return preceding identifier token, or null when absent
+     */
+    public static @Nullable SyntaxToken identifierTokenBeforeChildKind(SyntaxNode node, String childKindId) {
+        SyntaxToken lastIdentifier = null;
         for (SyntaxNode child : node.children()) {
             if (childKindId.equals(child.kind().id()))
-                return lastIdentifier;
+                break;
 
             if (child instanceof SyntaxToken token && isIdentifierLikeToken(token)) {
-                lastIdentifier = JavaUnicodeEscapes.translate(token.text());
+                lastIdentifier = token;
             }
         }
 

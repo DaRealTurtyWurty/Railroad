@@ -3,7 +3,7 @@ package dev.railroadide.railroad.ide.ui;
 import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.command.CommandContext;
 import dev.railroadide.railroad.command.RunCommands;
-import dev.railroadide.railroad.ide.runconfig.EditorMain;
+import dev.railroadide.railroad.ide.runconfig.EditorJavaLaunch;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
 import dev.railroadide.railroad.ide.ui.codeeditor.BreakpointGutterBinding;
@@ -35,10 +35,10 @@ import java.util.Deque;
  * Adds Java call-context detection for signature help to the configured code editor.
  */
 public class JavaCodeEditorPane extends CodeEditorPane {
-    private Subscription mainChanges = Subscription.EMPTY;
-    private List<EditorMain> mains = List.of();
+    private Subscription launchChanges = Subscription.EMPTY;
+    private List<EditorJavaLaunch> launches = List.of();
     private String parsedSource;
-    private long mainRequest;
+    private long launchRequest;
     private final BreakpointGutterBinding breakpointBinding;
     private static final int SIGNATURE_SCAN_WINDOW = 2048;
     private static final Set<String> NON_CALLABLE_PREFIX_KEYWORDS = Set.of(
@@ -63,37 +63,40 @@ public class JavaCodeEditorPane extends CodeEditorPane {
         super(project, documentId, item, config);
         breakpointBinding = new BreakpointGutterBinding(getGutter(), this, this::getFilePath,
             Services.BREAKPOINT_SERVICE);
-        if (EditorMain.supports(project, item)) {
-            getGutter().addColumn(new GutterColumn("main", 15, this::mainMarker));
-            mainChanges = multiPlainChanges().successionEnds(Duration.ofMillis(250)).subscribe(_ -> refreshMains());
-            refreshMains();
+        if (EditorJavaLaunch.supports(project, item)) {
+            getGutter().addColumn(new GutterColumn("java-launch", 15, this::launchMarker));
+            launchChanges = multiPlainChanges().successionEnds(Duration.ofMillis(250))
+                .subscribe(_ -> refreshLaunches());
+            refreshLaunches();
         }
     }
 
-    private void refreshMains() {
-        long request = ++mainRequest;
+    private void refreshLaunches() {
+        long request = ++launchRequest;
         String source = getText();
         String filename = getFilePath().getFileName().toString();
-        CompletableFuture.supplyAsync(() -> EditorMain.find(source, filename))
+        boolean tests = project.getGradleManager().isGradleProject();
+        CompletableFuture.supplyAsync(() -> EditorJavaLaunch.find(source, filename).stream()
+            .filter(launch -> tests || launch.testMethod() == null).toList())
             .thenAccept(found -> Platform.runLater(() -> {
-                if (request == mainRequest && !isEditorClosed() && getText().equals(source)) {
+                if (request == launchRequest && !isEditorClosed() && getText().equals(source)) {
                     parsedSource = source;
-                    if (!mains.equals(found)) {
-                        mains = found;
+                    if (!launches.equals(found)) {
+                        launches = found;
                         getGutter().refresh();
                     }
                 }
             }));
     }
 
-    private Node mainMarker(int line) {
-        List<EditorMain> targets = mains.stream().filter(main -> main.line() == line).toList();
+    private Node launchMarker(int line) {
+        List<EditorJavaLaunch> targets = launches.stream().filter(launch -> launch.line() == line).toList();
         if (targets.isEmpty())
             return null;
 
         var marker = new FontIcon(FontAwesomeSolid.PLAY);
         marker.getStyleClass().add("editor-main-marker");
-        var tooltip = new LocalizedTooltip("railroad.editor.main.tooltip");
+        var tooltip = new LocalizedTooltip("railroad.editor.launch.tooltip");
         marker.accessibleTextProperty().bind(tooltip.textProperty());
         Tooltip.install(marker, tooltip);
         marker.setOnMouseClicked(event -> {
@@ -101,8 +104,8 @@ public class JavaCodeEditorPane extends CodeEditorPane {
                 return;
 
             var menu = new ContextMenu();
-            for (EditorMain main : targets) {
-                menu.getItems().addAll(mainAction(main, false), mainAction(main, true));
+            for (EditorJavaLaunch launch : targets) {
+                menu.getItems().addAll(launchAction(launch, false), launchAction(launch, true));
             }
 
             menu.show(marker, event.getScreenX(), event.getScreenY());
@@ -112,14 +115,14 @@ public class JavaCodeEditorPane extends CodeEditorPane {
         return marker;
     }
 
-    private MenuItem mainAction(EditorMain main, boolean debug) {
+    private MenuItem launchAction(EditorJavaLaunch launch, boolean debug) {
         var item = new MenuItem(
-            L18n.localize(debug ? "railroad.editor.main.debug" : "railroad.editor.main.run", main.className()));
+            L18n.localize(debug ? "railroad.editor.launch.debug" : "railroad.editor.launch.run", launch.displayName()));
         item.setOnAction(_ -> {
-            if (isEditorClosed() || !mains.contains(main) || !getText().equals(parsedSource))
+            if (isEditorClosed() || !launches.contains(launch) || !getText().equals(parsedSource))
                 return;
 
-            RunConfiguration<?> configuration = main.configuration(project, getFilePath());
+            RunConfiguration<?> configuration = launch.configuration(project, getFilePath());
             (debug ? RunCommands.DEBUG : RunCommands.RUN)
                 .execute(CommandContext.withArgument(project, this, configuration));
         });
@@ -131,7 +134,7 @@ public class JavaCodeEditorPane extends CodeEditorPane {
     public void close() {
         super.close();
         if (isEditorClosed()) {
-            mainChanges.unsubscribe();
+            launchChanges.unsubscribe();
             breakpointBinding.close();
         }
     }

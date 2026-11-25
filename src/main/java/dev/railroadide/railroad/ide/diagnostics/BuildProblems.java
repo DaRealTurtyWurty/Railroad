@@ -147,7 +147,17 @@ public final class BuildProblems {
          *
          * @param failure failure of the execution, or {@code null} when it succeeded
          */
-        public synchronized void finish(@Nullable Throwable failure) {
+        public void finish(@Nullable Throwable failure) {
+            finish(failure, true);
+        }
+
+        /**
+         * Publishes source-located problems and optionally reports the build failure as a fallback.
+         *
+         * @param failure failure of the execution, or null on success
+         * @param includeFallback whether to report an unlocated failure when no build problem was found
+         */
+        public synchronized void finish(@Nullable Throwable failure, boolean includeFallback) {
             if (finished)
                 return;
 
@@ -178,6 +188,9 @@ public final class BuildProblems {
                 }
 
                 if (result.isEmpty()) {
+                    if (!includeFallback && script == null)
+                        return;
+
                     result.add(new Problem(script, scriptLine, 1, message));
                 }
 

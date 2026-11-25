@@ -46,6 +46,7 @@ public class GradleRunConfigurationData extends RunConfigurationData {
     private String task;
     private String mainSource;
     private String mainClass;
+    private String testMethod;
     private Path gradleProjectPath; // TODO: A different data type(?) that represents a Gradle project model
     private Map<String, String> environmentVariables = new HashMap<>();
     private String[] vmOptions = new String[0];
@@ -78,8 +79,12 @@ public class GradleRunConfigurationData extends RunConfigurationData {
             .appendSection(FormSection.create("railroad.runconfig.gradle.configuration.title")
                 .appendComponent(mainSource != null
                     ? FormComponent
-                        .textField("mainClass", "railroad.runconfig.java_application.configuration.mainClass.label")
-                        .editable(false).text(this::getMainClass).build()
+                        .textField("mainClass",
+                            testMethod == null
+                                ? "railroad.runconfig.java_application.configuration.mainClass.label"
+                                : "railroad.runconfig.gradle.configuration.testMethod.label")
+                        .editable(false).text(() -> testMethod == null ? mainClass : mainClass + "." + testMethod)
+                        .build()
                     : FormComponent.textField("task", "railroad.runconfig.gradle.configuration.task.label")
                         .required()
                         .text(() -> this.task != null ? this.task : "")

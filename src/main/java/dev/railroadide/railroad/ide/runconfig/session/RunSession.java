@@ -33,6 +33,12 @@ public final class RunSession {
 
     private final RunConfiguration<?> configuration;
     private final boolean debug;
+    private final GradleTestResults testResults = new GradleTestResults();
+
+    public GradleTestResults testResults() {
+        return testResults;
+    }
+
     private final int retainedCharLimit;
     private final Object lock = new Object();
     private final Deque<RunOutput> retained = new ArrayDeque<>();

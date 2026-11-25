@@ -15,6 +15,26 @@ gradle.projectsEvaluated {
         throw new GradleException("Expected one Java source set containing ${source}, found ${owners.size()}")
     }
     def (owner, sources) = owners.first()
+    if (root.hasProperty('railroadTestMethod')) {
+        def candidates = owner.tasks.withType(Test).findAll { test ->
+            !test.testClassesDirs.files.intersect(sources.output.classesDirs.files).empty
+        }
+        def target = candidates.find { it.name == sources.name }
+        if (target == null && candidates.size() == 1) target = candidates.first()
+        if (target == null) {
+            throw new GradleException("Expected one Test task for ${owner.path} source set ${sources.name}, found ${candidates*.path}")
+        }
+        target.setTestNameIncludePatterns([
+            root.property('railroadMainClass') + '.' + root.property('railroadTestMethod')
+        ])
+        target.outputs.upToDateWhen { false }
+        target.outputs.doNotCacheIf('Railroad selected a test method') { true }
+        root.tasks.register(root.property('railroadMainTask')) {
+            dependsOn(target)
+            ext.railroadTestTarget = target
+        }
+        return
+    }
     root.tasks.register(root.property('railroadMainTask'), JavaExec) {
         mainClass.set(root.property('railroadMainClass'))
         classpath = sources.runtimeClasspath

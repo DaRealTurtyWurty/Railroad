@@ -22,6 +22,7 @@ import dev.railroadide.railroad.utility.ProjectPathIdentityUtils;
 import dev.railroadide.railroad.utility.icon.RailroadBrandsIcon;
 import javafx.scene.paint.Color;
 import org.gradle.tooling.*;
+import org.gradle.tooling.events.OperationType;
 import org.jetbrains.annotations.UnknownNullability;
 
 import java.io.IOException;
@@ -77,18 +78,33 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
 
     @Override
     public CompletableFuture<Void> run(Project project, RunConfiguration<GradleRunConfigurationData> configuration) {
-        return execute(project, configuration, false);
+        return execute(project, configuration, configuration.data(), false, List.of());
     }
 
     @Override
     public CompletableFuture<Void> debug(Project project, RunConfiguration<GradleRunConfigurationData> configuration) {
-        return execute(project, configuration, true);
+        return execute(project, configuration, configuration.data(), true, List.of());
+    }
+
+    /**
+     * Reruns failed test methods in their original Gradle tasks and launch environment.
+     */
+    public CompletableFuture<Void> rerunFailed(Project project, RunSession previous) {
+        RunConfiguration<?> configuration = previous.configuration();
+        List<String> tasks = previous.testResults().failedTestArguments();
+        if (configuration.type() != this || !(configuration.data() instanceof GradleRunConfigurationData data)
+            || !previous.state().isTerminal() || tasks.isEmpty())
+            return CompletableFuture.failedFuture(new IllegalStateException("No failed tests to rerun"));
+
+        return execute(project, configuration, data, false, tasks);
     }
 
     private CompletableFuture<Void> execute(
         Project project,
-        RunConfiguration<GradleRunConfigurationData> configuration,
-        boolean debug
+        RunConfiguration<?> configuration,
+        GradleRunConfigurationData data,
+        boolean debug,
+        List<String> failedTests
     ) {
         var execution = new GradleExecutionHandle();
         if (executions.putIfAbsent(configuration.uuid(), execution) != null)
@@ -97,12 +113,12 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
 
         RunSessionManager sessions = project.getRunSessions();
         execution.session = sessions.start(configuration, debug);
-        Path directory = configuration.data().getGradleProjectPath();
+        Path directory = data.getGradleProjectPath();
         execution.problems = sessions.buildProblems().begin(configuration.uuid().toString(),
             directory == null ? project.getPath() : directory);
         CompletableFuture.runAsync(() -> {
             try {
-                executeGradleBuild(project, configuration, execution, debug);
+                executeGradleBuild(project, configuration, data, execution, debug, failedTests);
             } catch (Throwable failure) {
                 finish(configuration, execution, failure);
             } finally {
@@ -201,7 +217,7 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
     }
 
     private void finish(
-        RunConfiguration<GradleRunConfigurationData> configuration,
+        RunConfiguration<?> configuration,
         GradleExecutionHandle execution,
         Throwable failure
     ) {
@@ -258,7 +274,8 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
 
             closeQuietly(execution.stdout);
             closeQuietly(execution.stderr);
-            execution.problems.finish(outcome instanceof BuildCancelledException ? null : outcome);
+            execution.problems.finish(outcome instanceof BuildCancelledException ? null : outcome,
+                !execution.session.testResults().hasOnlyTestFailures());
             execution.session.finish(null, outcome);
             executions.remove(configuration.uuid(), execution);
             if (outcome == null) {
@@ -273,13 +290,14 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
 
     private void executeGradleBuild(
         Project project,
-        RunConfiguration<GradleRunConfigurationData> configuration,
+        RunConfiguration<?> configuration,
+        GradleRunConfigurationData data,
         GradleExecutionHandle execution,
-        boolean debug
+        boolean debug,
+        List<String> failedTests
     ) throws IOException {
-        GradleRunConfigurationData data = configuration.data();
-        boolean editorMain = data.getMainSource() != null;
-        String task = editorMain
+        boolean editorLaunch = data.getMainSource() != null;
+        String task = editorLaunch
             ? ":railroadMain" + configuration.uuid().toString().replace("-", "")
             : requireTask(data).trim();
         if (debug && !task.startsWith(":")) {
@@ -293,7 +311,7 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
         }
 
         String[] vmOptions = data.getVmOptions() == null ? new String[0] : data.getVmOptions();
-        JDK javaHome = editorMain ? data.getJavaHome() : requireJavaHome(data);
+        JDK javaHome = editorLaunch ? data.getJavaHome() : requireJavaHome(data);
 
         if (execution.ended)
             return;
@@ -309,10 +327,11 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
             }
         }
 
-        if (editorMain || debug) {
+        if (failedTests.isEmpty() && (editorLaunch || debug)) {
             execution.script = Files.createTempFile("railroad-launch-", ".init.gradle");
-            String init = editorMain ? loadRunMainClassInitScript() : "";
-            Files.writeString(execution.script, init + (debug ? debugInitScript(task, port) : ""));
+            String init = editorLaunch ? loadRunMainClassInitScript() : "";
+            Files.writeString(execution.script,
+                init + (debug ? debugInitScript(task, port, data.getTestMethod() != null) : ""));
         }
 
         if (execution.ended)
@@ -327,11 +346,10 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
         Charset charset = Charset.defaultCharset();
         execution.stdout = execution.problems.output(charset, text -> runSession.append(RunOutput.Kind.STDOUT, text));
         execution.stderr = execution.problems.output(charset, text -> runSession.append(RunOutput.Kind.STDERR, text));
-        runSession.appendSystemLine("gradle " + task);
-        // Colour output switches Gradle to its rich console, whose progress bar redraws lines with cursor movement.
-        BuildLauncher launcher = execution.connection.newBuild()
-            .forTasks(task)
-            .setJvmArguments(vmOptions)
+        List<String> tasks = failedTests.isEmpty() ? List.of(task) : failedTests;
+        runSession.appendSystemLine("gradle " + String.join(" ", tasks));
+        BuildLauncher launcher = execution.connection.newBuild().forTasks(tasks.toArray(String[]::new));
+        launcher.setJvmArguments(vmOptions)
             .setEnvironmentVariables(environmentVariables)
             .setColorOutput(false)
             .withCancellationToken(execution.cancellation.token())
@@ -339,23 +357,30 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
             .setStandardError(execution.stderr)
             .setStandardInput(runSession.input(charset));
         GradleBuildProblems.listen(launcher, execution.problems);
+        launcher.addProgressListener(runSession.testResults()::record, OperationType.TEST, OperationType.TASK);
         if (javaHome != null) {
             launcher.setJavaHome(javaHome.path().toFile());
         }
 
+        List<String> arguments = new ArrayList<>();
         if (execution.script != null) {
-            List<String> arguments = new ArrayList<>(
-                List.of("--init-script", execution.script.toString(), "--no-configuration-cache"));
-            if (editorMain) {
+            arguments.addAll(List.of("--init-script", execution.script.toString(), "--no-configuration-cache"));
+            if (editorLaunch) {
                 arguments.add("--no-configure-on-demand");
                 arguments.add("-PrailroadMainSource=" + data.getMainSource());
                 arguments.add("-PrailroadMainClass=" + data.getMainClass());
                 arguments.add("-PrailroadMainTask=" + task.substring(1));
-                if (project.getGradleManager().getGradleSettings().isOfflineMode()) {
-                    arguments.add("--offline");
+                if (data.getTestMethod() != null) {
+                    arguments.add("-PrailroadTestMethod=" + data.getTestMethod());
                 }
             }
+        }
 
+        if (editorLaunch && project.getGradleManager().getGradleSettings().isOfflineMode()) {
+            arguments.add("--offline");
+        }
+
+        if (!arguments.isEmpty()) {
             launcher.withArguments(arguments);
         }
 
@@ -377,10 +402,10 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
         if (debug && !execution.ended) {
             Path root = ProjectPathIdentityUtils.normalize(project.getPath());
             int moduleSeparator = task.lastIndexOf(':');
-            String modulePath = !editorMain && moduleSeparator > 0 ? task.substring(0, moduleSeparator) : null;
+            String modulePath = !editorLaunch && moduleSeparator > 0 ? task.substring(0, moduleSeparator) : null;
             var dependencies = LibrarySourceIndex.forProject(project, List.of(), modulePath,
-                editorMain || modulePath != null ? null : gradleProjectPath);
-            SourceResolver resolver = editorMain
+                editorLaunch || modulePath != null ? null : gradleProjectPath);
+            SourceResolver resolver = editorLaunch
                 ? ProjectSourceResolver.create(root, gradleProjectPath.resolve(data.getMainSource()),
                     data.getMainClass(), dependencies)
                 : ProjectSourceResolver.create(root, dependencies);
@@ -394,7 +419,7 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
                     && (ProjectPathIdentityUtils.normalize(file).startsWith(root)
                         || resolver.isDependencySource(breakpoint.source())),
                 event -> Railroad.LOGGER.debug("Gradle debugger event: {}", event),
-                Duration.ofMinutes(editorMain ? 10 : 1), () -> execution.ended);
+                Duration.ofMinutes(editorLaunch ? 10 : 1), () -> execution.ended);
             execution.attachment.whenComplete((session, failure) -> {
                 if (failure != null && !execution.ended) {
                     finish(configuration, execution, failure);
@@ -432,6 +457,10 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
      * @return Groovy initialization script
      */
     public static String debugInitScript(String task, int port) {
+        return debugInitScript(task, port, false);
+    }
+
+    private static String debugInitScript(String task, int port, boolean editorTest) {
         String escaped = task.replace("\\", "\\\\").replace("'", "\\'")
             .replace("\r", "\\r").replace("\n", "\\n");
         return """
@@ -439,6 +468,7 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
             def railroadTaskPath = '%s'
             gradle.projectsEvaluated {
                 def target = gradle.rootProject.tasks.findByPath(railroadTaskPath)
+                if (%s && target != null) target = target.ext.railroadTestTarget
                 if (target == null) {
                     throw new GradleException("Railroad could not find Gradle task " + railroadTaskPath)
                 }
@@ -461,6 +491,6 @@ public class GradleRunConfigurationType extends RunConfigurationType<GradleRunCo
                     target.outputs.doNotCacheIf('Railroad debugging') { true }
                 }
             }
-            """.formatted(escaped, port);
+            """.formatted(escaped, editorTest, port);
     }
 }

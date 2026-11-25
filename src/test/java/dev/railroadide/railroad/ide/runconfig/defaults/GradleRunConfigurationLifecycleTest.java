@@ -4,7 +4,7 @@ import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.ide.WorkspaceModes;
 import dev.railroadide.railroad.ide.debug.DebuggingManager;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
-import dev.railroadide.railroad.ide.runconfig.EditorMain;
+import dev.railroadide.railroad.ide.runconfig.EditorJavaLaunch;
 import dev.railroadide.railroad.project.RailroadProject;
 import javafx.scene.image.WritableImage;
 import dev.railroadide.railroad.ide.runconfig.session.RunOutput;
@@ -29,6 +29,8 @@ import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import dev.railroadide.railroad.ide.diagnostics.BuildProblems;
 import java.util.List;
+import java.util.Arrays;
+import dev.railroadide.railroad.ide.runconfig.session.GradleTestResults;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -255,8 +257,8 @@ public class GradleRunConfigurationLifecycleTest {
             "invalid");
         Files.writeString(directory.resolve("unrelated/build.gradle"), "plugins { id 'java' }");
         var project = new RailroadProject(directory, "Editor launch", new WritableImage(1, 1));
-        assertTrue(EditorMain.supports(project, main));
-        EditorMain target = EditorMain.find(Files.readString(main), "Main.java").getFirst();
+        assertTrue(EditorJavaLaunch.supports(project, main));
+        EditorJavaLaunch target = EditorJavaLaunch.find(Files.readString(main), "Main.java").getFirst();
         RunConfiguration<?> config = target.configuration(project, main);
         assertSame(config, target.configuration(project, main));
         GradleRunConfigurationData data = assertInstanceOf(GradleRunConfigurationData.class, config.data());
@@ -289,6 +291,97 @@ public class GradleRunConfigurationLifecycleTest {
         } finally {
             Services.BREAKPOINT_SERVICE.remove(main, 4);
             configuration.stop(project).get(30, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    public void gutterTestUsesOwningTaskAndFailuresCanBeOpenedAndRerunInIsolation() throws Exception {
+        Files.writeString(directory.resolve("settings.gradle"), "include 'app', 'unrelated'");
+        String classpath = Arrays.stream(System.getProperty("java.class.path").split(File.pathSeparator))
+            .filter(
+                path -> Path.of(path).getFileName().toString().matches("(junit-.*|opentest4j-.*|apiguardian-.*)\\.jar"))
+            .map(path -> "'" + path.replace("\\", "/").replace("'", "\\'") + "'")
+            .collect(Collectors.joining(","));
+        Path sources = Files.createDirectories(directory.resolve("app/checks/demo"));
+        Files.writeString(directory.resolve("app/build.gradle"), """
+            plugins { id 'java' }
+            sourceSets.test.java.setSrcDirs(['checks'])
+            dependencies { testImplementation files([%s]) }
+            test { useJUnitPlatform(); filter.includeTestsMatching('demo.*') }
+            """.formatted(classpath));
+        Path duplicate = Files.createDirectories(directory.resolve("unrelated/src/test/java/demo"));
+        Files.writeString(directory.resolve("unrelated/build.gradle"), "plugins { id 'java' }");
+        Files.writeString(duplicate.resolve("Checks.java"), "invalid");
+        Path file = sources.resolve("Checks.java");
+        String code = """
+            package demo;
+            import org.junit.jupiter.api.Test;
+            import static org.junit.jupiter.api.Assertions.assertEquals;
+            class Checks {
+                @Test void broken() {
+                    assertEquals("expected", "actual");
+                }
+                @Test void passing() {}
+                @org.junit.jupiter.api.RepeatedTest(2)
+                void repeated(org.junit.jupiter.api.RepetitionInfo rep) {
+                    org.junit.jupiter.api.Assertions.assertTrue(rep.getCurrentRepetition() != 2);
+                }
+            }
+            """;
+        Files.writeString(file, code);
+        var project = new RailroadProject(directory, "Tests", new WritableImage(1, 1));
+        EditorJavaLaunch target = EditorJavaLaunch.find(code, "Checks.java").getFirst();
+        RunConfiguration<?> selected = target.configuration(project, file);
+        assertSame(selected, target.configuration(project, file));
+        GradleRunConfigurationData data = assertInstanceOf(GradleRunConfigurationData.class, selected.data());
+        data.setJavaHome(new JDK(Path.of(System.getProperty("java.home")), "Test JDK", JavaVersion.fromMajor(25)));
+        GradleRunConfigurationType type = type();
+        var single = new RunConfiguration<>(selected.uuid(), type, data);
+        assertThrows(ExecutionException.class, () -> single.run(project).get(60, TimeUnit.SECONDS));
+        RunSession one = project.getRunSessions().sessions().getLast();
+        assertEquals(0, one.testResults().passed());
+        assertEquals(1, one.testResults().failures().size(), () -> one.retainedOutput().toString());
+        assertTrue(project.getRunSessions().buildProblems().problems().isEmpty());
+        GradleTestResults.FailedTest failure = one.testResults().failures().getFirst();
+        assertEquals(":app:test", failure.taskPath());
+        assertTrue(failure.details().contains("expected"), failure::details);
+        GradleTestResults.SourceLine location = failure.source(data, null).orElseThrow();
+        assertTrue(Files.isSameFile(file, location.file()));
+        assertEquals(6, location.line());
+
+        RunConfiguration<GradleRunConfigurationData> suite = configuration(type, ":app:test");
+        assertThrows(ExecutionException.class, () -> suite.run(project).get(60, TimeUnit.SECONDS));
+        RunSession all = project.getRunSessions().sessions().getLast();
+        assertEquals(2, all.testResults().passed());
+        assertEquals(2, all.testResults().failures().size());
+        Files.writeString(file, code.replace("\"actual\"", "\"expected\"").replace("!= 2", ">= 1"));
+        type.rerunFailed(project, all).get(60, TimeUnit.SECONDS);
+        RunSession retry = project.getRunSessions().sessions().getLast();
+        assertEquals(RunSessionState.SUCCEEDED, retry.state());
+        assertEquals(3, retry.testResults().passed(), () -> all.testResults().failedTestArguments().toString());
+        assertTrue(retry.testResults().failures().isEmpty());
+        assertSame(suite, retry.configuration());
+
+        Services.BREAKPOINT_SERVICE.add(file, 6);
+        try {
+            CompletableFuture<Void> debug = single.debug(project);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+            while (!project.getDebuggingManager().isPaused() && !debug.isDone() && System.nanoTime() < deadline) {
+                flushFx();
+                Thread.sleep(25);
+            }
+
+            if (debug.isDone()) {
+                debug.join();
+            }
+
+            assertTrue(project.getDebuggingManager().isPaused(), "The selected test did not hit its breakpoint");
+            Platform.runLater(project.getDebuggingManager()::resume);
+            debug.get(30, TimeUnit.SECONDS);
+            assertEquals(1, project.getRunSessions().sessions().getLast().testResults().passed());
+        } finally {
+            Services.BREAKPOINT_SERVICE.remove(file, 6);
+            single.stop(project).get(30, TimeUnit.SECONDS);
         }
     }
 

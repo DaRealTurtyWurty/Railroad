@@ -37,6 +37,9 @@ import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import dev.railroadide.railroad.ide.runconfig.session.RunSession;
+import dev.railroadide.railroad.ide.runconfig.defaults.GradleRunConfigurationType;
+import java.util.function.Supplier;
 import dev.railroadide.railroad.ide.runconfig.RunConfigurationManager;
 
 /**
@@ -346,12 +349,31 @@ public final class RunControlsPane extends RRHBox {
         if (!allowsMultipleInstances(configuration) && isConfigurationRunning(configuration))
             return;
 
+        trackLaunch(configuration, () -> debug ? configuration.debug(project) : configuration.run(project));
+    }
+
+    /**
+     * Runs failed tests through the normal save and execution tracking.
+     */
+    public void rerunFailedTests(RunSession session) {
+        RunConfiguration<?> configuration = session.configuration();
+        if (!(configuration.type() instanceof GradleRunConfigurationType gradle)
+            || !canExecuteConfiguration(configuration, false) || isConfigurationRunning(configuration)
+            || !session.state().isTerminal() || session.testResults().failedTestArguments().isEmpty()
+            || !Commands.saveAll())
+            return;
+
+        runConfigurationsComboBox.setValue(configuration);
+        trackLaunch(configuration, () -> gradle.rerunFailed(project, session));
+    }
+
+    private void trackLaunch(RunConfiguration<?> configuration, Supplier<CompletableFuture<?>> launch) {
         incrementRunningConfiguration(configuration);
         updateRunControls();
 
         CompletableFuture<?> execution;
         try {
-            execution = debug ? configuration.debug(project) : configuration.run(project);
+            execution = launch.get();
         } catch (Throwable failure) {
             decrementRunningConfiguration(configuration);
             updateRunControls();
