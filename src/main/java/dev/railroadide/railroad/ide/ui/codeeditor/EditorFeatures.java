@@ -2,8 +2,8 @@ package dev.railroadide.railroad.ide.ui.codeeditor;
 
 /**
  * Language-specific behaviour of an open code editor, supplied by a language session. Covers what the editor's
- * request-based providers cannot: decorations such as gutter columns and folding, and the typing rules that decide
- * when completion and signature help run. Every method has a language-neutral default.
+ * request-based providers cannot: decorations such as gutter columns and folding, and typing rules for indentation,
+ * completion and signature help. Every method has a language-neutral default.
  * <p>
  * Methods are called on the JavaFX application thread. Once the providing session closes, editors stop calling
  * these methods and use the defaults.
@@ -25,6 +25,28 @@ public interface EditorFeatures {
     default AutoCloseable install(CodeEditorPane editor) {
         return () -> {
         };
+    }
+
+    /**
+     * Decides whether an opening bracket before an insertion point starts an indented block.
+     *
+     * @param text current editor text
+     * @param bracketOffset offset of the opening bracket in {@code text}
+     * @return whether Enter after the bracket should add an indentation level
+     */
+    default boolean isIndentingBracket(String text, int bracketOffset) {
+        return false;
+    }
+
+    /**
+     * Finds an earlier line to use for the indentation of a new line.
+     *
+     * @param text current editor text
+     * @param offset insertion offset in {@code text}
+     * @return an offset on the line to copy indentation from, or {@code -1} to use the insertion line
+     */
+    default int newlineIndentationAnchor(String text, int offset) {
+        return -1;
     }
 
     /**

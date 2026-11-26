@@ -11,8 +11,8 @@ import javafx.collections.FXCollections;
 import javafx.collections.MapChangeListener;
 import javafx.collections.ObservableMap;
 import javafx.geometry.Point2D;
+import javafx.scene.control.IndexRange;
 import javafx.scene.control.Label;
-import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 import javafx.stage.Popup;
@@ -65,7 +65,6 @@ public class JsonCodeEditorPane extends CodeEditorPane {
     public JsonCodeEditorPane(Project project, DocumentId documentId, Path item, CodeEditorConfig config) {
         super(project, documentId, item, config);
         autoInsertPairs();
-        autoIndentOnEnter();
 
         loadDefaultSchema();
         setupSchemaValidation();
@@ -125,56 +124,23 @@ public class JsonCodeEditorPane extends CodeEditorPane {
         return inString;
     }
 
-    private void autoIndentOnEnter() {
-        addEventFilter(KeyEvent.KEY_PRESSED, event -> {
-            if (event.getCode() != KeyCode.ENTER)
-                return;
-
-            int pos = getCaretPosition();
-            String text = getText();
-
-            String before = text.substring(0, pos);
-            String after = text.substring(pos);
-
-            int lineStart = before.lastIndexOf('\n') + 1;
-            var baseIndent = new StringBuilder();
-            while (lineStart < before.length()) {
-                char c = before.charAt(lineStart);
-                if (c == ' ' || c == '\t') {
-                    baseIndent.append(c);
-                    lineStart++;
-                } else
-                    break;
-
-            }
-
-            char prev = pos > 0 ? before.charAt(pos - 1) : '\0';
-            char next = !after.isEmpty() ? after.charAt(0) : '\0';
-
-            boolean special = (prev == '{' && next == '}') || (prev == '[' && next == ']');
-            if (special) {
-                String indent = baseIndent.toString();
-                String inner = indent + "    ";
-                String insertion = "\n" + inner + "\n" + indent;
-                replaceText(pos, pos, insertion);
-                moveTo(pos + 1 + inner.length());
-            } else {
-                var indent = new StringBuilder(baseIndent);
-                if (prev == '{' || prev == '[') {
-                    indent.append("    ");
-                }
-
-                if ((next == '}' || next == ']') && indent.length() >= 4 && prev != '{' && prev != '[') {
-                    indent.setLength(indent.length() - 4);
-                }
-
-                String insertion = "\n" + indent;
-                replaceText(pos, pos, insertion);
-                moveTo(pos + insertion.length());
-            }
-
-            event.consume();
-        });
+    @Override
+    protected void insertNewline(IndexRange selection, String indentation) {
+        int start = selection.getStart();
+        int end = selection.getEnd();
+        char previous = start > 0 ? getText(start - 1, start).charAt(0) : '\0';
+        char next = end < getLength() ? getText(end, end + 1).charAt(0) : '\0';
+        String bracketIndentation = "    ";
+        if ((previous == '{' && next == '}') || (previous == '[' && next == ']')) {
+            splitBracketPair(selection, indentation, indentation + bracketIndentation);
+        } else if (previous == '{' || previous == '[') {
+            super.insertNewline(selection, indentation + bracketIndentation);
+        } else if ((next == '}' || next == ']') && indentation.length() >= bracketIndentation.length()) {
+            super.insertNewline(selection,
+                indentation.substring(0, indentation.length() - bracketIndentation.length()));
+        } else {
+            super.insertNewline(selection, indentation);
+        }
     }
 
     private void overlayErrorHighlights() {

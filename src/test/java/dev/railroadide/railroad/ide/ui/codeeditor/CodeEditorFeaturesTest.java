@@ -7,17 +7,23 @@ import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
 import dev.railroadide.railroad.ide.sst.request.api.CancellationToken;
 import dev.railroadide.railroad.ide.sst.request.api.CancellationTokenSource;
 import dev.railroadide.railroad.ide.ui.JavaEditorFeatures;
+import dev.railroadide.railroad.ide.ui.JsonCodeEditorPane;
 import dev.railroadide.railroad.project.RailroadProject;
+import dev.railroadide.railroad.settings.IndentMode;
+import dev.railroadide.railroad.settings.Settings;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.image.WritableImage;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
@@ -197,6 +203,272 @@ public class CodeEditorFeaturesTest {
     }
 
     @Test
+    public void enterCopiesSpacesAndTabsEvenOnAnIndentedBlankLine() throws Exception {
+        String text = "first\n\t  second";
+        Path file = Files.writeString(directory.resolve("Example.java"), text);
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                editor.moveTo(text.length());
+                pressEnter(editor);
+                assertEquals(text + "\n\t  ", editor.getText());
+                assertEquals(editor.getLength(), editor.getCaretPosition());
+
+                pressEnter(editor);
+                assertEquals(text + "\n\t  \n\t  ", editor.getText());
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterReplacesASelectionUsingIndentationFromItsStartLine() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "  first\n    second");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, null, CancellationToken.none())) {
+                editor.selectRange(13, 4);
+                pressEnter(editor);
+                assertEquals("  fi\n  econd", editor.getText());
+                assertEquals(7, editor.getCaretPosition());
+
+                editor.setEditable(false);
+                pressEnter(editor);
+                assertEquals("  fi\n  econd", editor.getText());
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterBetweenJsonBracketsKeepsTheInnerIndentAndCaret() throws Exception {
+        String text = "  []";
+        Path file = Files.writeString(directory.resolve("example.json"), text);
+        onFx(() -> {
+            var project = new RailroadProject(directory, "Editor features", new WritableImage(1, 1));
+            var config = new CodeEditorConfig("json", null, null, null, null, null);
+            try (var editor = new JsonCodeEditorPane(project, DocumentId.create(), file, config)) {
+                editor.moveTo(3);
+                pressEnter(editor);
+                assertEquals("  [\n      \n  ]", editor.getText());
+                assertEquals(10, editor.getCaretPosition());
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterAfterAJavaOpeningBraceUsesTheConfiguredIndentation() throws Exception {
+        String text = "class Example {";
+        Path file = Files.writeString(directory.resolve("Example.java"), text);
+        onFx(() -> {
+            IndentMode originalMode = Settings.INDENT_MODE.getOrDefaultValue();
+            int originalWidth = Settings.INDENT_WIDTH.getOrDefaultValue();
+            Settings.INDENT_MODE.setValue(IndentMode.SPACES);
+            Settings.INDENT_WIDTH.setValue(2);
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                editor.moveTo(text.length());
+                pressEnter(editor);
+                assertEquals(text + "\n  ", editor.getText());
+            } finally {
+                Settings.INDENT_MODE.setValue(originalMode);
+                Settings.INDENT_WIDTH.setValue(originalWidth);
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterBetweenJavaBracesAlignsTheClosingBraceAndIsOneUndoStep() throws Exception {
+        String opening = "class Example {\n\tvoid method() {";
+        String text = opening + "  }\n}";
+        Path file = Files.writeString(directory.resolve("Example.java"), text);
+        onFx(() -> {
+            IndentMode originalMode = Settings.INDENT_MODE.getOrDefaultValue();
+            Settings.INDENT_MODE.setValue(IndentMode.TABS);
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                editor.moveTo(opening.length());
+                pressEnter(editor);
+                assertEquals(opening + "\n\t\t\n\t}\n}", editor.getText());
+                assertEquals(opening.length() + 3, editor.getCaretPosition());
+
+                editor.undo();
+                assertEquals(text, editor.getText());
+            } finally {
+                Settings.INDENT_MODE.setValue(originalMode);
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterAfterAMultilineJavaCallReturnsToTheCallsIndentation() throws Exception {
+        String before = """
+            class Example {
+                void onRender() {
+                    ModelSubmitUtils.submitModel(queue, model, null,
+                        poses, model.renderType(TEXTURE),
+                        light, overlay, 0, state.breakProgress());
+            """.stripTrailing();
+        String after = "\n    }\n}";
+        Path file = Files.writeString(directory.resolve("Example.java"), before + after);
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                editor.moveTo(before.length());
+                pressEnter(editor);
+                assertEquals(before + "\n        " + after, editor.getText());
+                assertEquals(before.length() + 9, editor.getCaretPosition());
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterKeepsJavaContinuationIndentationInsideAnUnfinishedStatement() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                assertJavaNewline(editor, "submit(\n    model.renderType(TEXTURE),|\n    other);", "    ");
+                assertJavaNewline(editor, "for (int i = first(\n    value);|\n    i < limit; i++) {}",
+                    "    ");
+                assertJavaNewline(editor, "for (int i = 0;\n    i < check();|\n    i++) {}", "    ");
+                assertJavaNewline(editor, "// call(\n    // argument);|", "    ");
+                assertJavaNewline(editor, "if (ready)\n    return; // comment;| still editing", "    ");
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterAfterUnbracedJavaBodiesAlignsWithTheOuterCompletedStatement() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                for (String body : List.of(
+                    "if (!state.multiblockFormed)\n    return;|",
+                    "if (!ready)\n    return; // explain;|",
+                    "if (first)\n    useFirst();\nelse\n    useSecond();|",
+                    "while (ready)\n    if (done)\n        break;|",
+                    "for (var item : items)\n    use(item);|",
+                    "for (int i = 0; i < limit; i++)\n    if (skip(i))\n        continue;|",
+                    "outer:\n    while (running)\n        break outer;|",
+                    "if (ready)\n    do\n        step();\n    while (running);|",
+                    "if (ready)\n    return submit(\n        input, fallback());|")) {
+                    assertJavaNewline(editor, body, "");
+                }
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterBeforeAFollowingJavaClauseStaysAtItsHeaderIndentation() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                assertJavaNewline(editor, "while (ready)\n    if (first)\n        useFirst();|\n"
+                    + "    else\n        useSecond();", "    ");
+                assertJavaNewline(editor, "if (ready)\n    do\n        step();|\n    while (running);", "    ");
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterAfterJavaStatementsRespectsBlockBoundariesAndMultilineExpressions() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                assertJavaNewline(editor, "if (ready) {\n    return;|\n}", "    ");
+                assertJavaNewline(editor, "run(() -> {\n    if (ready)\n        return;|\n});", "    ");
+                assertJavaNewline(editor, "int total = first\n    + second;|", "");
+                assertJavaNewline(editor, "var result = service\n    .submit(\n        input);|", "");
+            }
+
+            return null;
+        });
+    }
+
+    private static void assertJavaNewline(CodeEditorPane editor, String body, String indentation) {
+        String source = "class Example {\n    void example() {\n" + body.indent(8) + "    }\n}";
+        int caret = source.indexOf('|');
+        String insertion = "\n        " + indentation;
+        editor.replaceText(source.replace("|", ""));
+        editor.moveTo(caret);
+        pressEnter(editor);
+        assertEquals(source.replace("|", insertion), editor.getText(), body);
+        assertEquals(caret + insertion.length(), editor.getCaretPosition(), body);
+    }
+
+    @Test
+    public void enterAfterBracesInJavaCommentsAndLiteralsOnlyCopiesIndentation() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                for (String text : List.of("  // {", "/*\n  {", "  String value = \"{", "String value = \"\"\"\n  {")) {
+                    editor.replaceText(text);
+                    editor.moveTo(text.length());
+                    pressEnter(editor);
+                    assertEquals(text + "\n  ", editor.getText());
+                }
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterIndentsGroovyClosuresAndCollections() throws Exception {
+        String closure = "tasks.register('🎨') {";
+        Path file = Files.writeString(directory.resolve("build.gradle"), closure + "}");
+        onFx(() -> {
+            IndentMode originalMode = Settings.INDENT_MODE.getOrDefaultValue();
+            Settings.INDENT_MODE.setValue(IndentMode.TABS);
+            try (CodeEditorPane editor = open(file, new GroovyEditorFeatures(), CancellationToken.none())) {
+                editor.moveTo(closure.length());
+                pressEnter(editor);
+                assertEquals(closure + "\n\t\n}", editor.getText());
+                assertEquals(closure.length() + 2, editor.getCaretPosition());
+
+                editor.replaceText("\tdef properties = [name: 'example']");
+                editor.moveTo("\tdef properties = [".length());
+                pressEnter(editor);
+                assertEquals("\tdef properties = [\n\t\tname: 'example']", editor.getText());
+            } finally {
+                Settings.INDENT_MODE.setValue(originalMode);
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterAfterBracketsInGroovyCommentsAndLiteralsOnlyCopiesIndentation() throws Exception {
+        Path file = Files.writeString(directory.resolve("build.gradle"), "");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new GroovyEditorFeatures(), CancellationToken.none())) {
+                for (String source : List.of("  // {|", "/*\n  [|", "  def text = \"{|\"",
+                    "  def pattern = /[|]/", "  def pattern = $/{|/$")) {
+                    int caret = source.indexOf('|');
+                    editor.replaceText(source.replace("|", ""));
+                    editor.moveTo(caret);
+                    pressEnter(editor);
+                    assertEquals(source.replace("|", "\n  "), editor.getText());
+                }
+            }
+
+            return null;
+        });
+    }
+
+    @Test
     public void javaSignatureHelpIsRequestedOnlyInsideCallArguments() {
         var features = new JavaEditorFeatures();
         assertTrue(features.shouldRequestSignatureHelp("call(a,", 7, false, false));
@@ -210,6 +482,10 @@ public class CodeEditorFeaturesTest {
         var project = new RailroadProject(directory, "Editor features", new WritableImage(1, 1));
         return new CodeEditorPane(project, DocumentId.create(), file,
             new CodeEditorConfig("test", null, null, null, null, null, null, null, features, lifetime));
+    }
+
+    private static void pressEnter(CodeEditorPane editor) {
+        editor.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER, false, false, false, false));
     }
 
     private static boolean hasMarker(CodeEditorPane editor, String selector) {

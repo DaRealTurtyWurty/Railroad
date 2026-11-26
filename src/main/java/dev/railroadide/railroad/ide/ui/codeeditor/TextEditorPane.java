@@ -831,10 +831,8 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
             if (event.getCode() == KeyCode.TAB) {
                 event.consume();
 
-                IndentMode indentMode = Settings.INDENT_MODE.getOrDefaultValue();
-                int indentWidth = Math.max(1, Settings.INDENT_WIDTH.getOrDefaultValue());
-
                 if (event.isShiftDown()) {
+                    int indentWidth = Math.max(1, Settings.INDENT_WIDTH.getOrDefaultValue());
                     if (getSelection().getLength() == 0) {
                         unindentCurrentLine(indentWidth);
                     } else {
@@ -842,9 +840,9 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
                     }
                 } else {
                     if (getSelection().getLength() == 0) {
-                        insertIndentAtCaret(indentMode, indentWidth);
+                        insertIndentAtCaret();
                     } else {
-                        indentSelected(indentMode, indentWidth);
+                        indentSelected();
                     }
                 }
             }
@@ -859,9 +857,20 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         setStyle("-fx-font-family: \"" + fontFamily.replace("\"", "\\\"") + "\"; -fx-tab-size: " + visualWidth + "px;");
     }
 
-    private void insertIndentAtCaret(IndentMode indentMode, int indentWidth) {
-        indentWidth = Math.max(1, indentWidth);
-        String indentString = indentMode == IndentMode.TABS ? "\t" : " ".repeat(indentWidth);
+    /**
+     * Returns the configured whitespace for one indentation level.
+     *
+     * @return a tab or the configured number of spaces
+     */
+    protected final String indentationUnit() {
+        if (Settings.INDENT_MODE.getOrDefaultValue() == IndentMode.TABS)
+            return "\t";
+
+        return " ".repeat(Math.max(1, Settings.INDENT_WIDTH.getOrDefaultValue()));
+    }
+
+    private void insertIndentAtCaret() {
+        String indentString = indentationUnit();
         int caret = getCaretPosition();
         insertText(caret, indentString);
         moveTo(caret + indentString.length());
@@ -924,7 +933,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         return line.substring(spacesToRemove);
     }
 
-    private void indentSelected(IndentMode indentMode, int indentWidth) {
+    private void indentSelected() {
         IndexRange selection = getSelection();
         int selectionStart = selection.getStart();
         int selectionEnd = selection.getEnd();
@@ -937,7 +946,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         }
 
         String block = fullText.substring(blockStart, blockEnd);
-        String indentString = indentMode == IndentMode.TABS ? "\t" : " ".repeat(indentWidth);
+        String indentString = indentationUnit();
         String modified = indentString + block.replace("\n", "\n" + indentString);
 
         replaceText(blockStart, blockEnd, modified);

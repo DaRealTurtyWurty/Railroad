@@ -5,6 +5,15 @@ import dev.railroadide.railroad.command.CommandContext;
 import dev.railroadide.railroad.command.RunCommands;
 import dev.railroadide.railroad.ide.runconfig.EditorJavaLaunch;
 import dev.railroadide.railroad.ide.runconfig.RunConfiguration;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaLexer;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticAnalyzer;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxKinds;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxParser;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaTokenType;
+import dev.railroadide.railroad.ide.sst.lexer.Token;
+import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxKind;
+import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
+import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
 import dev.railroadide.railroad.ide.ui.codeeditor.BreakpointGutterBinding;
 import dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorPane;
 import dev.railroadide.railroad.ide.ui.codeeditor.EditorFeatures;
@@ -32,12 +41,32 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Java editor behaviour: breakpoints, run and test markers for launchable code, import folding, and signature help
- * requested from inside call arguments.
+ * Java editor behaviour: breakpoints, run and test markers for launchable code, import folding, block indentation,
+ * and signature help requested from inside call arguments.
  */
 public final class JavaEditorFeatures implements EditorFeatures {
     private static final String LAUNCH_COLUMN_ID = "java-launch";
     private static final int SIGNATURE_SCAN_WINDOW = 2048;
+    private static final SyntaxKind SEMICOLON = JavaSyntaxKinds.tokenKind(JavaTokenType.SEMICOLON);
+    private static final SyntaxKind ELSE_KEYWORD = JavaSyntaxKinds.tokenKind(JavaTokenType.ELSE_KEYWORD);
+    private static final Set<SyntaxKind> SEMICOLON_STATEMENTS = Set.of(
+        JavaSyntaxKinds.ASSERT_STATEMENT,
+        JavaSyntaxKinds.BREAK_STATEMENT,
+        JavaSyntaxKinds.CONTINUE_STATEMENT,
+        JavaSyntaxKinds.DO_WHILE_STATEMENT,
+        JavaSyntaxKinds.EMPTY_STATEMENT,
+        JavaSyntaxKinds.EXPRESSION_STATEMENT,
+        JavaSyntaxKinds.FIELD_DECLARATION,
+        JavaSyntaxKinds.LOCAL_VARIABLE_DECLARATION_STATEMENT,
+        JavaSyntaxKinds.RETURN_STATEMENT,
+        JavaSyntaxKinds.THROW_STATEMENT,
+        JavaSyntaxKinds.YIELD_STATEMENT);
+    private static final Set<SyntaxKind> STATEMENT_OWNERS = Set.of(
+        JavaSyntaxKinds.DO_WHILE_STATEMENT,
+        JavaSyntaxKinds.FOR_STATEMENT,
+        JavaSyntaxKinds.IF_STATEMENT,
+        JavaSyntaxKinds.LABELED_STATEMENT,
+        JavaSyntaxKinds.WHILE_STATEMENT);
     private static final Set<String> NON_CALLABLE_PREFIX_KEYWORDS = Set.of(
         "if",
         "for",
@@ -51,6 +80,85 @@ public final class JavaEditorFeatures implements EditorFeatures {
     @Override
     public AutoCloseable install(CodeEditorPane editor) {
         return new Installation(editor);
+    }
+
+    @Override
+    public boolean isIndentingBracket(String text, int bracketOffset) {
+        if (text.charAt(bracketOffset) != '{')
+            return false;
+
+        try (var lexer = new JavaLexer(text)) {
+            while (true) {
+                Token<JavaTokenType> token = lexer.nextToken();
+                if (token.type() == JavaTokenType.EOF || token.pos() > bracketOffset)
+                    return false;
+
+                if (token.endOffset() > bracketOffset)
+                    return token.pos() == bracketOffset && token.type() == JavaTokenType.OPEN_BRACE;
+            }
+        }
+    }
+
+    @Override
+    public int newlineIndentationAnchor(String text, int offset) {
+        int lineStart = text.lastIndexOf('\n', offset - 1) + 1;
+        if (text.lastIndexOf(';', offset - 1) < lineStart)
+            return -1;
+
+        SyntaxToken terminator = codeTokenBefore(JavaSyntaxParser.parse(text).root(), offset);
+        if (terminator == null || terminator.start() < lineStart || !terminator.kind().equals(SEMICOLON))
+            return -1;
+
+        SyntaxNode statement = terminator.parent().orElse(null);
+        if (statement == null || !SEMICOLON_STATEMENTS.contains(statement.kind()))
+            return -1;
+
+        SyntaxNode owner = statement.parent().orElse(null);
+        if (owner != null && owner.kind().equals(JavaSyntaxKinds.BASIC_FOR_STATEMENT))
+            return -1;
+
+        while (owner != null && STATEMENT_OWNERS.contains(owner.kind())) {
+            statement = owner;
+            if (statement.kind().equals(JavaSyntaxKinds.DO_WHILE_STATEMENT)
+                || statement.kind().equals(JavaSyntaxKinds.IF_STATEMENT) && statement.children().stream()
+                    .anyMatch(child -> child.start() > terminator.start() && child.kind().equals(ELSE_KEYWORD)))
+                break;
+
+            owner = statement.parent().orElse(null);
+        }
+
+        return firstCodeOffset(statement);
+    }
+
+    private static @Nullable SyntaxToken codeTokenBefore(SyntaxNode node, int offset) {
+        if (node.start() >= offset || node.width() == 0)
+            return null;
+
+        if (node instanceof SyntaxToken token)
+            return !JavaSemanticAnalyzer.isTriviaToken(token) || offset < token.end() && !token.text().isBlank()
+                ? token
+                : null;
+
+        for (SyntaxNode child : node.children().reversed()) {
+            SyntaxToken token = codeTokenBefore(child, offset);
+            if (token != null)
+                return token;
+        }
+
+        return null;
+    }
+
+    private static int firstCodeOffset(SyntaxNode node) {
+        if (node instanceof SyntaxToken token)
+            return token.width() == 0 || JavaSemanticAnalyzer.isTriviaToken(token) ? -1 : token.start();
+
+        for (SyntaxNode child : node.children()) {
+            int offset = firstCodeOffset(child);
+            if (offset >= 0)
+                return offset;
+        }
+
+        return -1;
     }
 
     @Override

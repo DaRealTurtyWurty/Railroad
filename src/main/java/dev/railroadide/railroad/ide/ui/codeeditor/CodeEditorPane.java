@@ -55,6 +55,7 @@ import org.fxmisc.richtext.model.PlainTextChange;
 import org.fxmisc.richtext.model.StyleSpan;
 import org.fxmisc.richtext.model.StyleSpans;
 import org.fxmisc.richtext.model.StyleSpansBuilder;
+import org.fxmisc.richtext.model.TwoDimensional.Bias;
 import org.jspecify.annotations.Nullable;
 import org.reactfx.Subscription;
 
@@ -292,6 +293,79 @@ public class CodeEditorPane extends TextEditorPane {
         installBracketHighlighting();
         installDiagnosticPopupHandlers();
         installEditorFeatures();
+        addEventFilter(KeyEvent.KEY_PRESSED, this::handleNewline);
+    }
+
+    private void handleNewline(KeyEvent event) {
+        if (event.isConsumed() || event.getCode() != KeyCode.ENTER || !isEditable()
+            || event.isShiftDown() || event.isControlDown() || event.isAltDown() || event.isMetaDown())
+            return;
+
+        IndexRange selection = getSelection();
+        insertNewline(selection, indentationBefore(selection.getStart()));
+        requestFollowCaret();
+        event.consume();
+    }
+
+    private String indentationBefore(int offset) {
+        Position position = offsetToPosition(offset, Bias.Forward);
+        String line = getText(position.getMajor());
+        int indentEnd = 0;
+        while (indentEnd < position.getMinor() && isIndentationCharacter(line.charAt(indentEnd))) {
+            indentEnd++;
+        }
+
+        return line.substring(0, indentEnd);
+    }
+
+    private static boolean isIndentationCharacter(char character) {
+        return character == ' ' || character == '\t';
+    }
+
+    /**
+     * Replaces the selection with a newline and applies the current language's indentation rules.
+     *
+     * @param selection range to replace
+     * @param indentation leading spaces and tabs before the insertion point
+     */
+    protected void insertNewline(IndexRange selection, String indentation) {
+        String text = getText();
+        EditorFeatures features = editorFeatures();
+        int previous = selection.getStart() - 1;
+        while (previous >= 0 && isIndentationCharacter(text.charAt(previous))) {
+            previous--;
+        }
+
+        Character closing = previous < 0 ? null : OPENING_BRACKETS.get(text.charAt(previous));
+        if (closing == null || !features.isIndentingBracket(text, previous)) {
+            int anchor = features.newlineIndentationAnchor(text, selection.getStart());
+            replaceText(selection, "\n" + (anchor < 0 ? indentation : indentationBefore(anchor)));
+            return;
+        }
+
+        String innerIndentation = indentation + indentationUnit();
+        int next = selection.getEnd();
+        while (next < text.length() && isIndentationCharacter(text.charAt(next))) {
+            next++;
+        }
+
+        if (next < text.length() && text.charAt(next) == closing) {
+            splitBracketPair(new IndexRange(selection.getStart(), next), indentation, innerIndentation);
+        } else {
+            replaceText(selection, "\n" + innerIndentation);
+        }
+    }
+
+    /**
+     * Inserts an indented line before a closing bracket and places the caret on the inner line.
+     *
+     * @param range selection and any intervening whitespace before the closing bracket
+     * @param indentation indentation of the closing bracket
+     * @param innerIndentation indentation of the inner line
+     */
+    protected final void splitBracketPair(IndexRange range, String indentation, String innerIndentation) {
+        replaceText(range, "\n" + innerIndentation + "\n" + indentation);
+        moveTo(range.getStart() + 1 + innerIndentation.length());
     }
 
     private void installEditorFeatures() {
