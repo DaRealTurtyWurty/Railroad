@@ -59,13 +59,13 @@ public sealed interface DebugSource {
                     continue;
 
                 Path relative = root.relativize(absolute);
-                String className = relative.toString().replace(File.separatorChar, '.');
-                if (!className.endsWith(".java"))
+                String fileName = relative.getFileName().toString();
+                int extension = fileName.lastIndexOf('.');
+                if (extension <= 0)
                     continue;
 
-                className = className.substring(0, className.length() - ".java".length());
-
-                return Optional.of(className + "*");
+                String className = relative.toString().replace(File.separatorChar, '.');
+                return Optional.of(className.substring(0, className.length() - fileName.length() + extension) + "*");
             }
 
             return Optional.empty();

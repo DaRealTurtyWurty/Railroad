@@ -1,6 +1,8 @@
 package dev.railroadide.railroad.ide.ui.codeeditor;
 
+import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.ide.WorkspaceModes;
+import dev.railroadide.railroad.ide.language.impl.groovy.GroovyEditorFeatures;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
 import dev.railroadide.railroad.ide.sst.request.api.CancellationToken;
 import dev.railroadide.railroad.ide.sst.request.api.CancellationTokenSource;
@@ -152,6 +154,31 @@ public class CodeEditorFeaturesTest {
             assertFalse(hasMarker(editor, ".editor-fold-marker"));
             return null;
         });
+    }
+
+    @Test
+    public void groovyFeaturesShowBreakpointsUntilTheEditorCloses() throws Exception {
+        Path file = Files.writeString(directory.resolve("Script.groovy"), "println 'one'\nprintln 'two'\n");
+        CodeEditorPane editor = onFx(() -> open(file, new GroovyEditorFeatures(), CancellationToken.none()));
+        try {
+            onFx(() -> {
+                Services.BREAKPOINT_SERVICE.toggle(file, 2);
+                editor.getGutter().refresh();
+                assertTrue(hasMarker(editor, ".editor-breakpoint-marker"));
+                editor.close();
+                return null;
+            });
+
+            onFx(() -> {
+                assertFalse(hasMarker(editor, ".editor-breakpoint-marker"));
+                return null;
+            });
+        } finally {
+            onFx(() -> {
+                Services.BREAKPOINT_SERVICE.get(file, 2).ifPresent(_ -> Services.BREAKPOINT_SERVICE.toggle(file, 2));
+                return null;
+            });
+        }
     }
 
     @Test

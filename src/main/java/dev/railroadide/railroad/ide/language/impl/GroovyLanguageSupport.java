@@ -6,6 +6,7 @@ import dev.railroadide.railroad.ide.language.EditorOpenView;
 import dev.railroadide.railroad.ide.language.LanguageCapabilities;
 import dev.railroadide.railroad.ide.language.impl.groovy.GroovyCompiler;
 import dev.railroadide.railroad.ide.language.impl.groovy.GroovyDeclarationProvider;
+import dev.railroadide.railroad.ide.language.impl.groovy.GroovyEditorFeatures;
 import dev.railroadide.railroad.ide.language.impl.groovy.GroovyLanguageIndexContextContributor;
 import dev.railroadide.railroad.ide.language.impl.groovy.GroovyProjectLanguageIndexer;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
@@ -42,7 +43,8 @@ public final class GroovyLanguageSupport extends BaseLanguageSupport {
     @Override
     public Set<CapabilityKey<?>> supportedCapabilities() {
         return Set.of(LanguageCapabilities.HIGHLIGHTING, SstCapabilities.DIAGNOSTICS,
-            LanguageCapabilities.JVM_DECLARATIONS, LanguageCapabilities.INDEXER, LanguageCapabilities.INDEX_CONTEXT);
+            LanguageCapabilities.JVM_DECLARATIONS, LanguageCapabilities.INDEXER, LanguageCapabilities.INDEX_CONTEXT,
+            LanguageCapabilities.EDITOR_FEATURES);
     }
 
     @Override
@@ -54,6 +56,7 @@ public final class GroovyLanguageSupport extends BaseLanguageSupport {
             .add(LanguageCapabilities.JVM_DECLARATIONS, new GroovyDeclarationProvider(compiler))
             .add(LanguageCapabilities.INDEXER, new GroovyProjectLanguageIndexer())
             .add(LanguageCapabilities.INDEX_CONTEXT, new GroovyLanguageIndexContextContributor())
+            .add(LanguageCapabilities.EDITOR_FEATURES, new GroovyEditorFeatures())
             .build());
         session.onClose(compiler::close);
         return session;

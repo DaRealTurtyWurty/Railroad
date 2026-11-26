@@ -31,4 +31,19 @@ public class ProjectSourceResolverTest {
         assertTrue(resolver.classPatternFor(new DebugSource.FileSource(
             directory.resolve("build/copy/src/main/java/demo/Main.java"))).isEmpty());
     }
+
+    @Test
+    public void discoversGroovySourceSetsAndDerivesTheirClassPatterns() throws Exception {
+        String[] included = {"src/main/groovy", "module/src/test/groovy"};
+
+        for (String root : included) {
+            Files.createDirectories(directory.resolve(root));
+        }
+
+        var resolver = ProjectSourceResolver.create(directory);
+        for (String root : included) {
+            assertEquals("demo.Greeter*", resolver.classPatternFor(new DebugSource.FileSource(
+                directory.resolve(root).resolve("demo/Greeter.groovy"))).orElseThrow());
+        }
+    }
 }

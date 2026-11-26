@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.debug.source;
 
+import dev.railroadide.railroad.ide.language.jvm.JvmProjectResolver;
 import org.jspecify.annotations.NonNull;
 
 import java.io.IOException;
@@ -14,7 +15,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Discovers project Java sources for both direct and Gradle debug launches.
+ * Discovers project JVM sources for both direct and Gradle debug launches: every conventional
+ * {@code src/<source-set>/<folder>} root, where the folder is one of
+ * {@link JvmProjectResolver#CONVENTIONAL_SOURCE_FOLDERS}.
  */
 public final class ProjectSourceResolver {
     private static final Set<String> EXCLUDED_DIRECTORIES = Set.of(".git", ".gradle", "build", "out", "target",
@@ -24,8 +27,7 @@ public final class ProjectSourceResolver {
     }
 
     /**
-     * Finds conventional {@code src/<source-set>/java} roots in the project and its subprojects, without dependency
-     * sources.
+     * Finds conventional JVM source roots in the project and its subprojects, without dependency sources.
      *
      * @param projectRoot directory containing the project
      * @return resolver using the discovered roots in deterministic order
@@ -36,8 +38,8 @@ public final class ProjectSourceResolver {
     }
 
     /**
-     * Finds conventional {@code src/<source-set>/java} roots in the project and its subprojects and falls back to a
-     * dependency index for classes outside them.
+     * Finds conventional JVM source roots in the project and its subprojects and falls back to a dependency index for
+     * classes outside them.
      *
      * @param projectRoot directory containing the project
      * @param dependencies index consulted for classes not found in the project's sources
@@ -77,7 +79,9 @@ public final class ProjectSourceResolver {
                     return FileVisitResult.SKIP_SUBTREE;
 
                 Path sourceSet = directory.getParent();
-                if (directory.endsWith("java") && sourceSet != null && sourceSet.getParent() != null
+                if (directory.getFileName() != null
+                    && JvmProjectResolver.CONVENTIONAL_SOURCE_FOLDERS.contains(directory.getFileName().toString())
+                    && sourceSet != null && sourceSet.getParent() != null
                     && sourceSet.getParent().endsWith("src")) {
                     sourceRoots.add(directory);
                     return FileVisitResult.SKIP_SUBTREE;
