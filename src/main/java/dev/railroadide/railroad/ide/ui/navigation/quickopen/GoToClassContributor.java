@@ -1,15 +1,15 @@
 package dev.railroadide.railroad.ide.ui.navigation.quickopen;
 
 import dev.railroadide.railroad.Services;
-import dev.railroadide.railroad.ide.language.impl.JavaLanguageSupport;
-import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
-import dev.railroadide.railroad.ide.sst.project.JavaProjectSemanticIndex;
-import dev.railroadide.railroad.ide.sst.semantic.api.SymbolLocation;
+import dev.railroadide.railroad.ide.language.LanguageSupport;
+import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
+import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndex;
+import dev.railroadide.railroad.ide.language.index.ProjectTypeIndex;
+import dev.railroadide.railroad.ide.language.index.ProjectTypeIndex.ProjectType;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -17,65 +17,53 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Lists the Java types declared in the project's sources, as recorded by the project language index.
+ * Lists the types declared in the project's sources, as recorded by every language's project index.
  */
-public final class GoToClassContributor implements GoToContributor<GoToClassContributor.TypeEntry> {
+public final class GoToClassContributor implements GoToContributor<ProjectType> {
     @Override
     public String titleKey() {
         return "railroad.ide.go_to.class.title";
     }
 
     @Override
-    public List<TypeEntry> collect(Project project, Runnable activityCheck) {
-        JavaProjectSemanticIndex index = Services.PROJECT_LANGUAGE_INDEX_SERVICE.currentTyped(project,
-            JavaLanguageSupport.LANGUAGE_ID);
-        if (index == null) {
+    public List<ProjectType> collect(Project project, Runnable activityCheck) {
+        var service = Services.PROJECT_LANGUAGE_INDEX_SERVICE;
+        List<ProjectTypeIndex> indexes = new ArrayList<>();
+        for (LanguageSupport support : LanguageSupportRegistry.all()) {
             activityCheck.run();
-            index = Services.PROJECT_LANGUAGE_INDEX_SERVICE.indexTyped(project, JavaLanguageSupport.LANGUAGE_ID);
-        }
+            String languageId = support.languageId();
+            if (!service.hasIndexer(project, languageId))
+                continue;
 
-        return index == null ? List.of() : types(index, activityCheck);
-    }
+            ProjectLanguageIndex<?> index = service.current(project, languageId);
+            if (index == null) {
+                activityCheck.run();
+                index = service.index(project, languageId);
+            }
 
-    /**
-     * Collects the type declarations of an index.
-     *
-     * @param index project index
-     * @param activityCheck cancellation check, run for every file
-     * @return declared types
-     */
-    public static List<TypeEntry> types(JavaProjectSemanticIndex index, Runnable activityCheck) {
-        List<TypeEntry> types = new ArrayList<>();
-        for (JavaProjectSemanticIndex.SourceFileIndex file : index.files().values()) {
-            activityCheck.run();
-            for (JavaProjectSemanticIndex.SymbolDescriptor symbol : file.declaredSymbols()) {
-                if (symbol.kind() instanceof JavaSymbolKind kind && isType(kind) && symbol.qualifiedName() != null) {
-                    types.add(new TypeEntry(symbol.simpleName(), symbol.qualifiedName(), kind, file.path(),
-                        nameOffset(symbol)));
-                }
+            if (index instanceof ProjectTypeIndex types) {
+                indexes.add(types);
             }
         }
 
-        return types;
+        return types(indexes, activityCheck);
     }
 
-    private static boolean isType(JavaSymbolKind kind) {
-        return switch (kind) {
-            case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION -> true;
-            default -> false;
-        };
-    }
-
-    private static int nameOffset(JavaProjectSemanticIndex.SymbolDescriptor symbol) {
-        if (symbol.descriptor() == null)
-            return -1;
-
-        for (SymbolLocation location : symbol.descriptor().locations()) {
-            if (location.selection() != null)
-                return location.selection().range().start;
+    /**
+     * Collects the type declarations of several language indexes.
+     *
+     * @param indexes project indexes
+     * @param activityCheck cancellation check
+     * @return declared types
+     */
+    public static List<ProjectType> types(List<? extends ProjectTypeIndex> indexes, Runnable activityCheck) {
+        List<ProjectType> types = new ArrayList<>();
+        for (ProjectTypeIndex index : indexes) {
+            activityCheck.run();
+            types.addAll(index.types(activityCheck));
         }
 
-        return -1;
+        return types;
     }
 
     /**
@@ -89,7 +77,7 @@ public final class GoToClassContributor implements GoToContributor<GoToClassCont
      * @return offset of the name, or {@code -1} when no declaration is found
      */
     public static int declarationOffset(String text, String simpleName, int indexedOffset) {
-        Matcher matcher = Pattern.compile("(?<![\\w$])(?:class|interface|enum|record)\\s+("
+        Matcher matcher = Pattern.compile("(?<![\\w$])(?:class|interface|enum|record|trait)\\s+("
             + Pattern.quote(simpleName) + ")(?![\\w$])").matcher(text);
         int first = -1;
         while (matcher.find()) {
@@ -105,17 +93,17 @@ public final class GoToClassContributor implements GoToContributor<GoToClassCont
     }
 
     @Override
-    public String name(TypeEntry item) {
+    public String name(ProjectType item) {
         return item.simpleName();
     }
 
     @Override
-    public String path(TypeEntry item) {
+    public String path(ProjectType item) {
         return item.qualifiedName();
     }
 
     @Override
-    public String detail(TypeEntry item) {
+    public String detail(ProjectType item) {
         String qualifiedName = item.qualifiedName();
         int separator = qualifiedName.length() - item.simpleName().length() - 1;
         return separator > 0 && qualifiedName.endsWith(item.simpleName()) ? qualifiedName.substring(0, separator) : "";
@@ -127,12 +115,13 @@ public final class GoToClassContributor implements GoToContributor<GoToClassCont
     }
 
     @Override
-    public Node icon(TypeEntry item) {
+    public Node icon(ProjectType item) {
         var badge = new Label(switch (item.kind()) {
             case INTERFACE -> "I";
             case ENUM -> "E";
             case RECORD -> "R";
             case ANNOTATION -> "@";
+            case TRAIT -> "T";
             default -> "C";
         });
 
@@ -142,27 +131,9 @@ public final class GoToClassContributor implements GoToContributor<GoToClassCont
     }
 
     @Override
-    public void open(TypeEntry item, GoToSearch.Query query) {
+    public void open(ProjectType item, GoToSearch.Query query) {
         GoToContributor.openInEditor(item.file(), text -> query.hasLine()
             ? query.offsetIn(text)
             : declarationOffset(text, item.simpleName(), item.nameOffset()));
-    }
-
-    /**
-     * Declared Java type.
-     *
-     * @param simpleName type name
-     * @param qualifiedName fully qualified name, with nested types separated by dots
-     * @param kind declaration kind
-     * @param file declaring source file
-     * @param nameOffset offset of the name when the file was indexed, or {@code -1}
-     */
-    public record TypeEntry(
-        String simpleName,
-        String qualifiedName,
-        JavaSymbolKind kind,
-        Path file,
-        int nameOffset
-    ) {
     }
 }

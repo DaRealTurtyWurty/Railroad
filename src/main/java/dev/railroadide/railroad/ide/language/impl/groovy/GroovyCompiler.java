@@ -128,6 +128,31 @@ public final class GroovyCompiler implements AutoCloseable {
     }
 
     /**
+     * Parses source text without resolving class references, which needs no classpath. Used for indexing, where
+     * declared names and positions are enough.
+     *
+     * @param fileName name of the source file, used for script class names
+     * @param text source text
+     * @param activityCheck callback that throws once the request is cancelled
+     * @return the syntax tree, or {@code null} when the text does not parse
+     */
+    public static @Nullable ModuleNode parse(String fileName, String text, Runnable activityCheck) {
+        var configuration = new CompilerConfiguration();
+        configuration.setTolerance(100);
+        var unit = new CompilationUnit(configuration, null, TRANSFORMS, TRANSFORMS);
+        unit.setProgressCallback((_, _) -> activityCheck.run());
+        SourceUnit source = unit.addSource(fileName, text);
+        try {
+            unit.compile(Phases.CONVERSION);
+        } catch (CompilationFailedException failed) {
+            return null;
+        }
+
+        activityCheck.run();
+        return source.getAST();
+    }
+
+    /**
      * Collects the qualified names of classes declared by the workspace's Java and Groovy sources, taking each from
      * its file's package declaration and file name.
      *

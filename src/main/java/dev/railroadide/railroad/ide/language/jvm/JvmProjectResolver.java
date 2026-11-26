@@ -33,10 +33,13 @@ import java.util.function.Consumer;
 /**
  * Resolves a JVM project's source roots, dependency paths and JDK from its Gradle, Maven or plain layout. Maven and
  * plain projects use Maven's conventional {@code src/main/java} and {@code src/test/java} source roots unless the
- * build declares others.
+ * build declares others, plus the {@code src/main/groovy} and {@code src/test/groovy} roots that Groovy's Maven
+ * and Gradle plugins use by convention. Each language indexes only its own files under these roots.
  */
 public final class JvmProjectResolver {
     private static final MavenModelService MAVEN_MODELS = new DefaultMavenModelService();
+    private static final String GROOVY_MAIN = "src/main/groovy";
+    private static final String GROOVY_TEST = "src/test/groovy";
 
     private JvmProjectResolver() {
     }
@@ -86,7 +89,8 @@ public final class JvmProjectResolver {
         Path buildDirectory = resolveMavenBuildDirectory(project, model);
         return new JvmProjectModel(normalizePaths(List.of(
             resolveProjectPath(project, build != null ? build.getSourceDirectory() : null, "src/main/java"),
-            resolveProjectPath(project, build != null ? build.getTestSourceDirectory() : null, "src/test/java"))),
+            resolveProjectPath(project, build != null ? build.getTestSourceDirectory() : null, "src/test/java"),
+            project.getPath().resolve(GROOVY_MAIN), project.getPath().resolve(GROOVY_TEST))),
             normalizePaths(List.of(buildDirectory.resolve("generated-sources"),
                 buildDirectory.resolve("generated-test-sources"))),
             roots, roots, List.of(), resolveJdkHome());
@@ -119,10 +123,14 @@ public final class JvmProjectResolver {
                     resolveProjectPath(project, build != null ? build.getSourceDirectory() : null, "src/main/java"));
                 sourceRoots.add(resolveProjectPath(project,
                     build != null ? build.getTestSourceDirectory() : null, "src/test/java"));
+                sourceRoots.add(project.getPath().resolve(GROOVY_MAIN));
+                sourceRoots.add(project.getPath().resolve(GROOVY_TEST));
             });
         } else {
             sourceRoots.add(project.getPath().resolve("src/main/java"));
             sourceRoots.add(project.getPath().resolve("src/test/java"));
+            sourceRoots.add(project.getPath().resolve(GROOVY_MAIN));
+            sourceRoots.add(project.getPath().resolve(GROOVY_TEST));
         }
 
         return normalizePaths(sourceRoots);

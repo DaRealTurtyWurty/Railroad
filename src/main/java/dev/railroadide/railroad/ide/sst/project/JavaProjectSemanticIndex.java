@@ -3,6 +3,7 @@ package dev.railroadide.railroad.ide.sst.project;
 import dev.railroadide.railroad.ide.classparser.stub.ClassStub;
 import dev.railroadide.railroad.ide.language.index.LanguageFileIndex;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndex;
+import dev.railroadide.railroad.ide.language.index.ProjectTypeIndex;
 import dev.railroadide.railroad.ide.sst.graph.api.SemanticIndexShard;
 import dev.railroadide.railroad.ide.sst.graph.api.WorkspaceSymbolGraph;
 import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolIds;
@@ -23,7 +24,7 @@ import dev.railroadide.railroad.ide.sst.semantic.api.SymbolLocation;
  * This index does not yet carry document revision or workspace generation tokens.
  */
 public final class JavaProjectSemanticIndex
-    implements ProjectLanguageIndex<JavaProjectSemanticIndex.SourceFileIndex>, JavaSymbolIndex {
+    implements ProjectLanguageIndex<JavaProjectSemanticIndex.SourceFileIndex>, JavaSymbolIndex, ProjectTypeIndex {
     private final Map<Path, SourceFileIndex> filesByPath;
     private final Map<String, List<SourceFileIndex>> filesByPackage;
     private final Map<String, List<SymbolDescriptor>> symbolsBySimpleName;
@@ -162,6 +163,46 @@ public final class JavaProjectSemanticIndex
      */
     public Map<Path, SourceFileIndex> files() {
         return filesByPath;
+    }
+
+    @Override
+    public List<ProjectType> types(Runnable activityCheck) {
+        List<ProjectType> types = new ArrayList<>();
+        for (SourceFileIndex file : files().values()) {
+            activityCheck.run();
+            for (SymbolDescriptor symbol : file.declaredSymbols()) {
+                Kind kind = symbol.kind() instanceof JavaSymbolKind javaKind ? typeKind(javaKind) : null;
+                if (kind != null && symbol.qualifiedName() != null) {
+                    types.add(new ProjectType(symbol.simpleName(), symbol.qualifiedName(), kind, file.path(),
+                        nameOffset(symbol)));
+                }
+            }
+        }
+
+        return List.copyOf(types);
+    }
+
+    private static Kind typeKind(JavaSymbolKind kind) {
+        return switch (kind) {
+            case CLASS -> Kind.CLASS;
+            case INTERFACE -> Kind.INTERFACE;
+            case ENUM -> Kind.ENUM;
+            case RECORD -> Kind.RECORD;
+            case ANNOTATION -> Kind.ANNOTATION;
+            default -> null;
+        };
+    }
+
+    private static int nameOffset(SymbolDescriptor symbol) {
+        if (symbol.descriptor() == null)
+            return -1;
+
+        for (SymbolLocation location : symbol.descriptor().locations()) {
+            if (location.selection() != null)
+                return location.selection().range().start;
+        }
+
+        return -1;
     }
 
     /**
