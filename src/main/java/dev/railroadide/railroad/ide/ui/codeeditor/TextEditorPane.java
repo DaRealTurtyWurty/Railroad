@@ -124,6 +124,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
     private ExternalChangeDialog externalChangeDialog;
 
     private int fontSizeIndex = 5;
+    private TabIndentation tabIndentation;
 
     /**
      * Adds an unmanaged visual overlay without changing the document.
@@ -238,7 +239,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
 
         pendingSnapshot.set(captureSnapshot());
         configureFontControls();
-        configureTabBehaviour();
+        configureIndentationBehaviour();
         subscribeToChanges();
         startExternalWatcher();
 
@@ -817,16 +818,25 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         applyEditorStyles();
     }
 
-    private void configureTabBehaviour() {
+    private void configureIndentationBehaviour() {
         applyEditorStyles();
         Platform.runLater(this::applyEditorStyles);
         Settings.TAB_WIDTH.addListener(tabWidthListener);
         Settings.EDITOR_FONT_FAMILY.addListener(fontFamilyListener);
+        caretPositionProperty().addListener((_, _, _) -> tabIndentation = null);
 
         addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             // Skip if any modifier keys are pressed to allow for shortcuts like Ctrl+Tab, Alt+Tab, etc.
             if (event.isControlDown() || event.isAltDown() || event.isMetaDown())
                 return;
+
+            if (!event.isConsumed() && event.getCode() == KeyCode.BACK_SPACE && !event.isShiftDown()
+                && isEditable() && getSelection().getLength() == 0 && Settings.SMART_BACKSPACE.getOrDefaultValue()
+                && deleteIndentationBeforeCaret()) {
+                requestFollowCaret();
+                event.consume();
+                return;
+            }
 
             if (event.getCode() == KeyCode.TAB) {
                 event.consume();
@@ -847,6 +857,54 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
                 }
             }
         });
+    }
+
+    private boolean deleteIndentationBeforeCaret() {
+        int caret = getCaretPosition();
+        TabIndentation inserted = tabIndentation;
+        if (inserted != null && inserted.end() == caret) {
+            int end = caret - inserted.width();
+            deleteText(end, caret);
+            if (end > inserted.start()) {
+                tabIndentation = new TabIndentation(inserted.start(), end, inserted.width());
+            }
+
+            return true;
+        }
+
+        int column = getCaretColumn();
+        if (column < 2)
+            return false;
+
+        String line = getText(getCurrentParagraph());
+        int tabWidth = Math.max(1, Settings.TAB_WIDTH.getOrDefaultValue());
+        int visualColumn = 0;
+        int trailingSpaces = 0;
+        for (int index = 0; index < column; index++) {
+            switch (line.charAt(index)) {
+                case ' ' -> {
+                    visualColumn++;
+                    trailingSpaces++;
+                }
+
+                case '\t' -> {
+                    visualColumn += tabWidth - visualColumn % tabWidth;
+                    trailingSpaces = 0;
+                }
+
+                default -> {
+                    return false;
+                }
+            }
+        }
+
+        int indentWidth = Math.max(1, Settings.INDENT_WIDTH.getOrDefaultValue());
+        int spacesToDelete = Math.min(trailingSpaces, (visualColumn - 1) % indentWidth + 1);
+        if (spacesToDelete < 2)
+            return false;
+
+        deleteText(caret - spacesToDelete, caret);
+        return true;
     }
 
     private void applyEditorStyles() {
@@ -872,8 +930,16 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
     private void insertIndentAtCaret() {
         String indentString = indentationUnit();
         int caret = getCaretPosition();
+        TabIndentation previous = tabIndentation;
         insertText(caret, indentString);
-        moveTo(caret + indentString.length());
+        int width = indentString.length();
+        moveTo(caret + width);
+        if (width > 1 && Settings.SMART_BACKSPACE.getOrDefaultValue()) {
+            int start = previous != null && previous.end() == caret && previous.width() == width
+                ? previous.start()
+                : caret;
+            tabIndentation = new TabIndentation(start, caret + width, width);
+        }
     }
 
     private void unindentCurrentLine(int indentWidth) {
@@ -956,6 +1022,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
 
     private void subscribeToChanges() {
         dirtySubscription = plainTextChanges().subscribe(_ -> {
+            tabIndentation = null;
             discardChangesOnClose = false;
             if (documentStore != null) {
                 documentStore.latestVersion(documentId)
@@ -1964,5 +2031,8 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         fontSizeIndex = newIndex;
         updateFontSizeClass();
         event.consume();
+    }
+
+    private record TabIndentation(int start, int end, int width) {
     }
 }

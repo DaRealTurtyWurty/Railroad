@@ -11,11 +11,14 @@ import dev.railroadide.railroad.ide.ui.JsonCodeEditorPane;
 import dev.railroadide.railroad.project.RailroadProject;
 import dev.railroadide.railroad.settings.IndentMode;
 import dev.railroadide.railroad.settings.Settings;
+import dev.railroadide.railroad.settings.keybinds.KeybindData;
+import dev.railroadide.railroad.settings.keybinds.Keybinds;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.image.WritableImage;
 import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -238,6 +241,222 @@ public class CodeEditorFeaturesTest {
 
             return null;
         });
+    }
+
+    @Test
+    public void backspaceReturnsToThePreviousConfiguredIndentationStop() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            int originalWidth = Settings.INDENT_WIDTH.getOrDefaultValue();
+            boolean originalSmartBackspace = Settings.SMART_BACKSPACE.getOrDefaultValue();
+            Settings.INDENT_WIDTH.setValue(3);
+            Settings.SMART_BACKSPACE.setValue(true);
+            try (CodeEditorPane editor = open(file, null, CancellationToken.none())) {
+                assertBackspace(editor, "head\n         |tail", "head\n      |tail");
+                assertBackspace(editor, "head\n     |   tail", "head\n   |   tail");
+                assertBackspace(editor, "head\n  |", "head\n|");
+                assertBackspace(editor, "head\n   |\ntail", "head\n|\ntail");
+            } finally {
+                Settings.SMART_BACKSPACE.setValue(originalSmartBackspace);
+                Settings.INDENT_WIDTH.setValue(originalWidth);
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void backspaceReversesTheSpacesJustInsertedByTab() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            IndentMode originalMode = Settings.INDENT_MODE.getOrDefaultValue();
+            int originalWidth = Settings.INDENT_WIDTH.getOrDefaultValue();
+            boolean originalSmartBackspace = Settings.SMART_BACKSPACE.getOrDefaultValue();
+            Settings.INDENT_MODE.setValue(IndentMode.SPACES);
+            Settings.INDENT_WIDTH.setValue(4);
+            Settings.SMART_BACKSPACE.setValue(true);
+            try (CodeEditorPane editor = open(file, null, CancellationToken.none())) {
+                for (String before : List.of("|", "  |code", "code|")) {
+                    String source = before.replace("|", "");
+                    int caret = before.indexOf('|');
+                    editor.replaceText(source);
+                    editor.moveTo(caret);
+                    pressKey(editor, KeyCode.TAB);
+                    assertEquals(before.replace("|", "    "), editor.getText(), before);
+                    assertEquals(caret + 4, editor.getCaretPosition(), before);
+                    pressKey(editor, KeyCode.TAB);
+                    assertEquals(before.replace("|", "        "), editor.getText(), before);
+                    pressKey(editor, KeyCode.BACK_SPACE);
+                    assertEquals(before.replace("|", "    "), editor.getText(), before);
+                    assertEquals(caret + 4, editor.getCaretPosition(), before);
+                    pressKey(editor, KeyCode.BACK_SPACE);
+                    assertEquals(source, editor.getText(), before);
+                    assertEquals(caret, editor.getCaretPosition(), before);
+                }
+
+                editor.replaceText("code");
+                editor.moveTo(4);
+                pressKey(editor, KeyCode.TAB);
+                editor.moveTo(0);
+                editor.moveTo(8);
+                pressKey(editor, KeyCode.BACK_SPACE);
+                assertEquals("code   ", editor.getText());
+            } finally {
+                Settings.SMART_BACKSPACE.setValue(originalSmartBackspace);
+                Settings.INDENT_MODE.setValue(originalMode);
+                Settings.INDENT_WIDTH.setValue(originalWidth);
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void smartBackspaceCanBeToggledInAnOpenEditor() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            IndentMode originalMode = Settings.INDENT_MODE.getOrDefaultValue();
+            int originalWidth = Settings.INDENT_WIDTH.getOrDefaultValue();
+            boolean originalSmartBackspace = Settings.SMART_BACKSPACE.getOrDefaultValue();
+            Settings.INDENT_MODE.setValue(IndentMode.SPACES);
+            Settings.INDENT_WIDTH.setValue(4);
+            Settings.SMART_BACKSPACE.setValue(false);
+            try (CodeEditorPane editor = open(file, null, CancellationToken.none())) {
+                pressKey(editor, KeyCode.TAB);
+                assertEquals("    ", editor.getText());
+                pressKey(editor, KeyCode.BACK_SPACE);
+                assertEquals("   ", editor.getText());
+
+                Settings.SMART_BACKSPACE.setValue(true);
+                pressKey(editor, KeyCode.BACK_SPACE);
+                assertEquals("", editor.getText());
+                assertEquals(0, editor.getCaretPosition());
+            } finally {
+                Settings.SMART_BACKSPACE.setValue(originalSmartBackspace);
+                Settings.INDENT_MODE.setValue(originalMode);
+                Settings.INDENT_WIDTH.setValue(originalWidth);
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void backspaceHandlesTabsAndSpacesTogetherInLeadingIndentation() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            int originalIndentWidth = Settings.INDENT_WIDTH.getOrDefaultValue();
+            int originalTabWidth = Settings.TAB_WIDTH.getOrDefaultValue();
+            boolean originalSmartBackspace = Settings.SMART_BACKSPACE.getOrDefaultValue();
+            Settings.INDENT_WIDTH.setValue(4);
+            Settings.TAB_WIDTH.setValue(6);
+            Settings.SMART_BACKSPACE.setValue(true);
+            try (CodeEditorPane editor = open(file, null, CancellationToken.none())) {
+                assertBackspace(editor, "\t    |code", "\t  |code");
+                assertBackspace(editor, "\t  |code", "\t|code");
+                assertBackspace(editor, "\t\t|code", "\t|code");
+                assertBackspace(editor, "\t|code", "|code");
+            } finally {
+                Settings.SMART_BACKSPACE.setValue(originalSmartBackspace);
+                Settings.INDENT_WIDTH.setValue(originalIndentWidth);
+                Settings.TAB_WIDTH.setValue(originalTabWidth);
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void backspaceUsesOrdinaryDeletionForSelectionsAndOutsideIndentation() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            boolean originalSmartBackspace = Settings.SMART_BACKSPACE.getOrDefaultValue();
+            Settings.SMART_BACKSPACE.setValue(true);
+            try (CodeEditorPane editor = open(file, null, CancellationToken.none())) {
+                assertBackspace(editor, "  value    |other", "  value   |other");
+                assertBackspace(editor, "  valu|e", "  val|e");
+                assertBackspace(editor, "first\n|second", "first|second");
+                assertBackspace(editor, "|\nsecond", "|\nsecond");
+
+                editor.replaceText("        code");
+                editor.selectRange(8, 7);
+                pressKey(editor, KeyCode.BACK_SPACE);
+                assertEquals("       code", editor.getText());
+                assertEquals(7, editor.getCaretPosition());
+
+                editor.setEditable(false);
+                pressKey(editor, KeyCode.BACK_SPACE);
+                assertEquals("       code", editor.getText());
+            } finally {
+                Settings.SMART_BACKSPACE.setValue(originalSmartBackspace);
+            }
+
+            return null;
+        });
+    }
+
+    private static void assertBackspace(CodeEditorPane editor, String before, String after) {
+        editor.replaceText(before.replace("|", ""));
+        editor.moveTo(before.indexOf('|'));
+        pressKey(editor, KeyCode.BACK_SPACE);
+        assertEquals(after.replace("|", ""), editor.getText(), before);
+        assertEquals(after.indexOf('|'), editor.getCaretPosition(), before);
+    }
+
+    @Test
+    public void ctrlBackspaceSkipsWhitespaceAndStopsAtTheStartOfTheLine() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            Keybinds.initialize();
+            try (CodeEditorPane editor = open(file, null, CancellationToken.none())) {
+                assertCtrlBackspace(editor, "first\n  alpha beta \t  |\nnext", "first\n  alpha |\nnext");
+                assertCtrlBackspace(editor, "first\n  \t  |", "first\n|");
+                assertCtrlBackspace(editor, "first\n|next", "first\n|next");
+                assertCtrlBackspace(editor, "first\n  word|", "first\n  |");
+                assertCtrlBackspace(editor, "one two \t |next", "one |next");
+
+                editor.replaceText("one\ntwo");
+                editor.selectRange(2, 5);
+                pressKey(editor, KeyCode.BACK_SPACE, true);
+                assertEquals("onwo", editor.getText());
+                editor.undo();
+                assertEquals("one\ntwo", editor.getText());
+
+                editor.setEditable(false);
+                editor.moveTo(editor.getLength());
+                pressKey(editor, KeyCode.BACK_SPACE, true);
+                assertEquals("one\ntwo", editor.getText());
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void deletePreviousWordOnLineCanBeRebound() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "first\n  word \t");
+        onFx(() -> {
+            var keybind = Keybinds.DELETE_PREVIOUS_WORD_ON_LINE;
+            List<KeybindData> originalKeys = List.copyOf(keybind.getKeys());
+            keybind.getKeys().setAll(new KeybindData(KeyCode.F9, new KeyCombination.Modifier[0]));
+            try (CodeEditorPane editor = open(file, null, CancellationToken.none())) {
+                editor.moveTo(editor.getLength());
+                pressKey(editor, KeyCode.F9);
+                assertEquals("first\n  ", editor.getText());
+            } finally {
+                keybind.getKeys().setAll(originalKeys);
+            }
+
+            return null;
+        });
+    }
+
+    private static void assertCtrlBackspace(CodeEditorPane editor, String before, String after) {
+        editor.replaceText(before.replace("|", ""));
+        editor.moveTo(before.indexOf('|'));
+        pressKey(editor, KeyCode.BACK_SPACE, true);
+        assertEquals(after.replace("|", ""), editor.getText(), before);
+        assertEquals(after.indexOf('|'), editor.getCaretPosition(), before);
     }
 
     @Test
@@ -485,7 +704,15 @@ public class CodeEditorFeaturesTest {
     }
 
     private static void pressEnter(CodeEditorPane editor) {
-        editor.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER, false, false, false, false));
+        pressKey(editor, KeyCode.ENTER);
+    }
+
+    private static void pressKey(CodeEditorPane editor, KeyCode key) {
+        pressKey(editor, key, false);
+    }
+
+    private static void pressKey(CodeEditorPane editor, KeyCode key, boolean control) {
+        editor.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", key, false, control, false, false));
     }
 
     private static boolean hasMarker(CodeEditorPane editor, String selector) {

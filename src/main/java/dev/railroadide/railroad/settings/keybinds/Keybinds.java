@@ -278,6 +278,12 @@ public class Keybinds {
     public static final Keybind PARAMETER_INFO = registerCodeEditorCommand(Commands.PARAMETER_INFO);
 
     /**
+     * Deletes the preceding word and whitespace on the caret's line.
+     */
+    public static final Keybind DELETE_PREVIOUS_WORD_ON_LINE = registerCodeEditorCommand(
+        Commands.DELETE_PREVIOUS_WORD_ON_LINE);
+
+    /**
      * Closes the active or targeted editor tab.
      */
     public static final Keybind CLOSE_EDITOR_TAB = registerEditorTabCommand(Commands.CLOSE_EDITOR_TAB);
@@ -354,6 +360,7 @@ public class Keybinds {
         RENAME.resetKeys();
         SHOW_CODE_ACTIONS.resetKeys();
         PARAMETER_INFO.resetKeys();
+        DELETE_PREVIOUS_WORD_ON_LINE.resetKeys();
         CLOSE_EDITOR_TAB.resetKeys();
         REOPEN_CLOSED_EDITOR_TAB.resetKeys();
         SELECT_EDITOR_TAB_BY_NUMBER.resetKeys();

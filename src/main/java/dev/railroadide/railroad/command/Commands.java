@@ -429,6 +429,16 @@ public final class Commands {
         new KeybindData(KeyCode.P, new KeyCombination.Modifier[]{KeyCombination.CONTROL_DOWN}));
 
     /**
+     * Deletes the preceding word on the current editor line, skipping intervening whitespace.
+     */
+    public static final Command<CodeEditorPane> DELETE_PREVIOUS_WORD_ON_LINE = registerCodeEditorCommand(
+        "railroad:delete_previous_word_on_line",
+        "railroad.settings.keybinds.delete_previous_word_on_line",
+        CodeEditorPane::isEditable,
+        CodeEditorPane::deletePreviousWordOnLine,
+        new KeybindData(KeyCode.BACK_SPACE, new KeyCombination.Modifier[]{KeyCombination.CONTROL_DOWN}));
+
+    /**
      * Resolves the code editor shown by the active editor tab.
      *
      * @return active code editor, or {@code null} when the active tab is not a code editor

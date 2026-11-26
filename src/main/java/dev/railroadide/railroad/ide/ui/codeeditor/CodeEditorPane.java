@@ -60,6 +60,7 @@ import org.jspecify.annotations.Nullable;
 import org.reactfx.Subscription;
 
 import java.nio.file.Path;
+import java.text.BreakIterator;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CancellationException;
@@ -281,10 +282,7 @@ public class CodeEditorPane extends TextEditorPane {
             installSignatureHelp();
         }
 
-        if (navigationProvider != null || renameProvider != null || codeActions != null
-            || signatureHelpProvider != null) {
-            KeybindHandler.registerCapture(KeybindContexts.of(KEYBIND_CONTEXT), this);
-        }
+        KeybindHandler.registerCapture(KeybindContexts.of(KEYBIND_CONTEXT), this);
 
         installNavigation();
         installRename();
@@ -320,6 +318,37 @@ public class CodeEditorPane extends TextEditorPane {
 
     private static boolean isIndentationCharacter(char character) {
         return character == ' ' || character == '\t';
+    }
+
+    /**
+     * Deletes the selection or the preceding word and whitespace on the caret's line.
+     */
+    public void deletePreviousWordOnLine() {
+        if (!isEditable())
+            return;
+
+        IndexRange selection = getSelection();
+        if (selection.getLength() > 0) {
+            deleteText(selection.getStart(), selection.getEnd());
+        } else {
+            int column = getCaretColumn();
+            if (column == 0)
+                return;
+
+            String line = getText(getCurrentParagraph());
+            int wordEnd = column;
+            while (wordEnd > 0 && Character.isWhitespace(line.charAt(wordEnd - 1))) {
+                wordEnd--;
+            }
+
+            BreakIterator words = BreakIterator.getWordInstance(getLocale());
+            words.setText(line);
+            int wordStart = Math.max(0, words.preceding(wordEnd));
+            int caret = getCaretPosition();
+            deleteText(caret - column + wordStart, caret);
+        }
+
+        requestFollowCaret();
     }
 
     /**

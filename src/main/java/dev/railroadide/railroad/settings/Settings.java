@@ -474,6 +474,20 @@ public final class Settings {
             .build());
 
     /**
+     * Whether Backspace removes indentation in steps.
+     */
+    public static final Setting<Boolean> SMART_BACKSPACE = registerSetting(
+        Setting.builder(Boolean.class, "railroad:smart_backspace")
+            .treePath("editor")
+            .category(SettingCategory.simple("railroad:editor.indentation"))
+            .title("railroad.settings.ide.code_style.smart_backspace.title")
+            .description("railroad.settings.ide.code_style.smart_backspace.description")
+            .codec(DefaultSettingCodecs.BOOLEAN)
+            .defaultValue(false)
+            .canBeNull(false)
+            .build());
+
+    /**
      * Font family used by editor controls.
      */
     public static final Setting<String> EDITOR_FONT_FAMILY = registerSetting(
