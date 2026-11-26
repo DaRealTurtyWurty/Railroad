@@ -30,6 +30,16 @@ public class PathTreeItemTest {
     }
 
     @Test
+    public void compactsPackagesUnderGroovySourceFolders() throws IOException {
+        Path file = createFile("src/main/groovy/dev/railroadide/scripts/Greeter.groovy");
+        var root = new PathTreeItem(new PathItem(project));
+        PathTreeItem packageItem = (PathTreeItem) PathTreeItem.find(root, file.getParent());
+
+        assertEquals("dev.railroadide.scripts", packageItem.getDisplayName());
+        assertSame(packageItem, PathTreeItem.find(root, project.resolve("src/main/groovy/dev")));
+    }
+
+    @Test
     public void keepsSourceFoldersResourcesAndBranchingPackagesSeparate() throws IOException {
         Path first = createFile("src/main/java/dev/railroadide/railroad/AppResources.java");
         createFile("src/main/java/dev/other/Other.java");

@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.projectexplorer;
 
+import dev.railroadide.railroad.ide.language.jvm.JvmProjectResolver;
 import dev.railroadide.railroad.Railroad;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -180,7 +181,7 @@ public class PathTreeItem extends TreeItem<PathItem> {
         for (Path current = path; current != null; current = current.getParent()) {
             String name = current.getFileName() == null ? "" : current.getFileName().toString();
             Path parent = current.getParent();
-            if (name.equals("java") && parent != null &&
+            if (JvmProjectResolver.CONVENTIONAL_SOURCE_FOLDERS.contains(name) && parent != null &&
                 (parent.endsWith("src") || parent.getParent() != null && parent.getParent().endsWith("src")))
                 return !current.equals(path);
 

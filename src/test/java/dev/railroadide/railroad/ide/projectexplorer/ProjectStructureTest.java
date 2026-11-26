@@ -130,5 +130,7 @@ public class ProjectStructureTest {
         assertEquals(Role.SOURCE_SET, structure.roleOf(root.resolve("src/main")));
         assertEquals(Role.SOURCES, structure.roleOf(root.resolve("src/main/java")));
         assertEquals(Role.TEST_RESOURCES, structure.roleOf(root.resolve("src/test/resources")));
+        assertEquals(Role.SOURCES, structure.roleOf(root.resolve("src/main/groovy")));
+        assertEquals(Role.TEST_SOURCES, structure.roleOf(root.resolve("src/test/groovy")));
     }
 }

@@ -38,8 +38,10 @@ import java.util.function.Consumer;
  */
 public final class JvmProjectResolver {
     private static final MavenModelService MAVEN_MODELS = new DefaultMavenModelService();
-    private static final String GROOVY_MAIN = "src/main/groovy";
-    private static final String GROOVY_TEST = "src/test/groovy";
+    /**
+     * Folder names that hold JVM sources under {@code src/main} and {@code src/test} by convention.
+     */
+    public static final List<String> CONVENTIONAL_SOURCE_FOLDERS = List.of("java", "groovy");
 
     private JvmProjectResolver() {
     }
@@ -87,10 +89,11 @@ public final class JvmProjectResolver {
         List<Path> roots = normalizePaths(dependencies);
         Build build = model.getBuild();
         Path buildDirectory = resolveMavenBuildDirectory(project, model);
-        return new JvmProjectModel(normalizePaths(List.of(
+        List<Path> sourceRoots = new ArrayList<>(List.of(
             resolveProjectPath(project, build != null ? build.getSourceDirectory() : null, "src/main/java"),
-            resolveProjectPath(project, build != null ? build.getTestSourceDirectory() : null, "src/test/java"),
-            project.getPath().resolve(GROOVY_MAIN), project.getPath().resolve(GROOVY_TEST))),
+            resolveProjectPath(project, build != null ? build.getTestSourceDirectory() : null, "src/test/java")));
+        sourceRoots.addAll(conventionalSourceRoots(project.getPath()));
+        return new JvmProjectModel(normalizePaths(sourceRoots),
             normalizePaths(List.of(buildDirectory.resolve("generated-sources"),
                 buildDirectory.resolve("generated-test-sources"))),
             roots, roots, List.of(), resolveJdkHome());
@@ -123,17 +126,31 @@ public final class JvmProjectResolver {
                     resolveProjectPath(project, build != null ? build.getSourceDirectory() : null, "src/main/java"));
                 sourceRoots.add(resolveProjectPath(project,
                     build != null ? build.getTestSourceDirectory() : null, "src/test/java"));
-                sourceRoots.add(project.getPath().resolve(GROOVY_MAIN));
-                sourceRoots.add(project.getPath().resolve(GROOVY_TEST));
+                sourceRoots.addAll(conventionalSourceRoots(project.getPath()));
             });
         } else {
-            sourceRoots.add(project.getPath().resolve("src/main/java"));
-            sourceRoots.add(project.getPath().resolve("src/test/java"));
-            sourceRoots.add(project.getPath().resolve(GROOVY_MAIN));
-            sourceRoots.add(project.getPath().resolve(GROOVY_TEST));
+            sourceRoots.addAll(conventionalSourceRoots(project.getPath()));
         }
 
         return normalizePaths(sourceRoots);
+    }
+
+    /**
+     * Lists the conventional JVM source roots of a project: each {@link #CONVENTIONAL_SOURCE_FOLDERS} name under
+     * {@code src/main} and then under {@code src/test}.
+     *
+     * @param projectRoot project directory
+     * @return conventional source roots, whether or not they exist
+     */
+    public static List<Path> conventionalSourceRoots(Path projectRoot) {
+        List<Path> roots = new ArrayList<>();
+        for (String sourceSet : List.of("main", "test")) {
+            for (String folder : CONVENTIONAL_SOURCE_FOLDERS) {
+                roots.add(projectRoot.resolve("src").resolve(sourceSet).resolve(folder));
+            }
+        }
+
+        return roots;
     }
 
     private static List<Path> resolveGeneratedRoots(Project project, Optional<GradleBuildModel> gradleModel) {

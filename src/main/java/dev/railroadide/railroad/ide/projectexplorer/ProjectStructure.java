@@ -3,6 +3,7 @@ package dev.railroadide.railroad.ide.projectexplorer;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroadplugin.dto.RailroadContentRoot;
 import dev.railroadide.railroadplugin.dto.RailroadModule;
+import dev.railroadide.railroad.ide.language.jvm.JvmProjectResolver;
 import dev.railroadide.railroadplugin.dto.RailroadSourceDirectory;
 
 import java.io.File;
@@ -101,11 +102,13 @@ public final class ProjectStructure {
      */
     public static ProjectStructure conventional(Path projectRoot) {
         Path src = projectRoot.resolve("src");
-        return new Builder()
-            .module(projectRoot)
-            .sourceDirectory(projectRoot, src.resolve("main/java"), Role.SOURCES)
-            .sourceDirectory(projectRoot, src.resolve("main/resources"), Role.RESOURCES)
-            .sourceDirectory(projectRoot, src.resolve("test/java"), Role.TEST_SOURCES)
+        Builder builder = new Builder().module(projectRoot);
+        for (String folder : JvmProjectResolver.CONVENTIONAL_SOURCE_FOLDERS) {
+            builder.sourceDirectory(projectRoot, src.resolve("main").resolve(folder), Role.SOURCES)
+                .sourceDirectory(projectRoot, src.resolve("test").resolve(folder), Role.TEST_SOURCES);
+        }
+
+        return builder.sourceDirectory(projectRoot, src.resolve("main/resources"), Role.RESOURCES)
             .sourceDirectory(projectRoot, src.resolve("test/resources"), Role.TEST_RESOURCES)
             .build();
     }
