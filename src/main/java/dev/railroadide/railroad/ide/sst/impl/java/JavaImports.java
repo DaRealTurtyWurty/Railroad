@@ -98,6 +98,24 @@ public final class JavaImports {
     }
 
     /**
+     * Finds the insertion offset after a declaration and any trailing line comment.
+     *
+     * @param text captured Java source text
+     * @param end offset immediately after the declaration
+     * @return the insertion offset
+     */
+    public static int afterTrailingComment(String text, int end) {
+        int newline = text.indexOf('\n', end);
+        int lineEnd = newline < 0
+            ? text.length()
+            : newline > 0 && text.charAt(newline - 1) == '\r'
+                ? newline - 1
+                : newline;
+        String rest = text.substring(end, lineEnd).strip();
+        return rest.isEmpty() || rest.startsWith("//") ? lineEnd : end;
+    }
+
+    /**
      * Finds single imports whose name is never used in the compilation unit. Wildcard imports are never reported.
      *
      * @param root compilation unit

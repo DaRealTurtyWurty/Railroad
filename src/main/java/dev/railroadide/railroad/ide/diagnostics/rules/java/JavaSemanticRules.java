@@ -63,6 +63,13 @@ public final class JavaSemanticRules {
         SemanticDiagnostic.Severity.ERROR,
         "Cannot resolve type '%s'");
     /**
+     * Diagnostic rule for a concrete type that leaves inherited abstract methods unimplemented.
+     */
+    public static final JavaSemanticRule MISSING_METHOD_IMPLEMENTATIONS = new JavaSemanticRule(
+        "SEM_MISSING_METHOD_IMPLEMENTATIONS",
+        SemanticDiagnostic.Severity.ERROR,
+        "'%s' must implement the inherited methods %s");
+    /**
      * Diagnostic rule for a {@code var} initializer referring to its own variable.
      */
     public static final JavaSemanticRule SELF_REFERENCING_VAR = new JavaSemanticRule(

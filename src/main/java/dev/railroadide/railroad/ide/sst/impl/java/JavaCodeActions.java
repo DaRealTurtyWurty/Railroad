@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.ide.sst.impl.java;
 
 import dev.railroadide.railroad.ide.diagnostics.EditorDiagnostic.TextEditorDiagnostic;
+import dev.railroadide.railroad.ide.diagnostics.rules.java.JavaSemanticRules;
 import dev.railroadide.railroad.ide.language.impl.index.JavaWorkspaceAnalysis;
 import dev.railroadide.railroad.ide.sst.document.api.TextDocumentSnapshot;
 import dev.railroadide.railroad.ide.sst.document.api.TextRange;
@@ -13,6 +14,7 @@ import dev.railroadide.railroad.ide.sst.provider.api.CodeActionRequest;
 import dev.railroadide.railroad.ide.sst.request.api.FeatureRequestContext;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
+import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxTree;
 import dev.railroadide.railroad.plugin.spi.editor.TextReplacement;
 import org.jspecify.annotations.Nullable;
 
@@ -20,10 +22,10 @@ import java.lang.module.ModuleFinder;
 import java.lang.module.ModuleReference;
 import java.util.*;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
- * Java quick fixes for imports: add an import for an unresolved simple type name, remove an unused import and
- * remove a duplicate import.
+ * Java quick fixes for imports and missing inherited method implementations.
  * <p>
  * Fixes are verified against the captured document and workspace, never derived from diagnostics alone. An import
  * is added only when the name provably resolves to no type in the file, and exactly one accessible top-level type
@@ -45,6 +47,7 @@ public final class JavaCodeActions {
     private static final String ADD_IMPORT = "java:add-import:";
     private static final String REMOVE_UNUSED = "java:remove-unused-import:";
     private static final String REMOVE_DUPLICATE = "java:remove-duplicate-import:";
+    private static final String IMPLEMENT_METHODS = "java:implement-methods:";
     private static final String IDENTIFIER = "JAVA_TOKEN_IDENTIFIER";
     private static final String TYPE_REFERENCE = "JAVA_TYPE_REFERENCE";
     private static final String NAME_EXPRESSION = "JAVA_NAME_EXPRESSION";
@@ -61,7 +64,7 @@ public final class JavaCodeActions {
     private final FeatureRequestContext context;
     private final Function<FeatureRequestContext, JavaWorkspaceAnalysis> capture;
     private final @Nullable TextDocumentSnapshot snapshot;
-    private @Nullable SyntaxNode root;
+    private @Nullable SyntaxTree tree;
     private @Nullable Names names;
     private @Nullable JavaSymbolIndex symbols;
 
@@ -82,7 +85,7 @@ public final class JavaCodeActions {
     }
 
     /**
-     * Discovers the import fixes touching the requested range or its diagnostics.
+     * Discovers the quick fixes touching the requested range or its diagnostics.
      *
      * @param request caret or selection and nearby diagnostics
      * @return deferred and unavailable actions, preferred fixes first
@@ -96,6 +99,9 @@ public final class JavaCodeActions {
         List<CodeAction> actions = new ArrayList<>();
         discoverImportRemovals(request, diagnostics, actions);
         discoverMissingImports(request, diagnostics, actions);
+        discoverImplementations(root(), request, diagnostics.stream()
+            .filter(diagnostic -> JavaSemanticRules.MISSING_METHOD_IMPLEMENTATIONS.id().equals(diagnostic.code()))
+            .toList(), actions);
         context.checkActive();
         return actions.stream().sorted(Comparator.comparing(action -> !action.preferred())).toList();
     }
@@ -126,7 +132,168 @@ public final class JavaCodeActions {
         if (data.startsWith(ADD_IMPORT))
             return resolveAddition(action, data.substring(ADD_IMPORT.length()));
 
+        if (data.startsWith(IMPLEMENT_METHODS))
+            return resolveImplementation(action, data.substring(IMPLEMENT_METHODS.length()));
+
         return action.asUnavailable("Unsupported action");
+    }
+
+    private void discoverImplementations(
+        SyntaxNode node,
+        CodeActionRequest request,
+        List<TextEditorDiagnostic> diagnostics,
+        List<CodeAction> actions
+    ) {
+        context.checkActive();
+        if (!request.touches(node.start(), node.end()) && diagnostics.stream()
+            .noneMatch(diagnostic -> within(diagnostic, node.start(), node.end())))
+            return;
+
+        SyntaxNode body = JavaMethodOverrides.implementationBody(node);
+        if (body != null) {
+            List<TextEditorDiagnostic> fixed = diagnostics.stream()
+                .filter(diagnostic -> within(diagnostic, node.start(), body.start()))
+                .toList();
+            if ((request.touches(node.start(), body.start()) || !fixed.isEmpty())
+                && JavaMethodOverrides.missingImplementation(tree(), node, symbols(), context::checkActive) != null) {
+                actions.add(CodeAction.deferred("Implement missing methods", IMPLEMENT_METHODS + body.start())
+                    .withDiagnostics(fixed).asPreferred());
+            }
+        }
+
+        for (SyntaxNode child : node.children()) {
+            if (!(child instanceof SyntaxToken)) {
+                discoverImplementations(child, request, diagnostics, actions);
+            }
+        }
+    }
+
+    private CodeAction resolveImplementation(CodeAction action, String offset) {
+        int start;
+        try {
+            start = Integer.parseInt(offset);
+        } catch (NumberFormatException exception) {
+            return action.asUnavailable("Unsupported action");
+        }
+
+        SyntaxNode target = implementationTarget(root(), start);
+        if (target == null)
+            return action.asUnavailable("The type declaration is no longer available");
+
+        var implementation = JavaMethodOverrides.missingImplementation(tree(), target, symbols(), context::checkActive);
+        if (implementation == null)
+            return action.asUnavailable("No missing methods to implement");
+
+        SyntaxNode body = Objects.requireNonNull(JavaMethodOverrides.implementationBody(target));
+        JavaMethodOverrides.Stubs stubs = implementation.generate();
+        String newline = snapshot.text().contains("\r\n") ? "\r\n" : "\n";
+        List<TextReplacement> replacements = new ArrayList<>();
+        stubs.imports().forEach(insertion -> replacements.add(insertAt(insertion.offset(),
+            insertion.text().replace("\n", newline))));
+        insertMethods(target, body, stubs.declarations(), newline, replacements);
+        return action.withEdit(WorkspaceEdit.builder(action.title())
+            .replace(snapshot, replacements.toArray(TextReplacement[]::new))
+            .build());
+    }
+
+    private @Nullable SyntaxNode implementationTarget(SyntaxNode node, int start) {
+        context.checkActive();
+        if (start < node.start() || start >= node.end())
+            return null;
+
+        SyntaxNode body = JavaMethodOverrides.implementationBody(node);
+        if (body != null && body.start() == start)
+            return node;
+
+        for (SyntaxNode child : node.children()) {
+            if (!(child instanceof SyntaxToken)) {
+                SyntaxNode target = implementationTarget(child, start);
+                if (target != null)
+                    return target;
+            }
+        }
+
+        return null;
+    }
+
+    private void insertMethods(
+        SyntaxNode target,
+        SyntaxNode body,
+        List<String> methods,
+        String newline,
+        List<TextReplacement> replacements
+    ) {
+        String text = snapshot.text();
+        int close = Objects.requireNonNull(JavaSemanticAnalyzer.directChild(body,
+            JavaSyntaxKinds.tokenKind(JavaTokenType.CLOSE_BRACE).id())).start();
+        int lineStart = text.lastIndexOf('\n', close - 1) + 1;
+        boolean standalone = text.substring(lineStart, close).isBlank();
+        int start = standalone ? lineStart : close;
+        while (!standalone && start > lineStart && Character.isWhitespace(text.charAt(start - 1))) {
+            start--;
+        }
+
+        String baseIndent = standalone ? text.substring(lineStart, close) : lineIndent(text, target.start());
+        String indent = body.children().stream().filter(child -> !(child instanceof SyntaxToken))
+            .map(child -> lineIndent(text, child.start()))
+            .filter(candidate -> candidate.startsWith(baseIndent) && candidate.length() > baseIndent.length())
+            .findFirst().orElse(baseIndent + (baseIndent.contains("\t") ? "\t" : "    "));
+        String step = indent.substring(baseIndent.length());
+        int openEnd = Objects.requireNonNull(JavaSemanticAnalyzer.directChild(body,
+            JavaSyntaxKinds.tokenKind(JavaTokenType.OPEN_BRACE).id())).end();
+        boolean hasContent = !text.substring(openEnd, start).isBlank();
+        String prefix = standalone ? "" : newline;
+        if (hasContent && (!standalone || !text.substring(text.lastIndexOf('\n', start - 2) + 1, start).isBlank())) {
+            prefix += newline;
+        }
+
+        if (JavaSyntaxKinds.ENUM_BODY.id().equals(body.kind().id()) && JavaSemanticAnalyzer.directChild(body,
+            JavaSyntaxKinds.tokenKind(JavaTokenType.SEMICOLON).id()) == null) {
+            int delimiter = lastSignificantEnd(body, close);
+            if (delimiter == start) {
+                prefix = ";" + prefix;
+            } else {
+                replacements.add(insertAt(delimiter, ";"));
+            }
+
+            if (!hasContent) {
+                prefix += newline;
+            }
+        }
+
+        String rendered = methods.stream().map(method -> method.lines()
+            .map(line -> line.isBlank() ? "" : indent + line.replace("\t", step))
+            .collect(Collectors.joining(newline)))
+            .collect(Collectors.joining(newline + newline));
+        replacements.add(new TextReplacement(new TextRange(start, standalone ? start : close),
+            prefix + rendered + newline + (standalone ? "" : baseIndent)));
+    }
+
+    private int lastSignificantEnd(SyntaxNode node, int before) {
+        context.checkActive();
+        if (node.start() >= before)
+            return -1;
+
+        if (node instanceof SyntaxToken token)
+            return JavaSemanticAnalyzer.isTriviaToken(token) ? -1 : token.end();
+
+        for (SyntaxNode child : node.children().reversed()) {
+            int end = lastSignificantEnd(child, before);
+            if (end >= 0)
+                return end;
+        }
+
+        return -1;
+    }
+
+    private static String lineIndent(String text, int offset) {
+        int start = text.lastIndexOf('\n', offset - 1) + 1;
+        int end = start;
+        while (end < text.length() && (text.charAt(end) == ' ' || text.charAt(end) == '\t')) {
+            end++;
+        }
+
+        return text.substring(start, end);
     }
 
     private void discoverImportRemovals(
@@ -372,7 +539,7 @@ public final class JavaCodeActions {
         }
 
         if (!plain.isEmpty())
-            return insertAt(afterTrailingComment(text, plain.getLast().end()), newline + statement);
+            return insertAt(JavaImports.afterTrailingComment(text, plain.getLast().end()), newline + statement);
 
         if (!imports.isEmpty())
             return before(text, imports.getFirst().start(), statement, newline);
@@ -386,17 +553,6 @@ public final class JavaCodeActions {
         return text.substring(lineStart, first).isBlank()
             ? insertAt(lineStart, statement + newline + newline)
             : insertAt(first, statement + " ");
-    }
-
-    private static int afterTrailingComment(String text, int end) {
-        int newline = text.indexOf('\n', end);
-        int lineEnd = newline < 0
-            ? text.length()
-            : newline > 0 && text.charAt(newline - 1) == '\r'
-                ? newline - 1
-                : newline;
-        String rest = text.substring(end, lineEnd).strip();
-        return rest.isEmpty() || rest.startsWith("//") ? lineEnd : end;
     }
 
     private static TextReplacement before(String text, int start, String statement, String newline) {
@@ -463,8 +619,12 @@ public final class JavaCodeActions {
     }
 
     private static boolean within(TextEditorDiagnostic diagnostic, JavaImports.ImportDeclaration declaration) {
+        return within(diagnostic, declaration.start(), declaration.end());
+    }
+
+    private static boolean within(TextEditorDiagnostic diagnostic, int start, int end) {
         TextRange range = diagnostic.location().range();
-        return range.start >= declaration.start() && range.end <= declaration.end();
+        return range.start >= start && range.end <= end;
     }
 
     private static String listed(List<String> candidates) {
@@ -479,16 +639,20 @@ public final class JavaCodeActions {
     }
 
     private SyntaxNode root() {
-        if (root == null) {
-            root = JavaSyntaxParser.parse(Objects.requireNonNull(snapshot), context::checkActive).root();
+        return tree().root();
+    }
+
+    private SyntaxTree tree() {
+        if (tree == null) {
+            tree = JavaSyntaxParser.parse(Objects.requireNonNull(snapshot), context::checkActive);
         }
 
-        return root;
+        return tree;
     }
 
     private JavaSymbolIndex symbols() {
         if (symbols == null) {
-            symbols = capture.apply(context).symbols();
+            symbols = capture.apply(context);
         }
 
         return symbols;

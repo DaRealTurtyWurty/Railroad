@@ -4,6 +4,7 @@ import dev.railroadide.railroad.ide.diagnostics.DiagnosticOrigin;
 import dev.railroadide.railroad.ide.diagnostics.DiagnosticSeverity;
 import dev.railroadide.railroad.ide.diagnostics.EditorDiagnostic.TextEditorDiagnostic;
 import dev.railroadide.railroad.ide.diagnostics.JavaDiagnosticsProvider;
+import dev.railroadide.railroad.ide.diagnostics.rules.java.JavaSemanticRules;
 import dev.railroadide.railroad.ide.language.LanguageSupports;
 import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.edit.api.WorkspaceChange;
@@ -45,6 +46,173 @@ public class JavaCodeActionsTest {
     @AfterAll
     public static void closeServices() {
         services.close();
+    }
+
+    @Test
+    public void reportsMissingMethodsAndImplementsThemFromTheCapturedWorkspace() {
+        source("p/Contract.java", """
+            package p;
+            interface Contract<T> {
+                void accept(T value);
+                default boolean ready() { return true; }
+            }
+            """);
+        overlay("p/Contract.java", text("p/Contract.java").replace("void accept", "boolean accept"));
+        source("p/Parent.java", """
+            package p;
+            abstract class Parent<T> {
+                protected abstract T read(int... offsets) throws java.io.IOException;
+                public abstract void close();
+            }
+            """);
+        String file = "p/Child.java";
+        source(file, """
+            package p;
+
+            class Child extends Parent<String> implements Contract<String> {
+                @Override
+                public void close() {}
+            }
+            """);
+
+        TextEditorDiagnostic diagnostic = missingImplementations(file).getFirst();
+        assertEquals(DiagnosticSeverity.ERROR, diagnostic.kind());
+        assertEquals("Child", text(file).substring(diagnostic.location().range().start,
+            diagnostic.location().range().end));
+        assertEquals("'Child' must implement the inherited methods read, accept", diagnostic.message());
+        CodeAction action = single(actions(file, new CodeActionRequest(new TextRange(0, 0), List.of(diagnostic))));
+        assertEquals("Implement missing methods", action.title());
+        assertTrue(action.preferred());
+        assertEquals(List.of(diagnostic), action.diagnostics());
+        assertNull(action.edit());
+
+        String fixed = applied(file, resolve(file, action));
+        assertEquals("""
+            package p;
+
+            import java.io.IOException;
+
+            class Child extends Parent<String> implements Contract<String> {
+                @Override
+                public void close() {}
+
+                @Override
+                protected String read(int... offsets) throws IOException {
+                    return null;
+                }
+
+                @Override
+                public boolean accept(String value) {
+                    return false;
+                }
+            }
+            """, fixed);
+        overlay(file, fixed);
+        assertTrue(missingImplementations(file).isEmpty());
+        assertTrue(actionsAt(file, "Child").isEmpty());
+        assertFalse(resolve(file, action).available());
+    }
+
+    @Test
+    public void combinesCovariantMethodsAndKeepsCollidingTypeNamesUsable() {
+        String file = "p/Child.java";
+        source(file, """
+            package p;
+            interface First {
+                Number size() throws java.io.IOException;
+                java.util.Date created();
+            }
+            interface Second {
+                Integer size() throws InterruptedException;
+                java.sql.Date updated();
+            }
+            class Child implements First, Second {}
+            """);
+
+        String fixed = applied(file, resolve(file, single(actionsAt(file, "Child"))));
+        assertTrue(fixed.contains("import java.util.Date;"), fixed);
+        assertFalse(fixed.contains("import java.sql.Date;"), fixed);
+        assertTrue(fixed.contains("public Integer size() {"), fixed);
+        assertTrue(fixed.contains("public Date created() {"), fixed);
+        assertTrue(fixed.contains("public java.sql.Date updated() {"), fixed);
+        assertEquals(3, fixed.lines().filter(line -> line.strip().equals("@Override")).count());
+        overlay(file, fixed);
+        assertTrue(missingImplementations(file).isEmpty());
+    }
+
+    @Test
+    public void respectsInheritedImplementationsAndImplicitRecordMethods() {
+        String file = "p/Complete.java";
+        source(file, """
+            package p;
+            interface Base { void run(); }
+            interface DefaultRun extends Base { default void run() {} }
+            abstract class Parent implements Base { public void run() {} }
+            class FromParent extends Parent implements Base {}
+            class FromDefault implements Base, DefaultRun {}
+            abstract class Deferred implements Base {}
+            class Unresolved extends Missing implements Base {}
+            interface View { String name(); boolean equals(Object other); }
+            record Complete(String name) implements View {}
+            enum ConstantBodies implements Base { VALUE { public void run() {} } }
+            """);
+
+        assertTrue(missingImplementations(file).isEmpty());
+        for (String name : List.of("FromParent", "FromDefault", "Deferred", "Complete", "ConstantBodies")) {
+            assertTrue(actionsAt(file, name).isEmpty(), name);
+        }
+    }
+
+    @Test
+    public void implementsRawMethodsAndAnonymousClasses() {
+        String file = "Example.java";
+        source(file, """
+            import java.util.List;
+
+            interface Example<T> { <S> S first(List<T> values); }
+            class Raw implements Example {}
+            class Use {
+                Example<String> value = new Example<String>() {};
+                Example<Long> inferred = new Example<>() {};
+            }
+            """);
+
+        assertEquals(3, missingImplementations(file).size());
+        CodeAction raw = single(actionsAt(file, "Raw"));
+        CodeAction anonymous = single(actionsAt(file, "new Example"));
+        String rawFixed = applied(file, resolve(file, raw));
+        assertTrue(rawFixed.contains("public Object first(List values)"), rawFixed);
+        String anonymousFixed = applied(file, resolve(file, anonymous));
+        assertTrue(anonymousFixed.contains("public <S> S first(List<String> values)"), anonymousFixed);
+        CodeAction inferred = single(actionsAt(file, "new Example<>"));
+        String inferredFixed = applied(file, resolve(file, inferred));
+        assertTrue(inferredFixed.contains("public <S> S first(List<Long> values)"), inferredFixed);
+    }
+
+    @Test
+    public void implementsBinaryMethodsInTheSelectedNestedTypeWithWindowsLineEndings() {
+        String file = "Outer.java";
+        source(file, "class Outer {\r\n\tstatic class Inner implements Runnable {}\r\n}\r\n");
+        assertEquals(1, missingImplementations(file).size());
+        assertTrue(actionsAt(file, "Outer").isEmpty());
+        assertEquals("class Outer {\r\n\tstatic class Inner implements Runnable {\r\n"
+            + "\t\t@Override\r\n\t\tpublic void run() {\r\n\r\n\t\t}\r\n\t}\r\n}\r\n",
+            applied(file, resolve(file, single(actionsAt(file, "Inner")))));
+    }
+
+    @Test
+    public void addsTheEnumConstantTerminatorBeforeImplementingMethods() {
+        String file = "Example.java";
+        source(file, "enum Example implements Runnable { FIRST, SECOND }\n");
+        assertEquals("""
+            enum Example implements Runnable { FIRST, SECOND;
+
+                @Override
+                public void run() {
+
+                }
+            }
+            """, applied(file, resolve(file, single(actionsAt(file, "Example")))));
     }
 
     @Test
@@ -660,6 +828,12 @@ public class JavaCodeActionsTest {
             .filter(diagnostic -> JavaCodeActions.UNUSED_IMPORT.equals(diagnostic.code()))
             .map(diagnostic -> text(file).substring(diagnostic.location().range().start,
                 diagnostic.location().range().end))
+            .toList();
+    }
+
+    private List<TextEditorDiagnostic> missingImplementations(String file) {
+        return new JavaDiagnosticsProvider(null, null, services::capture).compute(context(file)).value().stream()
+            .filter(diagnostic -> JavaSemanticRules.MISSING_METHOD_IMPLEMENTATIONS.id().equals(diagnostic.code()))
             .toList();
     }
 

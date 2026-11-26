@@ -3,6 +3,7 @@ package dev.railroadide.railroad.ide.diagnostics;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.ide.ProjectWorkspaceConfiguration;
 import dev.railroadide.railroad.ide.diagnostics.EditorDiagnostic.TextEditorDiagnostic;
+import dev.railroadide.railroad.ide.diagnostics.rules.java.JavaSemanticRules;
 import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
 import dev.railroadide.railroad.ide.language.impl.JavaLanguageSupport;
 import dev.railroadide.railroad.ide.language.impl.index.JavaWorkspaceAnalysis;
@@ -13,6 +14,7 @@ import dev.railroadide.railroad.ide.sst.document.api.DocumentUri;
 import dev.railroadide.railroad.ide.sst.document.api.TextDocumentSnapshot;
 import dev.railroadide.railroad.ide.sst.document.api.Location.TextLocation;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticAnalyzer;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaMethodOverrides;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxParser;
 import dev.railroadide.railroad.ide.sst.project.JavaSymbolIndex;
 import dev.railroadide.railroad.ide.sst.semantic.api.SemanticDiagnostic;
@@ -88,7 +90,8 @@ public final class JavaDiagnosticsProvider implements DiagnosticsProvider<TextEd
     private static final Duration INSPECTION_BUDGET = Duration.ofSeconds(5);
     private static final Set<String> RESOLUTION_CODES = Set.of("SEM_AMBIGUOUS_CALL", "SEM_UNRESOLVED_CALL",
         "SEM_UNRESOLVED_IMPORT",
-        "SEM_UNRESOLVED_MEMBER", "SEM_UNRESOLVED_NAME", "SEM_UNRESOLVED_TYPE");
+        "SEM_UNRESOLVED_MEMBER", "SEM_UNRESOLVED_NAME", "SEM_UNRESOLVED_TYPE",
+        JavaSemanticRules.MISSING_METHOD_IMPLEMENTATIONS.id());
 
     @Override
     public @NotNull FeatureResult<List<TextEditorDiagnostic>> compute(FeatureRequestContext context) {
@@ -196,6 +199,9 @@ public final class JavaDiagnosticsProvider implements DiagnosticsProvider<TextEd
 
         semanticModel.diagnostics().forEach(diagnostic -> diagnostics.add(toEditorDiagnostic(textSnapshot,
             diagnostic, "railroad:java-semantic", DiagnosticOrigin.SEMANTIC)));
+        JavaMethodOverrides.diagnostics(semanticModel, symbolIndex, context::checkActive).forEach(
+            diagnostic -> diagnostics.add(toEditorDiagnostic(textSnapshot, diagnostic, "railroad:java-semantic",
+                DiagnosticOrigin.SEMANTIC)));
         diagnostics.addAll(runRegisteredInspections(textSnapshot, document, semanticModel, symbolIndex, context));
         context.checkActive();
         return List.copyOf(diagnostics);
