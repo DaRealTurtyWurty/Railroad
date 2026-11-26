@@ -162,6 +162,29 @@ public class JavaNestedTypeResolutionTest {
     }
 
     @Test
+    public void implementationOfAGenericInterfaceWithANestedTypeArgumentIsNotAmbiguous() throws Exception {
+        assertCleanInCompiledProject("contributor", "Caller.java", """
+            package app;
+            class Caller {
+                String test(ClassContributor contributor, Index.Entry entry) { return contributor.name(entry); }
+            }
+            """, Map.of("Index.java", """
+            package app;
+            public final class Index { public record Entry(String name) {} }
+            """, "Contributor.java", """
+            package app;
+            public interface Contributor<T> { String name(T item); }
+            """, "ClassContributor.java", """
+            package app;
+            import app.Index.Entry;
+            public final class ClassContributor implements Contributor<Entry> {
+                @Override
+                public String name(Entry item) { return item.name(); }
+            }
+            """));
+    }
+
+    @Test
     public void lambdaTargetingANestedFunctionalInterfaceKeepsItsParameterType() throws Exception {
         assertCleanInCompiledProject("fields", "Base.java", """
             package app;

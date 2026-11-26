@@ -6703,6 +6703,10 @@ public final class JavaSemanticAnalyzer {
             if (methodName == null)
                 return UNKNOWN_TYPE;
 
+            Type overloadReturnType = applicableOverloadReturnType(methodReference, methodName, signature);
+            if (overloadReturnType != null)
+                return overloadReturnType;
+
             Symbol resolvedMethod = context.resolvedSymbol(methodReference);
             if (resolvedMethod != null && resolvedMethod.kind() == JavaSymbolKind.METHOD) {
                 Type resolvedReturnType = typeOfSymbol(resolvedMethod);
@@ -6757,6 +6761,71 @@ public final class JavaSemanticAnalyzer {
             }
 
             return UNKNOWN_TYPE;
+        }
+
+        private @Nullable Type applicableOverloadReturnType(
+            SyntaxNode methodReference,
+            String methodName,
+            FunctionalSignature signature
+        ) {
+            SyntaxNode receiver = methodReference.children().stream()
+                .filter(JavaSemanticAnalyzer::isExpressionNode)
+                .findFirst()
+                .orElse(null);
+            if (receiver == null)
+                return null;
+
+            NameResolver.MemberLookup lookup = nameResolver.resolveMemberLookup(receiver, methodReference);
+            String ownerQualifiedName = lookup == null ? null : lookup.ownerQualifiedName();
+            if (ownerQualifiedName == null || ownerQualifiedName.isBlank())
+                return null;
+
+            List<NameResolver.MemberCandidate> candidates = new ArrayList<>(
+                nameResolver.findMethodCandidates(ownerQualifiedName, methodName, false));
+            if (lookup.staticAccess()) {
+                candidates.addAll(nameResolver.findMethodCandidates(ownerQualifiedName, methodName, true));
+            }
+
+            if (candidates.size() < 2)
+                return null;
+
+            List<Type> arguments = signature.parameterTypes().stream().map(this::unwrapWildcard).toList();
+            NameResolver.MemberCandidate best = null;
+            int bestCost = Integer.MAX_VALUE;
+            boolean tied = false;
+            for (NameResolver.MemberCandidate candidate : candidates) {
+                context.poll();
+                List<Type> candidateArguments = arguments;
+                if (lookup.staticAccess() && !candidate.staticMember()) {
+                    if (arguments.isEmpty())
+                        continue;
+
+                    candidateArguments = arguments.subList(1, arguments.size());
+                }
+
+                List<Integer> cost = nameResolver.applicabilityCost(candidate.parameterTypes(), candidateArguments,
+                    candidate.variableArity());
+                if (cost == null)
+                    continue;
+
+                int total = cost.stream().mapToInt(Integer::intValue).sum();
+                if (total < bestCost) {
+                    best = candidate;
+                    bestCost = total;
+                    tied = false;
+                } else if (total == bestCost) {
+                    tied = true;
+                }
+            }
+
+            if (best == null || tied)
+                return null;
+
+            Type returnType = best.valueType();
+            if (returnType.kind() == JavaTypes.Kind.UNKNOWN || containsTypeVariable(returnType))
+                return null;
+
+            return returnType;
         }
 
         private boolean containsTypeVariable(Type type) {

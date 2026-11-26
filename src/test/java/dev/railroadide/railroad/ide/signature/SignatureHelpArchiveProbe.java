@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Isolates JDT's retained archive handles so temporary JAR fixtures can be removed on Windows.
+ * Isolates library index archive handles in a child JVM so temporary JAR fixtures can be removed on Windows.
  */
 public final class SignatureHelpArchiveProbe {
     private SignatureHelpArchiveProbe() {

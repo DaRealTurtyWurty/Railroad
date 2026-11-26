@@ -567,7 +567,7 @@ public final class JavaOverloadResolver {
 
         if (type.kind() == JavaTypes.Kind.DECLARED) {
             String name = qualifiedName(type);
-            return name == null ? type.displayName() : name;
+            return (name == null ? type.displayName() : name).replace('$', '.');
         }
 
         return type.kind().id() + ":" + type.displayName();

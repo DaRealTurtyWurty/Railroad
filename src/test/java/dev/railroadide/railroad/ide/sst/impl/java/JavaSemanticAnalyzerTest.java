@@ -151,7 +151,7 @@ public class JavaSemanticAnalyzerTest {
     }
 
     @Test
-    public void resolvesRealAlertBuilderVarAndJavaFxLambdaReceivers() throws Exception {
+    public void resolvesRealAlertBuilderJavaFxLambdaReceivers() throws Exception {
         Path sourceRoot = Path.of("src/main/java").toAbsolutePath().normalize();
         Path alertBuilder = sourceRoot.resolve("dev/railroadide/railroad/window/AlertBuilder.java");
         List<Path> javaFxRoots = List.of(
@@ -177,15 +177,6 @@ public class JavaSemanticAnalyzerTest {
             JavaJdkSymbolIndex.fromCurrentRuntime()));
 
         SemanticModel model = JavaSemanticAnalyzer.analyze(Files.readString(alertBuilder), symbolIndex);
-        SyntaxNode windowDeclaration = nodesOfKind(
-            model.syntaxTree().root(),
-            JavaSyntaxKinds.VARIABLE_DECLARATOR.id()).stream()
-            .filter(node -> syntaxText(node).trim().startsWith("window"))
-            .findFirst()
-            .orElseThrow();
-        SyntaxNode windowDeclarationParent = windowDeclaration.parent().orElseThrow();
-        assertEquals(JavaSyntaxKinds.LOCAL_VARIABLE_DECLARATION_STATEMENT.id(), windowDeclarationParent.kind().id());
-        assertTrue(syntaxText(windowDeclarationParent).trim().startsWith("var"));
         List<String> targetCalls = List.of("hide", "getCode", "consume", "setOnCloseRequest", "run");
         List<String> unresolved = model.diagnostics().stream()
             .filter(diagnostic -> "SEM_UNRESOLVED_CALL".equals(diagnostic.code()))
@@ -195,6 +186,29 @@ public class JavaSemanticAnalyzerTest {
             .toList();
 
         assertTrue(unresolved.isEmpty(), () -> String.join(System.lineSeparator(), unresolved));
+    }
+
+    @Test
+    public void resolvesVarDeclaredJavaFxWindowReceiver() throws Exception {
+        JavaLibrarySymbolIndex javaFxIndex = JavaLibrarySymbolIndex.build(List.of(
+            classRoot(ObservableValue.class),
+            classRoot(Application.class),
+            classRoot(Label.class)).stream().distinct().toList());
+        var symbolIndex = new CompositeJavaSymbolIndex(List.of(javaFxIndex, JavaJdkSymbolIndex.fromCurrentRuntime()));
+        String source = """
+            import javafx.scene.Node;
+            class Closer {
+                void close(Node node) {
+                    var window = node.getScene().getWindow();
+                    window.hide();
+                }
+            }
+            """;
+
+        SemanticModel model = JavaSemanticAnalyzer.analyze(source, symbolIndex);
+        List<SyntaxNode> references = nodesOfKind(model.syntaxTree().root(), JavaSyntaxKinds.NAME_EXPRESSION.id());
+        assertEquals("javafx.stage.Window",
+            model.inferredType(findNameExpression(references, "window")).orElseThrow().displayName());
     }
 
     @Test

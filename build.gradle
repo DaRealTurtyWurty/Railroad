@@ -120,7 +120,6 @@ dependencies {
     implementation 'io.github.bonede:tree-sitter-java:0.23.4'
     implementation 'org.reflections:reflections:0.10.2'
     implementation 'org.ow2.asm:asm:9.9'
-    implementation 'org.eclipse.jdt:org.eclipse.jdt.core:3.43.0'
     implementation 'com.github.erosb:everit-json-schema:1.14.6'
     implementation 'org.apache.commons:commons-compress:1.28.0'
     implementation 'org.apache.commons:commons-text:1.14.0'

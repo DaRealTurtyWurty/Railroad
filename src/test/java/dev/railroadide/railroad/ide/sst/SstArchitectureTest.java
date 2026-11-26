@@ -21,7 +21,7 @@ public class SstArchitectureTest {
         "dev.railroadide.railroad.ide.ui.", "dev.railroadide.railroad.ide.language.",
         "dev.railroadide.railroad.plugin.spi.dto.",
         "dev.railroadide.railroad.plugin.spi.inspection.Java", "javax.tools.", "com.github.javaparser.",
-        "org.eclipse.jdt.", "javafx.");
+        "javafx.");
     private static final Pattern COMMENTS = Pattern.compile("/\\*.*?\\*/|//[^\\r\\n]*", Pattern.DOTALL);
 
     @Test

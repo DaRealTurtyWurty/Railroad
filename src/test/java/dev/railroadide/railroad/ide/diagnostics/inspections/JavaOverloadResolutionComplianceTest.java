@@ -175,6 +175,14 @@ public class JavaOverloadResolutionComplianceTest {
                 void m(String value) {}
                 void test() { m("x"); }
             }
+            """),
+        Map.entry("method reference selects the overload matching the functional parameter", """
+            import java.util.Optional;
+            class A {
+                Integer convert(String text) { return 1; }
+                String convert(Integer number) { return ""; }
+                void test(Optional<Integer> value) { value.map(this::convert).filter(text -> text.isEmpty()); }
+            }
             """));
 
     @TestFactory

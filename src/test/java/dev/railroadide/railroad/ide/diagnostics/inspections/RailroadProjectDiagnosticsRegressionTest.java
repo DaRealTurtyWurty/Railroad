@@ -34,6 +34,8 @@ public class RailroadProjectDiagnosticsRegressionTest {
     private static final Set<String> SOURCE_SETS = Set.of("main", "test", "cssValidation", "cssValidationTest");
     private static final Path CORPUS = Path.of(
         "src/test/resources/dev/railroadide/railroad/ide/sst/impl/java/corpus").toAbsolutePath().normalize();
+    private static final Path RUN_SESSION_FIXTURES = Path.of("src/test/resources/run-session").toAbsolutePath()
+        .normalize();
     private static final InspectionSettingsAccess DEFAULTS = new InspectionSettingsAccess() {
         @Override
         public boolean isEnabled(LanguageInspectionRule<?> rule) {
@@ -104,6 +106,9 @@ public class RailroadProjectDiagnosticsRegressionTest {
         assertEquals(4, javaFiles(CORPUS.resolve("recovery")).size(), "Unexpected recovery-fixture change");
         accounted.addAll(fixtures);
         accounted.addAll(javaFiles(CORPUS.resolve("recovery")));
+        List<Path> runSessionFixtures = javaFiles(RUN_SESSION_FIXTURES);
+        assertEquals(1, runSessionFixtures.size(), "Unexpected run-session fixture change");
+        accounted.addAll(runSessionFixtures);
         assertEquals(new HashSet<>(javaFiles(scanRoot)), accounted,
             "Java files under src must be in a declared source set or the explicit corpus groups");
 

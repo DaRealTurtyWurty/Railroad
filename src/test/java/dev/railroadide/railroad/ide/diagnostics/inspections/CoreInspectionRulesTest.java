@@ -2754,7 +2754,6 @@ public class CoreInspectionRulesTest {
             sourceRoot
                 .resolve("dev/railroadide/railroad/ide/diagnostics/inspections/CoreNameResolutionInspection.java"),
             sourceRoot.resolve("dev/railroadide/railroad/ide/diagnostics/JavaDiagnosticsProvider.java"),
-            sourceRoot.resolve("dev/railroadide/railroad/ide/diagnostics/JdtDiagnosticsProvider.java"),
             sourceRoot.resolve("dev/railroadide/railroad/ide/projectexplorer/PathTreeCell.java"),
             sourceRoot.resolve("dev/railroadide/railroad/ide/projectexplorer/ProjectExplorerPane.java"),
             sourceRoot.resolve("dev/railroadide/railroad/ide/projectexplorer/task/SearchTask.java"),
