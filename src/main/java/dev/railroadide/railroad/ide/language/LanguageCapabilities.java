@@ -3,6 +3,7 @@ package dev.railroadide.railroad.ide.language;
 import dev.railroadide.railroad.ide.language.index.*;
 import dev.railroadide.railroad.ide.sst.provider.api.CapabilityKey;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
+import dev.railroadide.railroad.ide.language.jvm.JvmDeclarationProvider;
 import dev.railroadide.railroad.ide.ui.codeeditor.EditorFeatures;
 import dev.railroadide.railroad.ide.ui.codeeditor.SyntaxHighlightingProvider;
 
@@ -39,6 +40,12 @@ public final class LanguageCapabilities {
      */
     public static final CapabilityKey<WorkspaceConfigurationParticipant> WORKSPACE_CONFIGURATION = new CapabilityKey<>(
         "railroad:workspace-configuration", WorkspaceConfigurationParticipant.class);
+
+    /**
+     * Session service that describes the classes a JVM language's sources declare to other JVM languages.
+     */
+    public static final CapabilityKey<JvmDeclarationProvider> JVM_DECLARATIONS = new CapabilityKey<>(
+        "railroad:jvm-declarations", JvmDeclarationProvider.class);
 
     /**
      * Session service that supplies syntax styles for the editor.

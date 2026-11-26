@@ -4,6 +4,8 @@ import dev.railroadide.railroad.ide.diagnostics.GroovyDiagnosticsProvider;
 import dev.railroadide.railroad.ide.language.BaseLanguageSupport;
 import dev.railroadide.railroad.ide.language.EditorOpenView;
 import dev.railroadide.railroad.ide.language.LanguageCapabilities;
+import dev.railroadide.railroad.ide.language.impl.groovy.GroovyCompiler;
+import dev.railroadide.railroad.ide.language.impl.groovy.GroovyDeclarationProvider;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
 import dev.railroadide.railroad.ide.sst.provider.api.CapabilityKey;
 import dev.railroadide.railroad.ide.sst.provider.api.CapabilityRegistry;
@@ -19,7 +21,8 @@ import java.nio.file.Path;
 import java.util.Set;
 
 /**
- * Edits Groovy source files with syntax highlighting from the Groovy lexer and diagnostics from the Groovy compiler.
+ * Edits Groovy source files with syntax highlighting from the Groovy lexer and diagnostics from the Groovy compiler,
+ * and describes their classes to other JVM languages.
  */
 public final class GroovyLanguageSupport extends BaseLanguageSupport {
     /**
@@ -36,15 +39,20 @@ public final class GroovyLanguageSupport extends BaseLanguageSupport {
 
     @Override
     public Set<CapabilityKey<?>> supportedCapabilities() {
-        return Set.of(LanguageCapabilities.HIGHLIGHTING, SstCapabilities.DIAGNOSTICS);
+        return Set.of(LanguageCapabilities.HIGHLIGHTING, SstCapabilities.DIAGNOSTICS,
+            LanguageCapabilities.JVM_DECLARATIONS);
     }
 
     @Override
     public LanguageSession openSession(LanguageSessionContext context) {
-        return new LanguageSession(CapabilityRegistry.builder()
+        var compiler = new GroovyCompiler();
+        var session = new LanguageSession(CapabilityRegistry.builder()
             .add(LanguageCapabilities.HIGHLIGHTING, GroovySyntaxHighlighting::computeHighlighting)
-            .add(SstCapabilities.DIAGNOSTICS, new GroovyDiagnosticsProvider())
+            .add(SstCapabilities.DIAGNOSTICS, new GroovyDiagnosticsProvider(compiler))
+            .add(LanguageCapabilities.JVM_DECLARATIONS, new GroovyDeclarationProvider(compiler))
             .build());
+        session.onClose(compiler::close);
+        return session;
     }
 
     @Override

@@ -11,6 +11,7 @@ import dev.railroadide.railroad.ide.language.impl.index.JavaLanguageIndexContext
 import dev.railroadide.railroad.ide.language.impl.index.JavaProjectLanguageIndexer;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexService.Session;
 import dev.railroadide.railroad.ide.language.index.WorkspaceConfigurationParticipant;
+import dev.railroadide.railroad.ide.language.jvm.JvmDeclarationProvider;
 import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnapshot;
 import dev.railroadide.railroad.ide.signature.JavaSignatureHelpProvider;
 import dev.railroadide.railroad.ide.sst.document.api.DocumentId;
@@ -27,6 +28,8 @@ import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.utility.ShutdownHooks;
 
 import java.nio.file.Path;
+import java.util.List;
+import java.util.function.Supplier;
 import java.util.Set;
 
 /**
@@ -76,7 +79,9 @@ public final class JavaLanguageSupport extends BaseLanguageSupport {
     @Override
     public LanguageSession openSession(LanguageSessionContext context) {
         Project project = context.services().find(LanguageCapabilities.PROJECT).orElseThrow();
-        var semantics = new JavaSstServices(JavaLibrarySources.shared(), ANALYSIS_CONTEXT_PROVIDER::index);
+        Supplier<List<JvmDeclarationProvider>> foreign = () -> JvmDeclarationProvider.of(project);
+        var semantics = new JavaSstServices(JavaLibrarySources.shared(),
+            request -> ANALYSIS_CONTEXT_PROVIDER.index(request, foreign));
         return new LanguageSession(CapabilityRegistry.builder()
             .add(LanguageCapabilities.HIGHLIGHTING, TreeSitterJavaSyntaxHighlighting::computeHighlighting)
             .add(LanguageCapabilities.EDITOR_FEATURES, new JavaEditorFeatures())

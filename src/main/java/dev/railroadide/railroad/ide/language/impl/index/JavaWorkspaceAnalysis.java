@@ -6,6 +6,7 @@ import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.graph.api.ReferenceKindId;
 import dev.railroadide.railroad.ide.sst.graph.api.SemanticIndexShard;
 import dev.railroadide.railroad.ide.sst.graph.api.WorkspaceSymbolGraph;
+import dev.railroadide.railroad.ide.sst.project.JavaForeignSymbolIndex;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticAnalyzer;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxParser;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaUnicodeEscapes;
@@ -372,7 +373,44 @@ public final class JavaWorkspaceAnalysis implements JavaSourceSnapshotIndex {
         if (!graph.symbols(symbol).isEmpty())
             return SemanticNavigationResolver.definitionsOf(graph, workspace, symbol);
 
+        List<DefinitionTarget> foreign = foreignDefinitions(workspace, symbol, activityCheck);
+        if (!foreign.isEmpty())
+            return foreign;
+
         return libraryDefinition(workspace, symbol, librarySources, activityCheck).map(List::of).orElseGet(List::of);
+    }
+
+    /**
+     * Navigates to the source of a class another JVM language declares, rather than to a generated library view.
+     */
+    private List<DefinitionTarget> foreignDefinitions(
+        WorkspaceSnapshot workspace,
+        SymbolId symbol,
+        Runnable activityCheck
+    ) {
+        List<JavaSymbolIds.Component> components;
+        try {
+            components = JavaSymbolIds.components(symbol);
+        } catch (IllegalArgumentException exception) {
+            return List.of();
+        }
+
+        String owner = null;
+        for (JavaSymbolIds.Component component : components) {
+            if (component.kind().equals("type")) {
+                owner = component.value();
+            }
+        }
+
+        if (owner == null)
+            return List.of();
+
+        SemanticIndexShard shard = symbols.declarationShard(owner, activityCheck);
+        if (shard == null || !JavaForeignSymbolIndex.isForeign(shard.uri()))
+            return List.of();
+
+        return SemanticNavigationResolver.definitionsOf(WorkspaceSymbolGraph.of(List.of(shard), activityCheck),
+            workspace, symbol);
     }
 
     private static @Nullable SymbolDescriptor declarationIn(SemanticIndexShard shard, SymbolId symbol) {
@@ -472,7 +510,7 @@ public final class JavaWorkspaceAnalysis implements JavaSourceSnapshotIndex {
                 || JavaUnicodeEscapes.translate(sourceTexts.get(file.path())).contains(requiredName));
         }).sorted(Comparator.comparing(file -> file.semanticShard().uri().toString())).toList();
 
-        List<Location<?>> usages = new ArrayList<Location<?>>();
+        List<Location<?>> usages = new ArrayList<>();
         int searched = 0;
         sink.accept(List.of(), searched, candidates.size());
         for (JavaProjectSemanticIndex.SourceFileIndex file : candidates) {

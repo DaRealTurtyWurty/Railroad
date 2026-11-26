@@ -1,6 +1,11 @@
 package dev.railroadide.railroad.ide.language.impl.index;
 
 import dev.railroadide.railroad.ide.language.jvm.JvmSourceSets;
+import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.ide.language.jvm.JvmClassDeclaration;
+import dev.railroadide.railroad.ide.language.jvm.JvmDeclarationProvider;
+import dev.railroadide.railroad.ide.sst.project.JavaForeignSymbolIndex;
+import java.util.function.Supplier;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import dev.railroadide.railroad.ide.activity.ActivityProgress;
@@ -42,6 +47,8 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
     private final Object publicationLock = new Object();
     private volatile boolean closed;
     private volatile long cacheGeneration;
+    private volatile ForeignCombination lastForeignCombination;
+    private static final Supplier<List<JvmDeclarationProvider>> NO_FOREIGN_DECLARATIONS = List::of;
 
     /**
      * Creates bounded caches retaining at most four workspace results, 512 source revisions and two binary indexes.
@@ -130,7 +137,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
      * @return analysis inputs containing the request and its captured dependencies
      */
     public JavaWorkspaceAnalysis capture(WorkspaceSnapshot workspace, DocumentId request) {
-        return capture(workspace, request, this::checkActive);
+        return capture(workspace, request, this::checkActive, NO_FOREIGN_DECLARATIONS);
     }
 
     /**
@@ -140,13 +147,30 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
      * @return complete immutable analysis inputs; cancelled loads are never published as workspace results
      */
     public JavaWorkspaceAnalysis capture(RequestContext context) {
+        return capture(context, NO_FOREIGN_DECLARATIONS);
+    }
+
+    /**
+     * Captures analysis that also sees the classes other JVM languages declare in the captured workspace. Their
+     * declarations rank below Java sources and above libraries and the JDK.
+     *
+     * @param context captured workspace and execution controls, optionally selecting a document
+     * @param foreign supplies the declaration providers of the project's other JVM languages
+     * @return complete immutable analysis inputs; cancelled loads are never published as workspace results
+     */
+    public JavaWorkspaceAnalysis capture(RequestContext context, Supplier<List<JvmDeclarationProvider>> foreign) {
         Objects.requireNonNull(context, "context");
         return capture(context.workspaceSnapshot(),
             context instanceof FeatureRequestContext feature ? feature.documentSnapshot().id() : null,
-            context::checkActive);
+            context::checkActive, Objects.requireNonNull(foreign, "foreign"));
     }
 
-    private JavaWorkspaceAnalysis capture(WorkspaceSnapshot workspace, DocumentId request, Runnable requestCheck) {
+    private JavaWorkspaceAnalysis capture(
+        WorkspaceSnapshot workspace,
+        DocumentId request,
+        Runnable requestCheck,
+        Supplier<List<JvmDeclarationProvider>> foreign
+    ) {
         Objects.requireNonNull(workspace);
         long generation = cacheGeneration;
         Runnable check = () -> {
@@ -190,7 +214,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
                     .filter(entry -> key.sameScope(entry.getKey()))
                     .max(Comparator.comparingLong(entry -> entry.getKey().workspace().revision()))
                     .map(Map.Entry::getValue).orElse(null);
-                result = build(workspace, extra, roots, scope, previous, check);
+                result = build(workspace, extra, roots, scope, previous, foreign, check);
                 publish(workspaces, key, result, check);
             }
 
@@ -207,6 +231,7 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
         Set<Path> roots,
         SourceContext scope,
         WorkspaceBuild previous,
+        Supplier<List<JvmDeclarationProvider>> foreign,
         Runnable check
     ) {
         WorkspaceConfigurationSnapshot configuration = workspace.configuration();
@@ -246,7 +271,8 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
         }
 
         JavaProjectSemanticIndex sources = builder.build();
-        JavaSymbolIndex binary = awaitBinaries(binaryLoad, check);
+        JavaSymbolIndex binary = withForeignDeclarations(awaitBinaries(binaryLoad, check), workspace, roots, foreign,
+            check);
         binary.attachedSourceTexts().forEach(texts::putIfAbsent);
         check.run();
         boolean sameBinaries = previous != null && previous.binary() == binary;
@@ -362,6 +388,64 @@ public final class JavaWorkspaceAnalysisProvider implements AutoCloseable {
         });
 
         return load;
+    }
+
+    /**
+     * Places other JVM languages' declarations ahead of a binary index, reusing the previous combination while the
+     * binary index and every provider's declarations are unchanged so dependent caches remain valid.
+     */
+    private JavaSymbolIndex withForeignDeclarations(
+        JavaSymbolIndex binary,
+        WorkspaceSnapshot workspace,
+        Set<Path> roots,
+        Supplier<List<JvmDeclarationProvider>> foreign,
+        Runnable check
+    ) {
+        List<JvmDeclarationProvider> providers = foreign.get();
+        if (providers.isEmpty())
+            return binary;
+
+        List<List<JvmClassDeclaration>> declared = new ArrayList<>();
+        for (JvmDeclarationProvider provider : providers) {
+            check.run();
+            try {
+                declared.add(provider.declarations(workspace, roots, check));
+            } catch (CancellationException exception) {
+                throw exception;
+            } catch (RuntimeException exception) {
+                Railroad.LOGGER.warn("Ignoring declarations of a JVM language that failed to describe its classes",
+                    exception);
+            }
+        }
+
+        ForeignCombination last = lastForeignCombination;
+        if (last != null && last.matches(binary, declared))
+            return last.combined();
+
+        List<JvmClassDeclaration> classes = declared.stream().flatMap(List::stream).toList();
+        JavaSymbolIndex combined = classes.isEmpty()
+            ? binary
+            : new CompositeJavaSymbolIndex(List.of(JavaForeignSymbolIndex.of(classes, check), binary));
+        lastForeignCombination = new ForeignCombination(binary, List.copyOf(declared), combined);
+        return combined;
+    }
+
+    private record ForeignCombination(
+        JavaSymbolIndex binary,
+        List<List<JvmClassDeclaration>> declared,
+        JavaSymbolIndex combined
+    ) {
+        private boolean matches(JavaSymbolIndex otherBinary, List<List<JvmClassDeclaration>> otherDeclared) {
+            if (binary != otherBinary || declared.size() != otherDeclared.size())
+                return false;
+
+            for (int i = 0; i < declared.size(); i++) {
+                if (declared.get(i) != otherDeclared.get(i))
+                    return false;
+            }
+
+            return true;
+        }
     }
 
     private <K, V> void publish(Cache<K, V> cache, K key, V value, Runnable check) {

@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.language.impl.index;
 
+import dev.railroadide.railroad.ide.language.jvm.JvmDeclarationProvider;
 import dev.railroadide.railroad.ide.language.jvm.JvmIndexContext;
 import dev.railroadide.railroad.ide.language.jvm.JvmProjectModel;
 import dev.railroadide.railroad.ide.language.jvm.JvmSourceSets;
@@ -314,6 +315,19 @@ public final class JavaAnalysisContextProvider implements AutoCloseable {
         Objects.requireNonNull(context, "context");
         context.checkActive();
         return workspace(context.workspaceSnapshot()).capture(context);
+    }
+
+    /**
+     * Returns Java inputs that also see the classes the project's other JVM languages declare.
+     *
+     * @param context captured workspace and optional document selection
+     * @param foreign supplies the declaration providers of the project's other JVM languages
+     * @return complete immutable inputs for the supplied capture
+     */
+    public JavaWorkspaceAnalysis index(RequestContext context, Supplier<List<JvmDeclarationProvider>> foreign) {
+        Objects.requireNonNull(context, "context");
+        context.checkActive();
+        return workspace(context.workspaceSnapshot()).capture(context, foreign);
     }
 
     private final DefaultProjectIndexContextResolver resolver = new DefaultProjectIndexContextResolver(
