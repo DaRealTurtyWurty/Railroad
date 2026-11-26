@@ -15,6 +15,7 @@ import dev.railroadide.railroad.ide.sst.semantic.api.SemanticModel;
 import dev.railroadide.railroad.ide.sst.semantic.api.Symbol;
 import dev.railroadide.railroad.ide.sst.semantic.api.SymbolKind;
 import dev.railroadide.railroad.ide.sst.semantic.api.Type;
+import dev.railroadide.railroad.ide.sst.semantic.api.TypeReference;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxTree;
 import org.jetbrains.annotations.Nullable;
@@ -278,7 +279,9 @@ public final class JavaSemanticCompletionEngine {
             switch (symbol.kind()) {
                 case JavaSymbolKind.FIELD -> {
                     if (symbol.isStatic() == staticContext) {
-                        addFieldItem(out, symbol.simpleName(), "?", symbol.isStatic());
+                        TypeReference type = symbol.descriptor() == null ? null : symbol.descriptor().declaredType();
+                        addFieldItem(out, symbol.simpleName(), type == null ? "?" : type.displayName(),
+                            symbol.isStatic());
                     }
                 }
 

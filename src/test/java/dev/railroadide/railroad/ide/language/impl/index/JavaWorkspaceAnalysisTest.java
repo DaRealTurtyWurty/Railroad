@@ -46,6 +46,68 @@ public class JavaWorkspaceAnalysisTest {
     }
 
     @Test
+    public void completesInheritedGenericFieldsAndTheirElements() {
+        DefaultDocumentStore store = store();
+        store.publishBacking(source("RenderState.java", """
+            package demo;
+            import java.util.List;
+            import model.ItemRenderState;
+            public class RenderState {
+                public List<ItemRenderState> itemRenderStates;
+                public ItemRenderState[] arrayStates;
+            }
+            """));
+        store.publishBacking(source("ItemRenderState.java", """
+            package model;
+            public class ItemRenderState {
+                public int particleMaterial() { return 0; }
+            }
+            """));
+        TextDocumentSnapshot use = source("Renderer.java", """
+            package demo;
+            class Renderer {
+                static class State extends RenderState {}
+                void render(State state) {
+                    state.;
+                    state.itemRenderStates.;
+                    state.itemRenderStates.get(0).;
+                    state.itemRenderStates.getFirst().;
+                    state.arrayStates[0].;
+                    state.itemRenderStates[0].;
+                }
+            }
+            """);
+        store.publishBacking(use);
+
+        try (var provider = new JavaWorkspaceAnalysisProvider()) {
+            JavaWorkspaceAnalysis context = provider.capture(store.capture(), use.id());
+            assertAll(
+                () -> assertTrue(completeAfter(use, context, "state.").items().stream()
+                    .anyMatch(item -> item.insertText().equals("itemRenderStates")
+                        && item.detail().equals("List<ItemRenderState>"))),
+                () -> assertTrue(completeAfter(use, context, "state.itemRenderStates.").items().stream()
+                    .anyMatch(item -> item.insertText().equals("getFirst"))),
+                () -> assertTrue(completeAfter(use, context, "state.itemRenderStates.get(0).").items().stream()
+                    .anyMatch(item -> item.insertText().equals("particleMaterial"))),
+                () -> assertTrue(completeAfter(use, context, "state.itemRenderStates.getFirst().").items().stream()
+                    .anyMatch(item -> item.insertText().equals("particleMaterial"))),
+                () -> assertTrue(completeAfter(use, context, "state.arrayStates[0].").items().stream()
+                    .anyMatch(item -> item.insertText().equals("particleMaterial"))),
+                () -> assertNull(completeAfter(use, context, "state.itemRenderStates[0].")));
+        }
+    }
+
+    private static CompletionResult completeAfter(
+        TextDocumentSnapshot snapshot,
+        JavaWorkspaceAnalysis context,
+        String expression
+    ) {
+        String text = snapshot.text();
+        return JavaSemanticCompletionEngine.compute(text, text.indexOf(expression + ";") + expression.length() - 1,
+            context);
+    }
+
+    @Test
     public void capturedSourceShadowsAnOlderBinaryOfTheSameType() throws Exception {
         DefaultDocumentStore store = store();
         Path binary = library("old-classes", "binaryOnly");
