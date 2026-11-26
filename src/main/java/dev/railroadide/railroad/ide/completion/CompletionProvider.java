@@ -21,11 +21,15 @@ public interface CompletionProvider {
      * Selects automatic completion triggers. Called on the editor thread; this policy must be fast and side-effect
      * free.
      * The default supports prefix completion after any insertion. Languages may restrict punctuation or other triggers.
+     * <p>
+     * An explicit request whose current word contains no trigger is dispatched with the offset of the character
+     * before the caret, so providers that support such requests must accept any character there.
      *
+     * @param linePrefix text on the same line before the inserted text, never null
      * @param insertedText newly inserted text, never null
      * @return whether this edit should request completion
      */
-    default boolean shouldTrigger(String insertedText) {
+    default boolean shouldTrigger(String linePrefix, String insertedText) {
         return !insertedText.isEmpty();
     }
 

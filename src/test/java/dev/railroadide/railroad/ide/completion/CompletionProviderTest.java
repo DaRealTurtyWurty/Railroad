@@ -43,23 +43,21 @@ public class CompletionProviderTest {
 
     @Test
     public void completesMembersFromPhysicalAndVirtualSnapshots() {
-        for (CompletionProvider provider : providers()) {
-            for (DocumentUri uri : List.of(
-                DocumentUri.fromPath(projectRoot.resolve("Example.java")),
-                DocumentUri.virtual("generated", "/demo/Example.java"),
-                DocumentUri.parse("jar:file:///libs/example.jar!/demo/Example.java"),
-                DocumentUri.inMemory(DocumentId.create()),
-                DocumentUri.virtual("generated", "/"))) {
-                TextDocumentSnapshot snapshot = snapshot(uri, SOURCE);
-                int triggerAt = SOURCE.indexOf("this.") + "this".length();
+        CompletionProvider provider = provider();
+        for (DocumentUri uri : List.of(
+            DocumentUri.fromPath(projectRoot.resolve("Example.java")),
+            DocumentUri.virtual("generated", "/demo/Example.java"),
+            DocumentUri.parse("jar:file:///libs/example.jar!/demo/Example.java"),
+            DocumentUri.inMemory(DocumentId.create()),
+            DocumentUri.virtual("generated", "/"))) {
+            TextDocumentSnapshot snapshot = snapshot(uri, SOURCE);
+            int triggerAt = SOURCE.indexOf("this.") + "this".length();
 
-                CompletionResult result = assertDoesNotThrow(() -> provider.compute(snapshot, triggerAt));
+            CompletionResult result = assertDoesNotThrow(() -> provider.compute(snapshot, triggerAt));
 
-                assertNotNull(result,
-                    () -> provider.getClass().getSimpleName() + " returned no completions for " + uri);
-                assertEquals(triggerAt + 1, result.replacementStart());
-                assertTrue(hasItem(result, "marker"));
-            }
+            assertNotNull(result, () -> "No completions for " + uri);
+            assertEquals(triggerAt + 1, result.replacementStart());
+            assertTrue(hasItem(result, "marker"));
         }
     }
 
@@ -70,13 +68,12 @@ public class CompletionProviderTest {
         TextDocumentSnapshot snapshot = snapshot(DocumentUri.fromPath(file), SOURCE);
         int triggerAt = SOURCE.indexOf("this.") + "this".length();
 
-        for (CompletionProvider provider : providers()) {
-            CompletionResult result = provider.compute(snapshot, triggerAt);
+        CompletionProvider provider = provider();
+        CompletionResult result = provider.compute(snapshot, triggerAt);
 
-            assertNotNull(result);
-            assertTrue(hasItem(result, "marker"));
-            assertFalse(hasItem(result, "diskOnly"));
-        }
+        assertNotNull(result);
+        assertTrue(hasItem(result, "marker"));
+        assertFalse(hasItem(result, "diskOnly"));
     }
 
     @Test
@@ -90,18 +87,17 @@ public class CompletionProviderTest {
         int originalTrigger = SOURCE.indexOf("this.") + "this".length();
         int updatedTrigger = updatedSource.indexOf("this.") + "this".length();
 
-        for (CompletionProvider provider : providers()) {
-            CompletionResult originalResult = provider.compute(original, originalTrigger);
-            CompletionResult updatedResult = provider.compute(updated, updatedTrigger);
+        CompletionProvider provider = provider();
+        CompletionResult originalResult = provider.compute(original, originalTrigger);
+        CompletionResult updatedResult = provider.compute(updated, updatedTrigger);
 
-            assertNotNull(originalResult);
-            assertNotNull(updatedResult);
-            assertTrue(hasItem(originalResult, "marker"));
-            assertFalse(hasItem(originalResult, "updated"));
-            assertTrue(hasItem(updatedResult, "updated"));
-            assertFalse(hasItem(updatedResult, "marker"));
-            assertEquals(originalResult, provider.compute(original, originalTrigger));
-        }
+        assertNotNull(originalResult);
+        assertNotNull(updatedResult);
+        assertTrue(hasItem(originalResult, "marker"));
+        assertFalse(hasItem(originalResult, "updated"));
+        assertTrue(hasItem(updatedResult, "updated"));
+        assertFalse(hasItem(updatedResult, "marker"));
+        assertEquals(originalResult, provider.compute(original, originalTrigger));
     }
 
     @Test
@@ -113,10 +109,9 @@ public class CompletionProviderTest {
             "plaintext", SOURCE, StandardCharsets.UTF_8);
         int triggerAt = SOURCE.indexOf("this.") + "this".length();
 
-        for (CompletionProvider provider : providers()) {
-            assertNull(provider.compute(binary, triggerAt));
-            assertNull(provider.compute(nonJava, triggerAt));
-        }
+        CompletionProvider provider = provider();
+        assertNull(provider.compute(binary, triggerAt));
+        assertNull(provider.compute(nonJava, triggerAt));
     }
 
     @Test
@@ -124,15 +119,14 @@ public class CompletionProviderTest {
         DocumentUri uri = DocumentUri.virtual("generated", "/demo/Example.java");
         TextDocumentSnapshot snapshot = snapshot(uri, SOURCE);
 
-        for (CompletionProvider provider : providers()) {
-            assertNull(provider.compute(snapshot(uri, ""), 0));
-            assertNull(provider.compute(snapshot, -1));
-            assertNull(provider.compute(snapshot, SOURCE.length()));
-            assertNull(provider.compute(snapshot, SOURCE.indexOf("marker")));
-        }
+        CompletionProvider provider = provider();
+        assertNull(provider.compute(snapshot(uri, ""), 0));
+        assertNull(provider.compute(snapshot, -1));
+        assertNull(provider.compute(snapshot, SOURCE.length()));
+        assertNull(provider.compute(snapshot, SOURCE.indexOf("marker")));
     }
 
-    private List<CompletionProvider> providers() {
+    private CompletionProvider provider() {
         Project project = (Project) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{Project.class},
             (proxy, method, arguments) -> switch (method.getName()) {
                 case "getPath" -> projectRoot;
@@ -145,7 +139,7 @@ public class CompletionProviderTest {
             });
 
         sessions.add(Services.PROJECT_LANGUAGE_INDEX_SERVICE.openProject(project));
-        return List.of(new JavaCompletionProvider(project), new JdtCompletionProvider(new String[0]));
+        return new JavaCompletionProvider(project);
     }
 
     private static TextDocumentSnapshot snapshot(DocumentUri uri, CharSequence source) {

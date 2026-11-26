@@ -447,7 +447,7 @@ public class CodeEditorWorkspaceTest {
         CompletableFuture<WorkspaceSnapshot> completedWith = new CompletableFuture<>();
         CompletionProvider completion = new CompletionProvider() {
             @Override
-            public boolean shouldTrigger(String insertedText) {
+            public boolean shouldTrigger(String linePrefix, String insertedText) {
                 return false;
             }
 

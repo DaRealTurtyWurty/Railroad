@@ -33,9 +33,26 @@ public record JavaCompletionProvider(
     @Nullable Path filePath,
     Function<RequestContext, JavaWorkspaceAnalysis> analysis
 ) implements CompletionProvider {
+    /**
+     * Triggers member completion after a dot and override completion when a new identifier starts.
+     *
+     * @param linePrefix text on the same line before the inserted text
+     * @param insertedText newly inserted text
+     * @return whether this edit should request completion
+     */
     @Override
-    public boolean shouldTrigger(String insertedText) {
-        return insertedText.endsWith(".");
+    public boolean shouldTrigger(String linePrefix, String insertedText) {
+        if (insertedText.endsWith("."))
+            return true;
+
+        if (insertedText.length() != 1 || !Character.isJavaIdentifierStart(insertedText.charAt(0)))
+            return false;
+
+        if (linePrefix.isEmpty())
+            return true;
+
+        char previous = linePrefix.charAt(linePrefix.length() - 1);
+        return !Character.isJavaIdentifierPart(previous) && previous != '.' && previous != '@';
     }
 
     /**

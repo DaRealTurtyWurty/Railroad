@@ -55,6 +55,7 @@ import org.fxmisc.richtext.model.PlainTextChange;
 import org.fxmisc.richtext.model.StyleSpan;
 import org.fxmisc.richtext.model.StyleSpans;
 import org.fxmisc.richtext.model.StyleSpansBuilder;
+import org.fxmisc.richtext.MultiChangeBuilder;
 import org.fxmisc.richtext.model.TwoDimensional.Bias;
 import org.jspecify.annotations.Nullable;
 import org.reactfx.Subscription;
@@ -1742,18 +1743,26 @@ public class CodeEditorPane extends TextEditorPane {
             return;
 
         int caret = getCaretPosition();
+        if (caret == 0)
+            return;
+
         String text = getText();
         try {
             for (int offset = caret - 1; offset >= 0; offset--) {
-                if (completionProvider.shouldTrigger(text.substring(offset, offset + 1))) {
+                int lineStart = text.lastIndexOf('\n', offset - 1) + 1;
+                if (completionProvider.shouldTrigger(text.substring(lineStart, offset),
+                    text.substring(offset, offset + 1))) {
                     hideAutoComplete();
                     triggerCompletion(offset, caret);
                     return;
                 }
 
                 if (!editorFeatures().isIdentifierPart(text.charAt(offset)))
-                    return;
+                    break;
             }
+
+            hideAutoComplete();
+            triggerCompletion(caret - 1, caret);
         } catch (CancellationException _) {
             // The session may close during the trigger check.
         } catch (RuntimeException exception) {
@@ -1897,7 +1906,9 @@ public class CodeEditorPane extends TextEditorPane {
 
         int start = completionReplacementStart;
         hideAutoComplete();
-        if (selected.kind() == CompletionItem.Kind.METHOD) {
+        if (selected.template() != null) {
+            insertTemplateCompletion(selected.template(), start, caret);
+        } else if (selected.kind() == CompletionItem.Kind.METHOD) {
             insertMethodCompletion(selected, start, caret);
         } else {
             replaceText(start, caret, selected.insertText());
@@ -1929,6 +1940,62 @@ public class CodeEditorPane extends TextEditorPane {
             replaceText(start, replaceEnd, name + "()");
             moveTo(start + name.length() + (method.hasParameters() ? 1 : 2));
         }
+    }
+
+    private void insertTemplateCompletion(CompletionItem.Template template, int start, int caret) {
+        String line = getParagraph(getCurrentParagraph()).getText();
+        int column = getCaretColumn();
+        int wordEnd = column;
+        EditorFeatures features = editorFeatures();
+        while (wordEnd < line.length() && features.isIdentifierPart(line.codePointAt(wordEnd))) {
+            wordEnd += Character.charCount(line.codePointAt(wordEnd));
+        }
+
+        int indentEnd = skipHorizontalWhitespace(line, 0);
+        String lineIndent = line.substring(0, Math.min(indentEnd, column - (caret - start)));
+        String unit = indentationUnit();
+        String text = expandTemplate(template.text(), lineIndent, unit);
+        int caretOffset = expandTemplate(template.text().substring(0, template.caretOffset()), lineIndent, unit)
+            .length();
+        List<CompletionItem.Insertion> insertions = template.insertions().stream()
+            .filter(insertion -> insertion.offset() < start)
+            .toList();
+
+        // Edits run from the end of the document backwards so every offset still refers to the requested text.
+        MultiChangeBuilder<Collection<String>, String, Collection<String>> changes = createMultiChange(
+            insertions.size() + 1);
+        changes.replaceText(start, caret + (wordEnd - column), text);
+        int shift = 0;
+        for (int index = insertions.size() - 1; index >= 0; index--) {
+            CompletionItem.Insertion insertion = insertions.get(index);
+            changes.insertText(insertion.offset(), insertion.text());
+            shift += insertion.text().length();
+        }
+
+        getUndoManager().preventMerge();
+        try {
+            changes.commit();
+        } finally {
+            getUndoManager().preventMerge();
+        }
+
+        moveTo(start + shift + caretOffset);
+    }
+
+    private static String expandTemplate(String template, String lineIndent, String indentationUnit) {
+        String[] lines = template.split("\n", -1);
+        var builder = new StringBuilder(lines[0]);
+        for (int index = 1; index < lines.length; index++) {
+            String line = lines[index];
+            int depth = 0;
+            while (depth < line.length() && line.charAt(depth) == '\t') {
+                depth++;
+            }
+
+            builder.append('\n').append(lineIndent).append(indentationUnit.repeat(depth)).append(line.substring(depth));
+        }
+
+        return builder.toString();
     }
 
     private static int skipHorizontalWhitespace(String text, int offset) {
@@ -1983,6 +2050,11 @@ public class CodeEditorPane extends TextEditorPane {
         }
     }
 
+    private String linePrefix(int offset) {
+        Position position = offsetToPosition(offset, Bias.Forward);
+        return getParagraph(position.getMajor()).getText().substring(0, position.getMinor());
+    }
+
     private void showAutocomplete(PlainTextChange change) {
         if (codeEditorClosed || providerLifetime.isCancellationRequested())
             return;
@@ -1990,7 +2062,7 @@ public class CodeEditorPane extends TextEditorPane {
         String inserted = change.getInserted();
         try {
             int end = change.getPosition() + inserted.length();
-            if (!inserted.isEmpty() && completionProvider.shouldTrigger(inserted)) {
+            if (!inserted.isEmpty() && completionProvider.shouldTrigger(linePrefix(change.getPosition()), inserted)) {
                 hideAutoComplete();
                 triggerCompletion(end - 1);
             } else if (completionTriggerOffset >= 0 && change.getPosition() > completionTriggerOffset

@@ -30,6 +30,8 @@ import dev.railroadide.railroad.ui.RRListView;
 import dev.railroadide.railroad.ide.sst.provider.api.CapabilityRegistry;
 import dev.railroadide.railroad.ide.sst.provider.api.LanguageSession;
 import javafx.scene.Node;
+import javafx.scene.control.Label;
+import javafx.scene.text.Text;
 
 import static dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorRequestTestSupport.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -481,6 +483,35 @@ public class CodeEditorCompletionRequestTest {
     }
 
     @Test
+    public void longSignaturesTruncateTheirParametersButKeepTheWholeName() throws Exception {
+        String name = "getRenderBoundingBoxForMultiblockStructure";
+        var override = CompletionItem.override(name, "CokeOvenBlockEntity, IndustriaBlockEntityRenderState",
+            "IndustriaBlockEntityRenderer", new CompletionItem.Template("@Override", 0));
+        try (Fixture fixture = open(context -> new FeatureResult<>(context,
+            new CompletionResult(5, List.of(override))), "this.", inserted -> inserted.endsWith("."))) {
+            fixture.request();
+            awaitRequests(fixture.editor.featureRequests);
+            onFx(() -> {
+                RRListView<CompletionItem> list = fixture.editor.activeCompletionList.get();
+                list.applyCss();
+                list.layout();
+                assertEquals(name, renderedText(list, ".completion-name"));
+                assertEquals(override.detail(), renderedText(list, ".completion-detail"));
+                assertNotEquals(override.suffix(), renderedText(list, ".completion-suffix"));
+                return null;
+            });
+        }
+    }
+
+    private static String renderedText(RRListView<CompletionItem> list, String labelStyle) {
+        Node label = list.lookupAll(labelStyle).stream()
+            .filter(node -> node instanceof Label shown && !shown.getText().isEmpty())
+            .findFirst()
+            .orElseThrow();
+        return ((Text) label.lookup(".text")).getText();
+    }
+
+    @Test
     public void pickingTheOverloadWithParametersPlacesTheCaretInsideItsOwnCall() throws Exception {
         assertCompletionEdit("outer(value.ge|)", "outer(value.get(|))",
             CompletionItem.method("get", "", "String", false),
@@ -498,6 +529,41 @@ public class CodeEditorCompletionRequestTest {
     @Test
     public void pickingTheArrayLengthFieldInsertsOnlyItsName() throws Exception {
         assertCompletionEdit("array.le|;", "array.length|;", CompletionItem.field("length", "int", false));
+    }
+
+    @Test
+    public void pickingAnOverrideInsertsItsTemplateAndImportsAsOneEditWithTheCaretInTheBody() throws Exception {
+        String imports = "package p;\nimport a.B;\n";
+        String original = imports + "class A {\n    toS\n}";
+        String declaration = "@Override\npublic String toString() {\n\treturn null;\n}";
+        var override = CompletionItem.override("toString", "", "Object",
+            new CompletionItem.Template(declaration, declaration.indexOf("return"), List.of(
+                new CompletionItem.Insertion(original.indexOf("import a.B;"), "import a.A;\n"),
+                new CompletionItem.Insertion(original.indexOf("import a.B;") + "import a.B;".length(),
+                    "\nimport a.C;"))));
+        try (Fixture fixture = open(context -> new FeatureResult<>(context,
+            new CompletionResult(original.indexOf("toS"), List.of(override))), original, text -> !text.isEmpty())) {
+            TestEditor editor = fixture.editor;
+            onFx(() -> {
+                editor.moveTo(original.indexOf("toS") + 2);
+                editor.press(KeyCode.SPACE, true);
+                return null;
+            });
+
+            assertNotNull(fixture.provider.requests.poll(10, TimeUnit.SECONDS));
+            awaitRequests(editor.featureRequests);
+            onFx(() -> {
+                editor.press(KeyCode.ENTER, false);
+                String expected = "package p;\nimport a.A;\nimport a.B;\nimport a.C;\n"
+                    + "class A {\n    @Override\n    public String toString() {\n    "
+                    + editor.indentationUnit() + "return null;\n    }\n}";
+                assertEquals(expected, editor.getText());
+                assertEquals(expected.indexOf("return"), editor.getCaretPosition());
+                editor.undo();
+                assertEquals(original, editor.getText());
+                return null;
+            });
+        }
     }
 
     private void assertCompletionEdit(String before, String after, CompletionItem... suggestions) throws Exception {
@@ -595,7 +661,7 @@ public class CodeEditorCompletionRequestTest {
         var store = new DefaultDocumentStore("test", new WorkspaceConfigurationSnapshot(0, Set.of()));
         var provider = new ControlledProvider(computation, triggerPolicy);
         Fixture fixture = onFx(() -> {
-            BlockingQueue<Throwable> failures = new LinkedBlockingQueue<Throwable>();
+            BlockingQueue<Throwable> failures = new LinkedBlockingQueue<>();
             Thread.UncaughtExceptionHandler previousHandler = Thread.currentThread().getUncaughtExceptionHandler();
             Thread.currentThread().setUncaughtExceptionHandler((_, failure) -> failures.add(failure));
             Project project = new RailroadProject(directory, "Completion request", new WritableImage(1, 1));
@@ -685,7 +751,7 @@ public class CodeEditorCompletionRequestTest {
         }
 
         @Override
-        public boolean shouldTrigger(String insertedText) {
+        public boolean shouldTrigger(String linePrefix, String insertedText) {
             return triggerPolicy.test(insertedText);
         }
 

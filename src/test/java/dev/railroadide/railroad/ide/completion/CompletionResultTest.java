@@ -1,8 +1,10 @@
 package dev.railroadide.railroad.ide.completion;
 
 import dev.railroadide.railroad.ide.signature.SignatureHelp;
+import dev.railroadide.railroad.plugin.spi.dto.Project;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,11 +32,25 @@ public class CompletionResultTest {
     @Test
     public void genericProvidersCanTriggerPrefixCompletionWithoutJavaPunctuation() {
         CompletionProvider provider = (_, _) -> CompletionResult.empty();
-        assertTrue(provider.shouldTrigger("name"));
-        assertFalse(provider.shouldTrigger(""));
-        var javaProvider = new JdtCompletionProvider(new String[0]);
-        assertTrue(javaProvider.shouldTrigger("."));
-        assertFalse(javaProvider.shouldTrigger(":"));
-        assertFalse(javaProvider.shouldTrigger("name"));
+        assertTrue(provider.shouldTrigger("", "name"));
+        assertFalse(provider.shouldTrigger("", ""));
+    }
+
+    @Test
+    public void javaCompletionTriggersOnDotsAndOnTheFirstCharacterOfANewIdentifier() {
+        Project project = (Project) Proxy.newProxyInstance(Project.class.getClassLoader(),
+            new Class<?>[]{Project.class},
+            (_, _, _) -> null);
+        var provider = new JavaCompletionProvider(project, null, _ -> null);
+        assertTrue(provider.shouldTrigger("value", "."));
+        assertTrue(provider.shouldTrigger("    ", "t"));
+        assertTrue(provider.shouldTrigger("", "t"));
+        assertTrue(provider.shouldTrigger("class A {", "_"));
+        assertFalse(provider.shouldTrigger("    t", "o"));
+        assertFalse(provider.shouldTrigger("value.", "l"));
+        assertFalse(provider.shouldTrigger("    @", "O"));
+        assertFalse(provider.shouldTrigger("    ", "1"));
+        assertFalse(provider.shouldTrigger("    ", "to"));
+        assertFalse(provider.shouldTrigger("value", ":"));
     }
 }

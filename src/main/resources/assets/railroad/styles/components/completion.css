@@ -60,11 +60,13 @@
     -fx-icon-color: -color-fg-muted;
 }
 
-.completion-method {
+.completion-method,
+.completion-override {
     -fx-background-color: -color-accent-subtle;
 }
 
-.completion-method .ikonli-font-icon {
+.completion-method .ikonli-font-icon,
+.completion-override .ikonli-font-icon {
     -fx-icon-color: -color-accent-fg;
 }
 

@@ -78,11 +78,15 @@ public final class CompletionPopupContent extends VBox {
         private SuggestionCell() {
             setPrefWidth(0);
             signature.setAlignment(Pos.CENTER_LEFT);
-            signature.setMinWidth(0);
             HBox.setHgrow(signature, Priority.ALWAYS);
+            name.setMinWidth(Region.USE_PREF_SIZE);
             suffix.setMinWidth(0);
             detail.setTextOverrun(OverrunStyle.LEADING_ELLIPSIS);
             detail.maxWidthProperty().bind(widthProperty().multiply(0.5));
+            // The detail keeps up to a third of the row so long parameter lists are truncated before it.
+            detail.minWidthProperty().bind(Bindings.createDoubleBinding(
+                () -> Math.min(detail.prefWidth(-1), getWidth() / 3), widthProperty(), detail.textProperty(),
+                detail.fontProperty()));
             row.getStyleClass().add("completion-row");
             row.setPrefWidth(Double.MAX_VALUE);
             row.setMinWidth(0);
@@ -103,6 +107,7 @@ public final class CompletionPopupContent extends VBox {
                 case FIELD -> FontAwesomeSolid.TAG;
                 case TYPE -> FontAwesomeSolid.CUBE;
                 case TEXT -> FontAwesomeSolid.FONT;
+                case OVERRIDE -> FontAwesomeSolid.ARROW_UP;
             });
 
             tile.getStyleClass().setAll("completion-symbol",

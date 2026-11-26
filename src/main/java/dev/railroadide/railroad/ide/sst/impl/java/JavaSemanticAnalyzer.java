@@ -1085,7 +1085,7 @@ public final class JavaSemanticAnalyzer {
             if (name == null)
                 return List.of();
 
-            List<MemberCandidate> candidates = new ArrayList<MemberCandidate>();
+            List<MemberCandidate> candidates = new ArrayList<>();
             while (enclosing != null) {
                 String owner = enclosing.qualifiedName().orElse(null);
                 if (owner != null) {
@@ -8626,7 +8626,13 @@ public final class JavaSemanticAnalyzer {
         }
     }
 
-    private static boolean isIdentifierLikeToken(SyntaxToken token) {
+    /**
+     * Tests whether a nonmissing token is an identifier, including contextual keywords usable as identifiers.
+     *
+     * @param token the token to classify
+     * @return whether the token can name a declaration or type
+     */
+    public static boolean isIdentifierLikeToken(SyntaxToken token) {
         String kindId = token.kind().id();
         return IDENTIFIER_LIKE_TOKEN_KIND_IDS.contains(kindId) && !isMissingTokenKind(kindId);
     }
