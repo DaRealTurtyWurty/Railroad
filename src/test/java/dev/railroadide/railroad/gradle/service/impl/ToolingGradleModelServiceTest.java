@@ -1,6 +1,7 @@
 package dev.railroadide.railroad.gradle.service.impl;
 
 import dev.railroadide.railroad.gradle.GradleEnvironment;
+import dev.railroadide.railroad.DefaultGradleEnvironment;
 import dev.railroadide.railroad.gradle.model.GradleBuildModel;
 import dev.railroadide.railroad.gradle.model.PersistedGradleModelStore;
 import dev.railroadide.railroad.gradle.service.task.GradleTaskExecutionRequest;
@@ -84,6 +85,29 @@ public class ToolingGradleModelServiceTest {
         assertTrue(submittedImports.isEmpty());
         assertFalse(service.refreshModel(false).isDone());
         assertEquals(1, submittedImports.size());
+    }
+
+    @Test
+    public void savesDuringAnImportShareOneFollowUpEvenIfTheFirstImportFails() throws IOException {
+        store.save(root, model(), IMPORT_STARTED);
+        var environment = new DefaultGradleEnvironment(project, temp.resolve("missing-installation"),
+            project.getGradleManager().getGradleSettings());
+        var service = new ToolingGradleModelService(project, environment, executor, store);
+        GradleBuildModel previous = service.getCachedModel().orElseThrow();
+        CompletableFuture<GradleBuildModel> first = service.refreshModel(true);
+        CompletableFuture<GradleBuildModel> followUp = service.refreshModel(true);
+        assertNotSame(first, followUp);
+        assertSame(followUp, service.refreshModel(true));
+        assertEquals(1, submittedImports.size());
+
+        submittedImports.removeFirst().run();
+        assertTrue(first.isCompletedExceptionally());
+        assertFalse(followUp.isDone());
+        assertEquals(1, submittedImports.size());
+        submittedImports.removeFirst().run();
+        assertTrue(followUp.isCompletedExceptionally());
+        assertTrue(submittedImports.isEmpty());
+        assertSame(previous, service.getCachedModel().orElseThrow());
     }
 
     @Test

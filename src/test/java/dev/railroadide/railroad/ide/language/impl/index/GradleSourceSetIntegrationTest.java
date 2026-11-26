@@ -1,6 +1,14 @@
 package dev.railroadide.railroad.ide.language.impl.index;
 
 import dev.railroadide.railroad.gradle.model.*;
+import dev.railroadide.railroad.DefaultGradleEnvironment;
+import dev.railroadide.railroad.Services;
+import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
+import dev.railroadide.railroad.ide.language.impl.JavaLanguageSupport;
+import dev.railroadide.railroad.ide.language.index.WorkspaceConfigurationParticipant;
+import dev.railroadide.railroad.gradle.project.GradleManager;
+import dev.railroadide.railroad.gradle.service.impl.ToolingGradleModelService;
+import dev.railroadide.railroad.ide.ProjectDocumentSynchronizer;
 import dev.railroadide.railroad.ide.ProjectWorkspaceConfiguration;
 import dev.railroadide.railroad.ide.diagnostics.JavaDiagnosticsProvider;
 import dev.railroadide.railroad.ide.sst.document.api.*;
@@ -10,7 +18,10 @@ import dev.railroadide.railroad.ide.sst.project.JavaLibrarySources;
 import dev.railroadide.railroad.ide.sst.project.JavaLibrarySymbolIndex;
 import dev.railroadide.railroad.ide.sst.provider.api.*;
 import dev.railroadide.railroad.ide.sst.request.api.*;
-import dev.railroadide.railroadplugin.action.RailroadProjectAction;
+import dev.railroadide.railroad.project.RailroadProject;
+import dev.railroadide.railroad.project.facet.Facet;
+import dev.railroadide.railroad.project.facet.FacetManager;
+import javafx.scene.image.WritableImage;
 import org.gradle.tooling.BuildException;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
@@ -21,56 +32,72 @@ import java.nio.file.*;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import dev.railroadide.railroad.ide.WorkspaceModes;
 import dev.railroadide.railroad.ide.language.LanguageSupports;
-import dev.railroadide.railroadplugin.dto.RailroadProject;
+import dev.railroadide.railroad.gradle.GradleSettings;
+import dev.railroadide.railroad.gradle.service.GradleModelService;
+import java.lang.reflect.Field;
+import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexService;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class GradleSourceSetIntegrationTest {
     @TempDir
     public Path directory;
+    @TempDir
+    public Path modelCache;
+    private final DocumentIdentityRegistry identities = new DocumentIdentityRegistry();
 
     @Test
     public void editorMatchesGradleBeforeAndAfterChangingClientDependencies() throws Exception {
         WorkspaceModes.initialize();
         LanguageSupports.initialize();
+        directory = directory.toRealPath();
         Files.writeString(directory.resolve("settings.gradle"), "rootProject.name = 'fixture'\ninclude 'library'");
         Path build = directory.resolve("build.gradle");
-        Files.writeString(build, """
+        String originalBuild = """
             plugins { id 'java' }
+            defaultTasks 'shouldNeverRunOnSync'
+            tasks.register('shouldNeverRunOnSync') { doLast { throw new GradleException('Ran default task on sync') } }
             sourceSets {
                 client { java.srcDirs = ['client-code']; compileClasspath += main.output }
                 independent
             }
-            """);
+            """;
+        Files.writeString(build, originalBuild);
         TextDocumentSnapshot game = file("src/main/java/demo/Game.java",
             "package demo; public class Game { public static int value() { return 1; } }");
         TextDocumentSnapshot test = file("src/test/java/demo/OnlyInTests.java",
             "package demo; public class OnlyInTests { public int read() { return Game.value(); } }");
         TextDocumentSnapshot client = file("client-code/demo/Client.java",
             "package demo; public class Client { int read() { return Game.value() + ClientApi.answer(); } }");
-        TextDocumentSnapshot duplicate = file("src/independent/java/demo/Game.java",
+        file("src/independent/java/demo/Game.java",
             "package demo; public class Game { public static int value() { return 2; } int read() { return value(); } }");
         TextDocumentSnapshot dependency = file("library/src/main/java/demo/ClientApi.java",
             "package demo; public class ClientApi { public static int answer() { return 3; } }");
+        file("extra-client/demo/ClientExtension.java", "package demo; public class ClientExtension {}");
         Files.writeString(directory.resolve("library/build.gradle"), "plugins { id 'java-library' }");
-        Path init = directory.resolve("import.gradle");
-        String plugin = Path.of(RailroadProjectAction.class.getProtectionDomain().getCodeSource().getLocation().toURI())
-            .toString().replace('\\', '/').replace("'", "\\'");
-        Files.writeString(init, """
-            initscript { dependencies { classpath files('%s') } }
-            allprojects { apply plugin: dev.railroadide.railroadplugin.RailroadProjectPlugin }
-            """.formatted(plugin));
-        try (ProjectConnection connection = GradleConnector.newConnector().forProjectDirectory(directory.toFile())
-            .useInstallation(new File(System.getProperty("railroad.test.gradleHome"))).connect();
+        var project = new RailroadProject(directory, "fixture", new WritableImage(1, 1));
+        project.facetsProperty().add(new Facet<>(FacetManager.GRADLE));
+        var store = new DefaultDocumentStore(project.getId(), ProjectWorkspaceConfiguration.initial(project));
+        var gradleHome = new File(System.getProperty("railroad.test.gradleHome"));
+        ProjectLanguageIndexService.Session session = Services.PROJECT_LANGUAGE_INDEX_SERVICE.openProject(project);
+        DocumentId buildDocument = identities.identify(DocumentUri.fromPath(build)).id();
+        try (var imports = Executors.newSingleThreadExecutor();
+            ProjectWorkspaceConfiguration configuration = openWorkspace(project, store, gradleHome, imports);
+            var watcher = new ProjectDocumentSynchronizer(directory, store, identities, buildDocument::equals,
+                Runnable::run,
+                configuration::fileChanged);
+            ProjectConnection connection = GradleConnector.newConnector().forProjectDirectory(directory.toFile())
+                .useInstallation(gradleHome).connect();
             var provider = new JavaWorkspaceAnalysisProvider(() -> true,
                 (roots, _) -> JavaLibrarySymbolIndex.build(roots));
             var services = new JavaSstServices(JavaLibrarySources.shared(), provider::capture)) {
-            var initial = ProjectWorkspaceConfiguration.captureGradleConfiguration(model(connection, init));
-            var store = new DefaultDocumentStore("fixture", initial);
-            List.of(game, test, client, duplicate, dependency).forEach(store::publishBacking);
-            WorkspaceSnapshot before = store.capture();
+            GradleModelService models = project.getGradleManager().getGradleModelService();
+            watcher.initialScan().get(30, TimeUnit.SECONDS);
+            models.refreshModel(false).get(120, TimeUnit.SECONDS);
+            WorkspaceSnapshot before = awaitClientSourceRoots(store, false);
             var diagnostics = new JavaDiagnosticsProvider(null, null, provider::capture);
             assertFalse(provider.capture(before, client.id()).typeNames().contains("ClientApi"));
             assertTrue(
@@ -78,12 +105,19 @@ public class GradleSourceSetIntegrationTest {
             connection.newBuild().forTasks(":compileTestJava", ":compileIndependentJava").run();
             assertThrows(BuildException.class, () -> connection.newBuild().forTasks("compileClientJava").run());
 
-            Files.writeString(build, "\ndependencies { clientImplementation project(':library') }",
-                StandardOpenOption.APPEND);
-            GradleBuildModel updated = model(connection, init);
+            assertFalse(provider.capture(before, client.id()).typeNames().contains("ClientExtension"));
+            Files.writeString(build, originalBuild + """
+                dependencies { clientImplementation project(':library') }
+                sourceSets.client.java.srcDir('extra-client')
+                """);
+            WorkspaceSnapshot workspace = awaitClientSourceRoots(store, true);
+
+            GradleBuildModel updated = models.getCachedModel().orElseThrow();
             var config = ProjectWorkspaceConfiguration.captureGradleConfiguration(updated);
-            store.publishConfiguration(new WorkspaceConfigurationSnapshot(1, config.moduleIds(), config.settings()));
-            WorkspaceSnapshot workspace = store.capture();
+            var liveAnalysis = JavaLanguageSupport.analysisContextProvider();
+            assertTrue(offersAnswer(liveAnalysis.index(workspace, client.id())));
+            assertTrue(provider.capture(workspace, client.id()).typeNames().contains("ClientExtension"));
+            assertFalse(provider.capture(workspace, game.id()).typeNames().contains("ClientExtension"));
             assertFalse(Files.exists(directory.resolve("library/build/classes/java/main/demo/ClientApi.class")));
             assertTrue(offersAnswer(provider.capture(workspace, client.id())));
             assertEquals(dependency.id(),
@@ -123,7 +157,7 @@ public class GradleSourceSetIntegrationTest {
 
             TextDocumentSnapshot leak = file("src/main/java/demo/Leak.java",
                 "package demo; class Leak { void run(OnlyInTests t) { t.read(); } }");
-            store.publishBacking(leak);
+            watcher.refresh(leak.uri().filePath().orElseThrow()).get(10, TimeUnit.SECONDS);
             JavaWorkspaceAnalysis analysis = provider.capture(store.capture(), leak.id());
             var completion = JavaSemanticCompletionEngine.compute(leak.text(), leak.text().indexOf("t.read") + 1,
                 analysis);
@@ -141,7 +175,50 @@ public class GradleSourceSetIntegrationTest {
                 renameRead.edit().changes().stream().map(WorkspaceChange.TextEdit.class::cast)
                     .map(edit -> edit.expected().id()).toList());
             assertThrows(BuildException.class, () -> connection.newBuild().forTasks("compileJava").run());
+            Files.writeString(build, originalBuild);
+            WorkspaceSnapshot removed = awaitClientSourceRoots(store, false);
+            JavaWorkspaceAnalysis afterRemoval = liveAnalysis.index(removed, client.id());
+            assertFalse(offersAnswer(afterRemoval));
+            assertFalse(afterRemoval.typeNames().contains("ClientExtension"));
+        } finally {
+            Services.PROJECT_LANGUAGE_INDEX_SERVICE.closeProject(session);
+            WorkspaceConfigurationParticipant.of(project).forEach(participant -> participant.release(session));
+            LanguageSupportRegistry.runtime().closeProject(project);
         }
+    }
+
+    private static WorkspaceSnapshot awaitClientSourceRoots(DocumentStore store, boolean hasExtraRoot)
+        throws Exception {
+        var imported = new CompletableFuture<WorkspaceSnapshot>();
+        Runnable check = () -> {
+            WorkspaceSnapshot latest = store.capture();
+            String roots = latest.configuration().settings().get("module.:.set.client.sources");
+            if (roots != null && roots.contains("extra-client") == hasExtraRoot) {
+                imported.complete(latest);
+            }
+        };
+
+        try (DocumentStore.ChangeSubscription subscription = store.onChange(check)) {
+            check.run();
+            return imported.get(120, TimeUnit.SECONDS);
+        }
+    }
+
+    private ProjectWorkspaceConfiguration openWorkspace(
+        RailroadProject project,
+        DocumentStore store,
+        File gradleHome,
+        Executor imports
+    ) throws ReflectiveOperationException {
+        GradleSettings settings = project.getGradleManager().getGradleSettings();
+        settings.setGradleJvm(null);
+        var environment = new DefaultGradleEnvironment(project, gradleHome.toPath(), settings);
+        var models = new ToolingGradleModelService(project, environment, imports,
+            new PersistedGradleModelStore(modelCache, "fixture"));
+        Field serviceField = GradleManager.class.getDeclaredField("modelService");
+        serviceField.setAccessible(true);
+        serviceField.set(project.getGradleManager(), models);
+        return new ProjectWorkspaceConfiguration(project, store);
     }
 
     private static boolean offersAnswer(JavaWorkspaceAnalysis analysis) {
@@ -151,21 +228,17 @@ public class GradleSourceSetIntegrationTest {
         return result != null && result.items().stream().anyMatch(item -> item.insertText().equals("answer"));
     }
 
-    private GradleBuildModel model(ProjectConnection connection, Path init) {
-        RailroadProject project = connection.action(new RailroadProjectAction())
-            .withArguments("--offline", "--init-script", init.toString()).run();
-        return new GradleBuildModel("fixture", directory, null, project);
-    }
-
     private TextDocumentSnapshot file(String relative, String text) throws Exception {
         Path path = directory.resolve(relative);
         Files.createDirectories(path.getParent());
         Files.writeString(path, text);
-        return new TextDocumentSnapshot(DocumentId.create(), DocumentUri.fromPath(path), DocumentVersion.initial(),
+        DocumentUri uri = DocumentUri.fromPath(path);
+        return new TextDocumentSnapshot(identities.identify(uri).id(), uri, DocumentVersion.initial(),
             "java", text, StandardCharsets.UTF_8);
     }
 
     private static FeatureRequestContext context(WorkspaceSnapshot workspace, TextDocumentSnapshot document) {
-        return new FeatureRequestContext(workspace, document, CancellationToken.NONE, Deadline.none());
+        return new FeatureRequestContext(workspace, workspace.document(document.id()).orElseThrow(),
+            CancellationToken.NONE, Deadline.none());
     }
 }

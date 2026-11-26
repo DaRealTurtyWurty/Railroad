@@ -10,7 +10,6 @@ import dev.railroadide.railroad.gradle.service.GradleModelService;
 import dev.railroadide.railroad.ide.activity.ActivityProgress;
 import dev.railroadide.railroad.ide.activity.BackgroundActivities;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
-import dev.railroadide.railroad.utility.function.ThrowingSupplier;
 import dev.railroadide.railroadplugin.action.RailroadProjectAction;
 import dev.railroadide.railroadplugin.dto.FabricDataModel;
 import dev.railroadide.railroadplugin.dto.RailroadProject;
@@ -36,7 +35,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import dev.railroadide.railroad.utility.ProjectPathIdentityUtils;
 
 /**
@@ -58,7 +56,8 @@ public class ToolingGradleModelService implements GradleModelService {
     private final AtomicReference<GradleBuildModel> cachedModel = new AtomicReference<>();
     private final Duration modelTimeout = Duration.ofMinutes(3);
     private final List<GradleModelListener> listeners = new CopyOnWriteArrayList<>();
-    private volatile CompletableFuture<GradleBuildModel> ongoingRefresh = null;
+    private CompletableFuture<GradleBuildModel> ongoingRefresh;
+    private CompletableFuture<GradleBuildModel> queuedRefresh;
     private boolean restoreAttempted;
 
     /**
@@ -114,12 +113,7 @@ public class ToolingGradleModelService implements GradleModelService {
 
             Runnable step = ActivityProgress.current().count("railroad.activity.import_steps",
                 ActivityProgress.Unit.STEPS,
-                5);
-            configureJvm(connection.newBuild(), environment)
-                .withArguments(initScriptArgs)
-                .run();
-
-            step.run();
+                4);
             BuildEnvironment buildEnvironment = configureJvm(connection.model(BuildEnvironment.class), environment)
                 .withArguments(initScriptArgs)
                 .get();
@@ -207,18 +201,6 @@ public class ToolingGradleModelService implements GradleModelService {
         return operation;
     }
 
-    private static <T> Supplier<T> safely(ThrowingSupplier<T> supplier) {
-        return () -> {
-            try {
-                return supplier.get();
-            } catch (RuntimeException exception) {
-                throw exception;
-            } catch (Exception exception) {
-                throw new CompletionException(exception);
-            }
-        };
-    }
-
     @Override
     public void addListener(GradleModelListener listener) {
         listeners.add(listener);
@@ -231,7 +213,10 @@ public class ToolingGradleModelService implements GradleModelService {
 
     @Override
     public CompletableFuture<GradleBuildModel> refreshModel(boolean force) {
-        restorePersistedModel();
+        if (restorePersistedModel() && !force) {
+            refreshModel(true);
+        }
+
         CompletableFuture<GradleBuildModel> refresh;
         synchronized (lock) {
             if (!force) {
@@ -240,36 +225,52 @@ public class ToolingGradleModelService implements GradleModelService {
                     return CompletableFuture.completedFuture(existingModel);
             }
 
-            if (ongoingRefresh != null)
-                return ongoingRefresh;
+            if (ongoingRefresh != null) {
+                if (!force)
+                    return ongoingRefresh;
 
-            refresh = CompletableFuture.supplyAsync(
-                safely(() -> {
-                    try (BackgroundActivities.Handle activity = BackgroundActivities.shared()
-                        .start("railroad.activity.importing_gradle")) {
-                        Instant importStarted = Instant.now();
-                        GradleBuildModel model = ScopedValue.where(ActivityProgress.CURRENT, activity)
-                            .call(() -> loadModel(project, environment));
-                        activity.indeterminate("railroad.activity.saving_model");
-                        persist(model, importStarted);
-                        return model;
-                    }
-                }),
-                executor)
-                .orTimeout(modelTimeout.toMillis(), TimeUnit.MILLISECONDS);
+                if (queuedRefresh == null) {
+                    queuedRefresh = new CompletableFuture<>();
+                }
+
+                return queuedRefresh;
+            }
+
+            refresh = new CompletableFuture<>();
             ongoingRefresh = refresh;
         }
 
-        notifyReloadStarted();
-        refresh.whenComplete((model, throwable) -> completeRefresh(refresh, model, throwable));
+        startRefresh(refresh);
         return refresh;
     }
 
-    private void restorePersistedModel() {
-        boolean stale;
+    private void startRefresh(CompletableFuture<GradleBuildModel> result) {
+        notifyReloadStarted();
+        try {
+            CompletableFuture.supplyAsync(this::importModel, executor)
+                .orTimeout(modelTimeout.toMillis(), TimeUnit.MILLISECONDS)
+                .whenComplete((model, error) -> completeRefresh(result, model, error));
+        } catch (RejectedExecutionException exception) {
+            completeRefresh(result, null, exception);
+        }
+    }
+
+    private GradleBuildModel importModel() {
+        try (BackgroundActivities.Handle activity = BackgroundActivities.shared()
+            .start("railroad.activity.importing_gradle")) {
+            Instant started = Instant.now();
+            GradleBuildModel model = ScopedValue.where(ActivityProgress.CURRENT, activity)
+                .call(() -> loadModel(project, environment));
+            activity.indeterminate("railroad.activity.saving_model");
+            persist(model, started);
+            return model;
+        }
+    }
+
+    private boolean restorePersistedModel() {
         synchronized (lock) {
             if (restoreAttempted)
-                return;
+                return false;
 
             restoreAttempted = true;
             Optional<PersistedGradleModelStore.Restored> restored;
@@ -277,19 +278,16 @@ public class ToolingGradleModelService implements GradleModelService {
                 restored = store.load(project.getPath());
             } catch (IOException | RuntimeException exception) {
                 Railroad.LOGGER.warn("Ignoring unreadable persisted Gradle model for {}", project.getPath(), exception);
-                return;
+                return false;
             }
 
             if (restored.isEmpty() || !cachedModel.compareAndSet(null, restored.get().model()))
-                return;
+                return false;
 
-            stale = !restored.get().current();
+            boolean stale = !restored.get().current();
             Railroad.LOGGER.info("Restored {} persisted Gradle model for {}", stale ? "stale" : "current",
                 project.getPath());
-        }
-
-        if (stale) {
-            refreshModel(true);
+            return stale;
         }
     }
 
@@ -330,10 +328,21 @@ public class ToolingGradleModelService implements GradleModelService {
                     "failure"));
             }
         } finally {
+            CompletableFuture<GradleBuildModel> next;
             synchronized (lock) {
-                if (ongoingRefresh == refresh) {
-                    ongoingRefresh = null;
-                }
+                next = queuedRefresh;
+                ongoingRefresh = next;
+                queuedRefresh = null;
+            }
+
+            if (throwable == null) {
+                refresh.complete(model);
+            } else {
+                refresh.completeExceptionally(throwable);
+            }
+
+            if (next != null) {
+                startRefresh(next);
             }
         }
     }
@@ -352,7 +361,10 @@ public class ToolingGradleModelService implements GradleModelService {
 
     @Override
     public Optional<GradleBuildModel> getCachedModel() {
-        restorePersistedModel();
+        if (restorePersistedModel()) {
+            refreshModel(true);
+        }
+
         return Optional.ofNullable(cachedModel.get());
     }
 }

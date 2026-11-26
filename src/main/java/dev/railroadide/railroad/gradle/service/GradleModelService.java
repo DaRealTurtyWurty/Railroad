@@ -11,7 +11,8 @@ import java.util.concurrent.CompletableFuture;
  */
 public interface GradleModelService {
     /**
-     * Refreshes the Gradle model, optionally forcing a rebuild even if cached data exists.
+     * Refreshes the Gradle model, optionally forcing a rebuild even if cached data exists. Forced requests during
+     * an active import share a follow-up import so edits made during the first import are included.
      *
      * @param force whether to bypass caches when refreshing the model
      * @return a future that completes with the refreshed model

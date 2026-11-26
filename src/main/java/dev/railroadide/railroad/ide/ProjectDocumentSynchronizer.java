@@ -33,6 +33,7 @@ public final class ProjectDocumentSynchronizer implements AutoCloseable {
     private final DocumentIdentityRegistry identities;
     private final Predicate<DocumentId> openTextDocument;
     private final Consumer<Runnable> dispatch;
+    private final Consumer<Path> fileChanged;
     private final ExecutorService reads = Executors.newSingleThreadExecutor(task -> {
         var thread = new Thread(task, "Railroad workspace documents");
         thread.setDaemon(true);
@@ -63,11 +64,36 @@ public final class ProjectDocumentSynchronizer implements AutoCloseable {
         Predicate<DocumentId> openTextDocument,
         Consumer<Runnable> dispatch
     ) throws IOException {
+        this(root, store, identities, openTextDocument, dispatch, _ -> {
+        });
+    }
+
+    /**
+     * Watches the workspace and reports filesystem changes independently of document publication, including saves
+     * of files whose editor owns the buffer.
+     *
+     * @param root project directory
+     * @param store project document store
+     * @param identities shared document identities
+     * @param openTextDocument identifies buffers managed by an open editor
+     * @param dispatch dispatcher for document publication
+     * @param fileChanged receives changed workspace paths on the watcher thread, excluding initial discovery
+     * @throws IOException if the filesystem watcher cannot be opened
+     */
+    public ProjectDocumentSynchronizer(
+        Path root,
+        DocumentStore store,
+        DocumentIdentityRegistry identities,
+        Predicate<DocumentId> openTextDocument,
+        Consumer<Runnable> dispatch,
+        Consumer<Path> fileChanged
+    ) throws IOException {
         this.root = root.toAbsolutePath().normalize();
         this.store = store;
         this.identities = identities;
         this.openTextDocument = openTextDocument;
         this.dispatch = dispatch;
+        this.fileChanged = fileChanged;
         watcher = root.getFileSystem().newWatchService();
         BackgroundActivities.Handle scanning = BackgroundActivities.shared().start("railroad.activity.scanning_files");
         initialScan = refresh(this.root, scanning);
@@ -398,7 +424,11 @@ public final class ProjectDocumentSynchronizer implements AutoCloseable {
                     if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
                         refresh(root);
                     } else if (directory != null && event.context() instanceof Path child) {
-                        refresh(directory.resolve(child));
+                        Path path = directory.resolve(child);
+                        if (!ignored(path)) {
+                            refresh(path);
+                            fileChanged.accept(path);
+                        }
                     }
                 }
 

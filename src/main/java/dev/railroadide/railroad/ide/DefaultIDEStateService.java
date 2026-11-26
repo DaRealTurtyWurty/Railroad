@@ -156,7 +156,7 @@ public class DefaultIDEStateService implements IDEStateService {
                     documentSynchronizer = new ProjectDocumentSynchronizer(project.getPath(), documentStore,
                         documentIdentities,
                         id -> Services.EDITOR_TAB_MANAGER.hasOpenTextEditor(id),
-                        Platform::runLater);
+                        Platform::runLater, workspaceConfiguration::fileChanged);
                 } catch (IOException exception) {
                     Railroad.LOGGER.error("Unable to monitor workspace documents", exception);
                 }

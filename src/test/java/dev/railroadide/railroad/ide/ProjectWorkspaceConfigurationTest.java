@@ -291,6 +291,47 @@ public class ProjectWorkspaceConfigurationTest {
     }
 
     @Test
+    public void onlyBuildInputChangesScheduleGradleSyncAndCloseCancelsAPendingSave() throws Exception {
+        Files.writeString(directory.resolve("build.gradle.kts"), "");
+        var project = new RailroadProject(directory, "Gradle saves", new WritableImage(1, 1));
+        project.facetsProperty().add(new Facet<>(FacetManager.GRADLE));
+        var requests = new AtomicInteger();
+        var models = new FakeModels() {
+            @Override
+            public CompletableFuture<GradleBuildModel> refreshModel(boolean force) {
+                assertTrue(force);
+                requests.incrementAndGet();
+                return super.refreshModel(true);
+            }
+        };
+
+        Field service = GradleManager.class.getDeclaredField("modelService");
+        service.setAccessible(true);
+        service.set(project.getGradleManager(), models);
+        var store = new DefaultDocumentStore(project.getId(), ProjectWorkspaceConfiguration.initial(project));
+        CompletableFuture<Void> pending;
+        try (var tracker = new ProjectWorkspaceConfiguration(project, store)) {
+            tracker.fileChanged(directory.resolve("src/main/java/Example.java"));
+            Railroad.EVENT_BUS.publish(new ProjectConfigurationChangedEvent(project));
+            tracker.ready().get(5, TimeUnit.SECONDS);
+            assertEquals(0, requests.get());
+
+            for (String path : List.of("module/build.gradle.kts", "settings.gradle.kts", "gradle.properties",
+                "gradle/libs.versions.toml")) {
+                tracker.fileChanged(directory.resolve(path));
+            }
+
+            tracker.ready().get(5, TimeUnit.SECONDS);
+            assertEquals(1, requests.get());
+            tracker.fileChanged(directory.resolve("build.gradle.kts"));
+            pending = tracker.ready();
+        }
+
+        assertTrue(pending.isCompletedExceptionally());
+        assertEquals(1, requests.get());
+    }
+
+    @Test
     public void moduleReloadsPublishImmutableClasspathAndRetainLastConfigurationOnFailure() throws Exception {
         Files.writeString(directory.resolve("build.gradle"), "plugins { id 'java' }");
         RailroadProject project = new RailroadProject(directory, "Modules", new WritableImage(1, 1)) {

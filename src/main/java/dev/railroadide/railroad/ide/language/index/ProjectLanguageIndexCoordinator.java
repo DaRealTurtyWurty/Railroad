@@ -18,7 +18,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.util.Collection;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 
@@ -174,11 +173,8 @@ public final class ProjectLanguageIndexCoordinator {
         operation.checkActive();
         Objects.requireNonNull(path, "path");
         Objects.requireNonNull(kind, "kind");
-        if (List
-            .of("pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
-                "gradle.properties")
-            .contains(path.getFileName().toString())) {
-            Railroad.EVENT_BUS.publish(new ProjectConfigurationChangedEvent(context.project()));
+        if (path.endsWith("pom.xml")) {
+            Railroad.EVENT_BUS.publish(new ProjectConfigurationChangedEvent(operation.project(), path));
         }
 
         boolean deleted = kind == StandardWatchEventKinds.ENTRY_DELETE;

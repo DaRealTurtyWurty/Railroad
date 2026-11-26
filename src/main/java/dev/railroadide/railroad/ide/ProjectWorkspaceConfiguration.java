@@ -57,6 +57,8 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
     private static final String PREPARED = "index.prepared";
     private static final Duration CONFIGURATION_BUDGET = Duration.ofMinutes(2);
     private static final Duration WARMUP_BUDGET = Duration.ofMinutes(5);
+    private static final Executor GRADLE_SYNC_DELAY = CompletableFuture.delayedExecutor(750, TimeUnit.MILLISECONDS);
+    private static final Path GRADLE_WRAPPER_PROPERTIES = Path.of("gradle", "wrapper", "gradle-wrapper.properties");
     private static final List<String> BUILD_TOOL_FILES = List.of("pom.xml", "build.gradle", "build.gradle.kts",
         "settings.gradle", "settings.gradle.kts");
     private final Session indexSession;
@@ -78,6 +80,8 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
     private Map<String, String> requestedSettings;
     private long resolutionGeneration;
     private GradleModelService modelService;
+    private WorkspaceConfigurationSnapshot importedGradle;
+    private CompletableFuture<?> gradleSync = CompletableFuture.completedFuture(null);
     private boolean closed;
     private boolean indexesWarmed;
 
@@ -148,6 +152,9 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
         settingsListener = (_, _) -> refreshSettings();
         configurationListener = event -> {
             if (event.project() == project) {
+                if (event.buildFile() != null && !event.buildFile().endsWith("pom.xml") && scheduleGradleSync())
+                    return;
+
                 if (indexSession == null) {
                     refreshSettings();
                 } else {
@@ -196,7 +203,42 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
      * @return completion for the current request; superseded or closed requests are cancelled
      */
     public synchronized CompletableFuture<Void> ready() {
-        return resolution.thenCompose(_ -> binaryResolution.copy());
+        return CompletableFuture.allOf(gradleSync, resolution).thenCompose(_ -> {
+            synchronized (this) {
+                return binaryResolution.copy();
+            }
+        });
+    }
+
+    /**
+     * Reports saved or removed Gradle inputs from the live project watcher.
+     *
+     * @param path changed workspace path
+     */
+    public void fileChanged(Path path) {
+        String name = path.getFileName().toString();
+        if (name.endsWith(".gradle") || name.endsWith(".gradle.kts") || name.equals("gradle.properties")
+            || name.endsWith(".versions.toml")
+            || path.endsWith(GRADLE_WRAPPER_PROPERTIES)) {
+            synchronized (this) {
+                if (!closed) {
+                    Railroad.EVENT_BUS.publish(new ProjectConfigurationChangedEvent(project, path));
+                }
+            }
+        }
+    }
+
+    private synchronized boolean scheduleGradleSync() {
+        if (closed || modelService == null)
+            return false;
+
+        gradleSync.cancel(false);
+        gradleSync = CompletableFuture.completedFuture(null).thenComposeAsync(_ -> {
+            synchronized (this) {
+                return closed ? CompletableFuture.completedFuture(null) : modelService.refreshModel(true);
+            }
+        }, GRADLE_SYNC_DELAY);
+        return true;
     }
 
     /**
@@ -289,13 +331,16 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
         cancelResolution();
         WorkspaceConfigurationSnapshot current = store.capture().configuration();
         Map<String, String> values = new TreeMap<>(current.settings());
-        values.keySet().removeIf(key -> key.startsWith("project."));
-        if (modelService == null) {
-            values.keySet().removeIf(key -> key.startsWith("module.") || key.startsWith("gradle."));
-        }
-
+        values.keySet()
+            .removeIf(key -> key.startsWith("project.") || key.startsWith("module.") || key.startsWith("gradle."));
         values.putAll(settings);
-        publish(modelService == null ? moduleIds(values) : current.moduleIds(), values);
+        if (importedGradle == null) {
+            publish(moduleIds(values), values);
+        } else {
+            values.remove(DEPENDENCIES_UNAVAILABLE);
+            values.putAll(importedGradle.settings());
+            publish(importedGradle.moduleIds(), values);
+        }
     }
 
     private boolean isMavenProject() {
@@ -415,14 +460,9 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
         if (closed || model.project() == null || !project.hasFacet(FacetManager.GRADLE))
             return;
 
-        cancelResolution();
+        importedGradle = captureGradleConfiguration(model);
         forceBinaryRefresh = true;
-        Map<String, String> values = new TreeMap<>(store.capture().configuration().settings());
-        values.keySet().removeIf(key -> key.startsWith("module.") || key.startsWith("gradle."));
-        values.remove(DEPENDENCIES_UNAVAILABLE);
-        WorkspaceConfigurationSnapshot gradle = captureGradleConfiguration(model);
-        values.putAll(gradle.settings());
-        publish(gradle.moduleIds(), values);
+        refreshSettings();
         if (indexSession == null) {
             Services.PROJECT_LANGUAGE_INDEX_SERVICE
                 .refreshProject(Services.PROJECT_LANGUAGE_INDEX_SERVICE.session(project));
@@ -780,6 +820,7 @@ public final class ProjectWorkspaceConfiguration implements AutoCloseable {
     @Override
     public synchronized void close() {
         closed = true;
+        gradleSync.cancel(false);
         binaryGeneration++;
         if (binaryTask != null) {
             binaryTask.cancel(true);
