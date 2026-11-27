@@ -18,6 +18,8 @@ import dev.railroadide.railroad.ide.sst.semantic.api.Type;
 import dev.railroadide.railroad.ide.sst.semantic.api.TypeReference;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxTree;
+import dev.railroadide.railroad.plugin.spi.inspection.JavaRuleContext;
+import dev.railroadide.railroad.plugin.spi.inspection.JavaRuleContext.FieldDescriptor;
 import org.jetbrains.annotations.Nullable;
 
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
@@ -37,8 +39,8 @@ public final class JavaSemanticCompletionEngine {
     }
 
     /**
-     * Computes accessible members after a dot, variables and class names for a typed prefix, and overridable
-     * methods at member-declaration positions.
+     * Computes accessible members after a dot, unqualified names for a typed prefix, and overridable methods at
+     * member-declaration positions.
      *
      * @param document the Java document text
      * @param triggerAt the zero-based offset of the triggering dot, of the first character of the typed member
@@ -88,9 +90,9 @@ public final class JavaSemanticCompletionEngine {
         if (document.charAt(triggerAt) != '.') {
             CompletionResult overrides = new JavaMethodOverrides(document, projectIndex, activityCheck)
                 .complete(tree, triggerAt);
-            CompletionResult locals = completeLocals(tree, document, triggerAt, projectIndex);
+            CompletionResult unqualified = completeUnqualified(tree, document, triggerAt, projectIndex);
             CompletionResult types = JavaTypeCompletion.complete(tree, triggerAt, projectIndex, activityCheck);
-            return merge(overrides, merge(locals, types));
+            return merge(overrides, merge(unqualified, types));
         }
 
         SyntaxNode access = findMemberAccess(lookup.findDeepestNodeContaining(tree.root(), triggerAt));
@@ -125,7 +127,7 @@ public final class JavaSemanticCompletionEngine {
         return new CompletionResult(triggerAt + 1, items);
     }
 
-    private @Nullable CompletionResult completeLocals(
+    private @Nullable CompletionResult completeUnqualified(
         SyntaxTree tree,
         String document,
         int triggerAt,
@@ -140,17 +142,165 @@ public final class JavaSemanticCompletionEngine {
             return null;
 
         SyntaxNode usage = token.parent().orElse(null);
-        if (usage == null || !usage.kind().equals(JavaSyntaxKinds.NAME_EXPRESSION)
-            || JavaSemanticAnalyzer.isSelectorNameExpression(usage))
+        if (usage == null || !usage.kind().equals(JavaSyntaxKinds.NAME_EXPRESSION))
             return null;
 
+        boolean callName = JavaSemanticAnalyzer.isSelectorNameExpression(usage);
+        if (callName) {
+            SyntaxNode parent = usage.parent().orElseThrow();
+            if (!parent.kind().equals(JavaSyntaxKinds.METHOD_INVOCATION_EXPRESSION)
+                || JavaSemanticAnalyzer.explicitReceiver(parent) != null)
+                return null;
+        }
+
         String prefix = document.substring(token.start(), triggerAt + 1);
-        List<CompletionItem> items = JavaSemanticAnalyzer.visibleVariables(tree, usage, prefix, projectIndex,
-            activityCheck).entrySet().stream()
-            .sorted(Map.Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER))
-            .map(entry -> CompletionItem.field(entry.getKey(), entry.getValue(), false))
-            .toList();
+        var analysis = JavaSemanticAnalyzer.analyzeValueCompletion(tree, usage, prefix, projectIndex, activityCheck);
+        var rules = new JavaRuleContext(tree.documentUri(), document, analysis.model(), projectIndex, activityCheck);
+        List<EnclosingType> enclosingTypes = enclosingTypes(analysis.model(), rules, usage);
+        List<CompletionItem> items = new ArrayList<>();
+        if (!callName) {
+            analysis.localTypes().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER))
+                .map(entry -> CompletionItem.field(entry.getKey(), entry.getValue(), false))
+                .forEach(items::add);
+            Map<String, FieldDescriptor> fields = visibleFields(enclosingTypes, rules, usage, prefix,
+                analysis.localTypes().keySet());
+            fields.values().stream()
+                .sorted(Comparator.comparing(FieldDescriptor::name, String.CASE_INSENSITIVE_ORDER))
+                .map(field -> CompletionItem.field(field.name(),
+                    field.type().kind() == JavaTypes.Kind.UNKNOWN ? "" : field.type().displayName(),
+                    Modifier.isStatic(field.modifiers())))
+                .forEach(items::add);
+        }
+
+        if (!enclosingTypes.isEmpty()) {
+            items.addAll(declaredMethods(enclosingTypes.getFirst(), rules, prefix));
+        }
+
         return items.isEmpty() ? null : new CompletionResult(token.start(), items);
+    }
+
+    private List<EnclosingType> enclosingTypes(SemanticModel model, JavaRuleContext rules, SyntaxNode usage) {
+        List<EnclosingType> enclosingTypes = new ArrayList<>();
+        boolean staticOnly = false;
+        for (SyntaxNode node = usage; node != null; node = node.parent().orElse(null)) {
+            ActivityCheckpoint.poll(activityCheck);
+            if (node.kind().equals(JavaSyntaxKinds.STATIC_INITIALIZER)
+                || node.kind().equals(JavaSyntaxKinds.METHOD_DECLARATION) && hasStaticModifier(node)
+                || node.kind().equals(JavaSyntaxKinds.FIELD_DECLARATION)
+                    && (hasStaticModifier(node) || isInterfaceMember(node))) {
+                staticOnly = true;
+            }
+
+            Symbol symbol = model.declaredSymbol(node).orElse(null);
+            if (symbol == null || !JavaTypeLookup.isTypeSymbol(symbol.kind()))
+                continue;
+
+            enclosingTypes.add(new EnclosingType(symbol.qualifiedName().orElse(symbol.simpleName()), staticOnly));
+            staticOnly |= Modifier.isStatic(rules.symbolModifiers(symbol))
+                || symbol.kind() != JavaSymbolKind.CLASS || isInterfaceMember(node);
+        }
+
+        return enclosingTypes;
+    }
+
+    private List<CompletionItem> declaredMethods(EnclosingType owner, JavaRuleContext rules, String prefix) {
+        Map<String, CompletionItem> items = new LinkedHashMap<>();
+        for (JavaRuleContext.MethodDescriptor method : rules.declaredMethodDescriptors(owner.qualifiedName())) {
+            ActivityCheckpoint.poll(activityCheck);
+            boolean isStatic = Modifier.isStatic(method.modifiers());
+            if (!method.name().startsWith(prefix) || owner.staticOnly() && !isStatic)
+                continue;
+
+            List<String> parameters = new ArrayList<>(method.parameterTypes().stream().map(Type::displayName).toList());
+            if (rules.isVariableArityMethod(method) && !parameters.isEmpty()
+                && method.parameterTypes().getLast() instanceof JavaTypes.ArrayType array) {
+                parameters.set(parameters.size() - 1, array.componentType().displayName() + "...");
+            }
+
+            addMethodItem(items, method.name(), parameters, method.returnType().displayName(), isStatic);
+        }
+
+        return items.values().stream()
+            .sorted(Comparator.comparing(CompletionItem::insertText, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(CompletionItem::suffix))
+            .toList();
+    }
+
+    private Map<String, FieldDescriptor> visibleFields(
+        List<EnclosingType> enclosingTypes,
+        JavaRuleContext rules,
+        SyntaxNode usage,
+        String prefix,
+        Set<String> localNames
+    ) {
+        Map<String, FieldDescriptor> fields = new LinkedHashMap<>();
+        Set<String> shadowed = new HashSet<>(localNames);
+        for (EnclosingType owner : enclosingTypes) {
+            for (FieldDescriptor field : rules.declaredFieldDescriptors(owner.qualifiedName())) {
+                addVisibleField(fields, shadowed, field, rules, usage, prefix, owner.staticOnly());
+            }
+
+            for (FieldDescriptor field : rules.inheritedFieldDescriptors(owner.qualifiedName())) {
+                if (!Modifier.isPrivate(field.modifiers())) {
+                    addVisibleField(fields, shadowed, field, rules, usage, prefix, owner.staticOnly());
+                }
+            }
+        }
+
+        List<JavaImports.ImportDeclaration> imports = JavaImports.imports(rules.syntaxTree().root()).stream()
+            .filter(JavaImports.ImportDeclaration::isStatic)
+            .sorted(Comparator.comparing(JavaImports.ImportDeclaration::isWildcard))
+            .toList();
+        for (JavaImports.ImportDeclaration entry : imports) {
+            ActivityCheckpoint.poll(activityCheck);
+            if (!entry.isWildcard() && !entry.importedName().startsWith(prefix))
+                continue;
+
+            String owner = rules.resolveQualifiedTypeName(entry.owner(), entry.node());
+            if (owner == null)
+                continue;
+
+            List<FieldDescriptor> imported = new ArrayList<>(rules.fieldDescriptorsForType(owner));
+            imported.addAll(rules.inheritedFieldDescriptors(owner));
+            for (FieldDescriptor field : imported) {
+                if (Modifier.isStatic(field.modifiers())
+                    && (entry.isWildcard() || entry.importedName().equals(field.name()))) {
+                    addVisibleField(fields, shadowed, field, rules, usage, prefix, true);
+                }
+            }
+        }
+
+        return fields;
+    }
+
+    private void addVisibleField(
+        Map<String, FieldDescriptor> fields,
+        Set<String> shadowed,
+        FieldDescriptor field,
+        JavaRuleContext rules,
+        SyntaxNode usage,
+        String prefix,
+        boolean staticOnly
+    ) {
+        ActivityCheckpoint.poll(activityCheck);
+        if (field.name().startsWith(prefix) && !shadowed.contains(field.name())
+            && rules.isFieldAccessible(field, usage)) {
+            shadowed.add(field.name());
+            if (!staticOnly || Modifier.isStatic(field.modifiers())) {
+                fields.put(field.name(), field);
+            }
+        }
+    }
+
+    private static boolean hasStaticModifier(SyntaxNode node) {
+        return node.children().stream()
+            .anyMatch(child -> child.kind().equals(JavaSyntaxKinds.tokenKind(JavaTokenType.STATIC_KEYWORD)));
+    }
+
+    private static boolean isInterfaceMember(SyntaxNode node) {
+        return node.parent().map(parent -> parent.kind().equals(JavaSyntaxKinds.INTERFACE_BODY)
+            || parent.kind().equals(JavaSyntaxKinds.ANNOTATION_TYPE_BODY)).orElse(false);
     }
 
     private static @Nullable CompletionResult merge(
@@ -648,6 +798,9 @@ public final class JavaSemanticCompletionEngine {
     }
 
     private record TypeDeclarationInfo(SymbolKind kind, List<String> directSupertypes) {
+    }
+
+    private record EnclosingType(String qualifiedName, boolean staticOnly) {
     }
 
     private record CompletionTarget(String ownerQualifiedName, boolean staticContext) {

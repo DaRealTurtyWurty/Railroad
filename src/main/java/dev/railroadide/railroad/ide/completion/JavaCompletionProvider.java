@@ -34,8 +34,7 @@ public record JavaCompletionProvider(
     Function<RequestContext, JavaWorkspaceAnalysis> analysis
 ) implements CompletionProvider {
     /**
-     * Triggers member completion after a dot, local variable and override completion when an identifier starts, and
-     * type
+     * Triggers member completion after a dot, value and override completion when an identifier starts, and type
      * completion once a second unqualified identifier character has been entered.
      *
      * @param linePrefix text on the same line before the inserted text

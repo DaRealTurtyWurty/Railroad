@@ -239,8 +239,55 @@ public class CodeActionEditorIntegrationTest {
 
     @Test
     public void typingAndAcceptingLocalCompletionInsertsTheVariableName() throws Exception {
-        String source = "class A { void run() { int localCount = 1; System.out.println(); } }\n";
+        assertBareCompletionInsertsName("class A { void run() { int localCount = 1; System.out.println(); } }\n",
+            "localCount");
+    }
+
+    @Test
+    public void typingAndAcceptingFieldCompletionInsertsTheBareFieldName() throws Exception {
+        assertBareCompletionInsertsName("class A { void run() { System.out.println(); } private int fieldCount; }\n",
+            "fieldCount");
+    }
+
+    private void assertBareCompletionInsertsName(String source, String name) throws Exception {
         int start = source.indexOf("println(") + "println(".length();
+        onFx(() -> {
+            editor.replaceText(source);
+            editor.requestFocus();
+            editor.moveTo(start);
+            editor.insertText(start, name.substring(0, 1));
+            return null;
+        });
+
+        awaitFx(() -> {
+            Node popup = visibleNode(".completion-popup");
+            return popup != null && popup.lookup(".list-view") instanceof ListView<?> list
+                && list.getSelectionModel().getSelectedItem() instanceof CompletionItem item
+                && name.equals(item.insertText());
+        });
+
+        onFx(() -> {
+            press(Objects.requireNonNull(visibleNode(".completion-popup").lookup(".list-view")), KeyCode.ENTER, false);
+            assertEquals(source.replace("println()", "println(" + name + ")"), editor.getText());
+            assertEquals(start + name.length(), editor.getCaretPosition());
+            return null;
+        });
+    }
+
+    @Test
+    public void completesACurrentClassMethodWithoutThisAndPlacesTheCaretForArguments() throws Exception {
+        String draft = """
+            class A {
+                void run() {
+                    |
+                    save();
+                }
+                private void load(int slot) {}
+                private void save() {}
+            }
+            """;
+        int start = draft.indexOf('|');
+        String source = draft.replace("|", "");
         onFx(() -> {
             editor.replaceText(source);
             editor.requestFocus();
@@ -253,13 +300,13 @@ public class CodeActionEditorIntegrationTest {
             Node popup = visibleNode(".completion-popup");
             return popup != null && popup.lookup(".list-view") instanceof ListView<?> list
                 && list.getSelectionModel().getSelectedItem() instanceof CompletionItem item
-                && "localCount".equals(item.insertText());
+                && item.kind() == CompletionItem.Kind.METHOD && "load".equals(item.insertText());
         });
 
         onFx(() -> {
             press(Objects.requireNonNull(visibleNode(".completion-popup").lookup(".list-view")), KeyCode.ENTER, false);
-            assertEquals(source.replace("println()", "println(localCount)"), editor.getText());
-            assertEquals(start + "localCount".length(), editor.getCaretPosition());
+            assertEquals(source.substring(0, start) + "load()" + source.substring(start), editor.getText());
+            assertEquals(start + "load(".length(), editor.getCaretPosition());
             return null;
         });
     }

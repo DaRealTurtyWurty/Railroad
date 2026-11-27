@@ -2131,7 +2131,21 @@ public final class JavaRuleContext implements LanguageRuleContext {
         if (ownerQualifiedName == null || ownerQualifiedName.isBlank())
             return true;
 
-        int modifiers = symbolModifiers(symbol);
+        return isMemberAccessible(ownerQualifiedName, symbolModifiers(symbol), usageSite);
+    }
+
+    /**
+     * Checks whether an indexed field is accessible at a usage site.
+     *
+     * @param field field to inspect
+     * @param usageSite syntax node where access occurs
+     * @return whether access is permitted by the field's visibility
+     */
+    public boolean isFieldAccessible(FieldDescriptor field, SyntaxNode usageSite) {
+        return isMemberAccessible(field.ownerQualifiedName(), field.modifiers(), usageSite);
+    }
+
+    private boolean isMemberAccessible(String ownerQualifiedName, int modifiers, SyntaxNode usageSite) {
         if (Modifier.isPublic(modifiers))
             return true;
 
@@ -3203,6 +3217,9 @@ public final class JavaRuleContext implements LanguageRuleContext {
             modifiers |= NON_SEALED_MODIFIER;
         }
 
+        if (JavaSyntaxKinds.ENUM_CONSTANT.equals(declaration.kind()))
+            return modifiers | Modifier.PUBLIC | Modifier.STATIC | Modifier.FINAL;
+
         Symbol ownerSymbol = ownerQualifiedName(symbol).flatMap(this::localTypeSymbol).orElse(null);
         if ((symbol.kind() == JavaSymbolKind.FIELD || symbol.kind() == JavaSymbolKind.METHOD)
             && ownerSymbol != null
@@ -3211,6 +3228,9 @@ public final class JavaRuleContext implements LanguageRuleContext {
             if ("JAVA_INTERFACE_DECLARATION".equals(ownerKindId)
                 || "JAVA_ANNOTATION_TYPE_DECLARATION".equals(ownerKindId)) {
                 modifiers |= Modifier.PUBLIC;
+                if (symbol.kind() == JavaSymbolKind.FIELD) {
+                    modifiers |= Modifier.STATIC | Modifier.FINAL;
+                }
             }
         }
 
@@ -4053,6 +4073,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         List<FieldDescriptor> out,
         Set<String> visited
     ) {
+        checkActive();
         if (!visited.add(ownerQualifiedTypeName))
             return;
 
@@ -4112,7 +4133,13 @@ public final class JavaRuleContext implements LanguageRuleContext {
         return binary;
     }
 
-    private List<FieldDescriptor> fieldDescriptorsForType(String ownerQualifiedTypeName) {
+    /**
+     * Looks up fields declared by a type in the current source, project sources, or binary classes.
+     *
+     * @param ownerQualifiedTypeName the qualified name of the declaring type
+     * @return known field descriptors for that type
+     */
+    public List<FieldDescriptor> fieldDescriptorsForType(String ownerQualifiedTypeName) {
         List<FieldDescriptor> source = declaredFieldsByOwner().get(ownerQualifiedTypeName);
         if (source != null)
             return source;
@@ -4127,6 +4154,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
 
         List<FieldDescriptor> fields = new ArrayList<>();
         for (FieldStub field : stub.fields()) {
+            checkActive();
             fields.add(new FieldDescriptor(
                 ownerQualifiedTypeName,
                 field.name(),
@@ -4217,7 +4245,9 @@ public final class JavaRuleContext implements LanguageRuleContext {
     }
 
     private FieldDescriptor sourceFieldDescriptor(String ownerQualifiedName, Symbol symbol, SyntaxNode declaration) {
-        Type type = declaredTypeOfVariable(declaration);
+        Type type = JavaSyntaxKinds.ENUM_CONSTANT.equals(declaration.kind())
+            ? new DeclaredType(ownerQualifiedName, List.of())
+            : declaredTypeOfVariable(declaration);
         return new FieldDescriptor(
             ownerQualifiedName,
             symbol.simpleName(),

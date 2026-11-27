@@ -2791,10 +2791,21 @@ public final class JavaGreenParser {
 
         ParserCheckpoint checkpoint = mark();
         int previousRecoveries = recoveries;
+        int firstIndex = nextSignificantIndex(position);
         parseMemberPrefix();
-        boolean method = peekSignificantType() != JavaTokenType.RECORD_KEYWORD && parseMemberType() != null
-            && consumeIdentifierLike(new ArrayList<>()) != null
-            && peekSignificantType() == JavaTokenType.OPEN_PAREN;
+        GreenNode returnType = peekSignificantType() == JavaTokenType.RECORD_KEYWORD ? null : parseMemberType();
+        int lastTypeIndex = previousSignificantIndex(position - 1);
+        Token<JavaTokenType> name = returnType == null ? null : consumeIdentifierLike(new ArrayList<>());
+        boolean method = name != null && peekSignificantType() == JavaTokenType.OPEN_PAREN;
+        if (method && isIdentifierLike(first) && lastTypeIndex == firstIndex
+            && tokens.get(firstIndex).line() != name.line()) {
+            // A name being typed on its own line can be followed by an existing call statement.
+            parseParameterList();
+            JavaTokenType afterParameters = peekSignificantType();
+            method = afterParameters == JavaTokenType.OPEN_BRACE || afterParameters == JavaTokenType.THROWS_KEYWORD
+                || afterParameters == JavaTokenType.OPEN_BRACKET;
+        }
+
         rollback(checkpoint);
         recoveries = previousRecoveries;
         return method;
@@ -2884,7 +2895,10 @@ public final class JavaGreenParser {
         parseTypeReference();
         boolean consumedType = madeProgress(checkpoint);
         Token<JavaTokenType> afterType = peekSignificantToken();
-        boolean startsDeclaration = consumedType && afterType != null && isIdentifierLike(afterType.type());
+        // The next identifier may start a call following an unfinished expression statement.
+        JavaTokenType afterName = peekSignificantTypeAfter(1);
+        boolean startsDeclaration = consumedType && afterType != null && isIdentifierLike(afterType.type())
+            && afterName != JavaTokenType.OPEN_PAREN && afterName != JavaTokenType.DOT;
         rollback(checkpoint);
         return startsDeclaration;
     }

@@ -499,16 +499,16 @@ public final class JavaSemanticAnalyzer {
     }
 
     /**
-     * Finds local variables and parameters visible at a name expression, with their type labels.
+     * Captures semantic facts and the visible locals and parameters for a name expression.
      *
      * @param tree parsed Java source
      * @param usage name expression being completed
      * @param prefix typed identifier prefix
      * @param index captured Java symbols, or {@code null} for the runtime library
      * @param check cooperative request activity check
-     * @return variable names and type labels, with an empty label when the type is unknown
+     * @return semantic facts and local variable names with their type labels
      */
-    public static Map<String, String> visibleVariables(
+    public static ValueCompletionAnalysis analyzeValueCompletion(
         SyntaxTree tree,
         SyntaxNode usage,
         String prefix,
@@ -516,7 +516,7 @@ public final class JavaSemanticAnalyzer {
         Runnable check
     ) {
         Map<String, String> variables = new LinkedHashMap<>();
-        performAnalysis(tree, true, false, index, check, resolver -> {
+        SemanticModel model = performAnalysis(tree, true, false, index, check, resolver -> {
             for (Scope scope = resolver.context.scopeFor(usage); scope != null; scope = scope.parent().orElse(null)) {
                 for (Map.Entry<String, List<Symbol>> entry : scope.snapshotDeclarations().entrySet()) {
                     resolver.context.poll();
@@ -541,7 +541,14 @@ public final class JavaSemanticAnalyzer {
             }
         });
 
-        return Collections.unmodifiableMap(variables);
+        return new ValueCompletionAnalysis(model, Collections.unmodifiableMap(variables));
+    }
+
+    /**
+     * @param model semantic facts for the source being completed
+     * @param localTypes visible local names and their type labels, with an empty label for unknown types
+     */
+    public record ValueCompletionAnalysis(SemanticModel model, Map<String, String> localTypes) {
     }
 
     /**
