@@ -676,7 +676,7 @@ public final class JavaSemanticAnalyzer {
         private final Map<String, List<Type>> projectMethodParameterTypesByKey = new LinkedHashMap<>();
         private final Map<String, Boolean> projectVariableArityByKey = new LinkedHashMap<>();
         private final Map<String, List<JavaRuleContext.MethodDescriptor>> projectSourceMethodsByOwner = new LinkedHashMap<>();
-        private final Map<String, Map<String, Type>> projectRecordAccessorTypesByOwner = new LinkedHashMap<>();
+        private final Map<String, Map<String, RecordComponent>> projectRecordComponentsByOwner = new LinkedHashMap<>();
         private final Set<SyntaxNode> contextualInferenceInProgress = Collections
             .newSetFromMap(new IdentityHashMap<>());
         private TypeResolver resolvedExpressionTypeResolver;
@@ -1096,9 +1096,22 @@ public final class JavaSemanticAnalyzer {
 
                 result = signature.returnType() == null ? owner : signature.returnType().displayName();
             } else if (symbol instanceof SyntheticMemberSymbol member) {
-                for (Type type : member.parameterTypes()) {
-                    parameters
-                        .add(new SignatureHelp.ParameterInfo(type.displayName(), "arg" + parameters.size(), false));
+                Map<String, RecordComponent> components = constructor && !member.parameterTypes().isEmpty()
+                    ? recordConstructorComponents(owner)
+                    : Map.of();
+                if (recordParameterTypes(components).equals(member.parameterTypes())) {
+                    components.forEach((name, component) -> {
+                        Type type = component.type();
+                        String label = component.varargs() && type instanceof JavaTypes.ArrayType array
+                            ? array.componentType().displayName() + "..."
+                            : type.displayName();
+                        parameters.add(new SignatureHelp.ParameterInfo(label, name, component.varargs()));
+                    });
+                } else {
+                    for (Type type : member.parameterTypes()) {
+                        parameters.add(new SignatureHelp.ParameterInfo(type.displayName(), "arg" + parameters.size(),
+                            false));
+                    }
                 }
 
                 result = member.valueType().displayName();
@@ -3340,8 +3353,9 @@ public final class JavaSemanticAnalyzer {
             }
 
             if (!staticAccess) {
-                Type recordFieldType = projectRecordAccessorTypes(ownerQualifiedName).get(fieldName);
-                if (recordFieldType != null) {
+                RecordComponent component = projectRecordComponents(ownerQualifiedName).get(fieldName);
+                if (component != null) {
+                    Type recordFieldType = component.type();
                     Symbol field = new SyntheticMemberSymbol(
                         JavaSymbolKind.FIELD,
                         fieldName,
@@ -3454,9 +3468,10 @@ public final class JavaSemanticAnalyzer {
             if (hasExplicitConstructors && ownerType.kind() != JavaSymbolKind.RECORD)
                 return;
 
-            List<Type> parameterTypes = ownerType.kind() == JavaSymbolKind.RECORD
-                ? projectRecordCanonicalConstructorParameterTypes(ownerQualifiedName, ownerType.sourceFile())
-                : List.of();
+            Map<String, RecordComponent> components = ownerType.kind() == JavaSymbolKind.RECORD
+                ? projectRecordComponents(ownerQualifiedName)
+                : Map.of();
+            List<Type> parameterTypes = recordParameterTypes(components);
             if (out.stream().anyMatch(candidate -> ownerQualifiedName.equals(candidate.ownerQualifiedName())
                 && candidate.parameterTypes().equals(parameterTypes)))
                 return;
@@ -3474,7 +3489,7 @@ public final class JavaSemanticAnalyzer {
                 ownerQualifiedName,
                 false,
                 constructedType,
-                parameterTypes));
+                parameterTypes, components.values().stream().anyMatch(RecordComponent::varargs)));
         }
 
         private void collectBinaryFieldCandidates(
@@ -4161,10 +4176,11 @@ public final class JavaSemanticAnalyzer {
         }
 
         private @Nullable MemberCandidate projectRecordAccessorCandidate(String ownerQualifiedName, String methodName) {
-            Type valueType = projectRecordAccessorTypes(ownerQualifiedName).get(methodName);
-            if (valueType == null)
+            RecordComponent component = projectRecordComponents(ownerQualifiedName).get(methodName);
+            if (component == null)
                 return null;
 
+            Type valueType = component.type();
             return new MemberCandidate(
                 new SyntheticMemberSymbol(
                     JavaSymbolKind.METHOD,
@@ -4180,17 +4196,41 @@ public final class JavaSemanticAnalyzer {
                 List.of());
         }
 
-        private List<Type> projectRecordCanonicalConstructorParameterTypes(String ownerQualifiedName, Path sourceFile) {
-            return new ArrayList<>(projectRecordAccessorTypes(ownerQualifiedName).values());
+        private static List<Type> recordParameterTypes(Map<String, RecordComponent> components) {
+            return components.values().stream().map(RecordComponent::type).toList();
         }
 
-        private Map<String, Type> projectRecordAccessorTypes(String ownerQualifiedName) {
-            Map<String, Type> cached = projectRecordAccessorTypesByOwner.get(ownerQualifiedName);
+        private Map<String, RecordComponent> recordConstructorComponents(String ownerQualifiedName) {
+            if (!localQualifiedTypeNames.contains(ownerQualifiedName))
+                return projectRecordComponents(ownerQualifiedName);
+
+            SyntaxNode header = localRecordHeader(ownerQualifiedName);
+            if (header == null)
+                return Map.of();
+
+            Map<String, RecordComponent> components = new LinkedHashMap<>();
+            for (SyntaxNode child : header.children()) {
+                context.poll();
+                if (!child.kind().equals(JavaSyntaxKinds.RECORD_COMPONENT))
+                    continue;
+
+                Symbol component = context.declaredSymbol(child);
+                if (component != null) {
+                    components.putIfAbsent(component.simpleName(),
+                        new RecordComponent(parameterType(child), hasDirectTokenKind(child, JavaTokenType.ELLIPSIS)));
+                }
+            }
+
+            return components;
+        }
+
+        private Map<String, RecordComponent> projectRecordComponents(String ownerQualifiedName) {
+            Map<String, RecordComponent> cached = projectRecordComponentsByOwner.get(ownerQualifiedName);
             if (cached != null)
                 return cached;
 
             if (projectIndex == null) {
-                projectRecordAccessorTypesByOwner.put(ownerQualifiedName, Map.of());
+                projectRecordComponentsByOwner.put(ownerQualifiedName, Map.of());
                 return Map.of();
             }
 
@@ -4200,7 +4240,7 @@ public final class JavaSemanticAnalyzer {
                 .findFirst()
                 .orElse(null);
             if (ownerType == null) {
-                projectRecordAccessorTypesByOwner.put(ownerQualifiedName, Map.of());
+                projectRecordComponentsByOwner.put(ownerQualifiedName, Map.of());
                 return Map.of();
             }
 
@@ -4210,26 +4250,26 @@ public final class JavaSemanticAnalyzer {
                     JavaSyntaxParser.parse(source, context.activityCheck), projectIndex, context.activityCheck);
                 var sourceContext = new JavaRuleContext(
                     ownerType.sourceFile(), source, model, projectIndex);
-                Map<String, Type> accessorTypes = new LinkedHashMap<>();
-                collectProjectRecordAccessorTypes(
-                    model.syntaxTree().root(), model, sourceContext, ownerType.qualifiedName(), accessorTypes);
-                Map<String, Type> copy = Collections.unmodifiableMap(new LinkedHashMap<>(accessorTypes));
-                projectRecordAccessorTypesByOwner.put(ownerQualifiedName, copy);
+                Map<String, RecordComponent> components = new LinkedHashMap<>();
+                collectProjectRecordComponents(
+                    model.syntaxTree().root(), model, sourceContext, ownerType.qualifiedName(), components);
+                Map<String, RecordComponent> copy = Collections.unmodifiableMap(components);
+                projectRecordComponentsByOwner.put(ownerQualifiedName, copy);
                 return copy;
             } catch (CancellationException exception) {
                 throw exception;
             } catch (Exception _) {
-                projectRecordAccessorTypesByOwner.put(ownerQualifiedName, Map.of());
+                projectRecordComponentsByOwner.put(ownerQualifiedName, Map.of());
                 return Map.of();
             }
         }
 
-        private void collectProjectRecordAccessorTypes(
+        private void collectProjectRecordComponents(
             SyntaxNode node,
             SemanticModel model,
             JavaRuleContext sourceContext,
             String ownerQualifiedName,
-            Map<String, Type> out
+            Map<String, RecordComponent> out
         ) {
             Symbol declared = model.declaredSymbol(node).orElse(null);
             if (declared != null
@@ -4250,9 +4290,9 @@ public final class JavaSemanticAnalyzer {
 
                     SyntaxNode typeRef = directChild(child, JavaSyntaxKinds.TYPE_REFERENCE.id());
                     Type valueType = projectTypeFromTypeReference(sourceContext, typeRef);
-                    out.putIfAbsent(component.simpleName(), hasDirectTokenKind(child, JavaTokenType.ELLIPSIS)
-                        ? new JavaTypes.ArrayType(valueType)
-                        : valueType);
+                    boolean varargs = hasDirectTokenKind(child, JavaTokenType.ELLIPSIS);
+                    out.putIfAbsent(component.simpleName(),
+                        new RecordComponent(varargs ? new JavaTypes.ArrayType(valueType) : valueType, varargs));
                 }
 
                 return;
@@ -4260,7 +4300,7 @@ public final class JavaSemanticAnalyzer {
 
             for (SyntaxNode child : node.children()) {
                 context.poll();
-                collectProjectRecordAccessorTypes(child, model, sourceContext, ownerQualifiedName, out);
+                collectProjectRecordComponents(child, model, sourceContext, ownerQualifiedName, out);
             }
         }
 
@@ -5948,6 +5988,9 @@ public final class JavaSemanticAnalyzer {
         private enum CallableKind {
             METHOD,
             CONSTRUCTOR
+        }
+
+        private record RecordComponent(Type type, boolean varargs) {
         }
 
         private record MemberCandidate(

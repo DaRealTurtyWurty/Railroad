@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
+import javax.tools.ToolProvider;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import dev.railroadide.railroad.ide.WorkspaceModes;
@@ -163,6 +164,68 @@ public class JavaSignatureHelpProviderTest {
         assertEquals("int...", help.parameters().getLast().type());
         assertEquals("rest", help.parameters().getLast().name());
         assertEquals(1, help.activeParameter());
+    }
+
+    @Test
+    public void showsRecordComponentNamesForImplicitAndCompactConstructors() {
+        for (String body : List.of("", "Entry {}")) {
+            String source = "record Entry(int row, String label) { " + body + " }"
+                + " class Use { Entry entry = new Entry(1, \"test\"); }";
+            SignatureHelp help = new JavaSignatureHelpProvider().compute(
+                snapshot(DocumentUri.virtual("generated", "/Use.java"), source), source.indexOf("\"test\""));
+            assertRecordParameterNames(help, List.of("row", "label"));
+        }
+    }
+
+    @Test
+    public void showsRecordComponentNamesFromAnotherSourceFileAndKeepsVarargsActive() throws Exception {
+        Path recordFile = tempDirectory.resolve("Entry.java");
+        Path useFile = tempDirectory.resolve("Use.java");
+        String record = "record Entry(int row, String... labels) { Entry(boolean enabled) { this(0); } }";
+        String source = "class Use { Entry entry = new Entry(1, \"a\", \"b\"); Entry other = new Entry(true); }";
+        Files.writeString(recordFile, record);
+        Files.writeString(useFile, source);
+        TextDocumentSnapshot declaration = snapshot(DocumentUri.fromPath(recordFile), record);
+        TextDocumentSnapshot document = snapshot(DocumentUri.fromPath(useFile), source);
+        var workspace = new WorkspaceSnapshot("record-signature",
+            Map.of(declaration.id(), declaration, document.id(), document),
+            new WorkspaceConfigurationSnapshot(0, Set.of(":"),
+                Map.of("module.:.sources", tempDirectory + ":generated=false")),
+            0);
+        var provider = new JavaSignatureHelpProvider();
+        SignatureHelp help = provider.compute(workspace, document.id(), source.indexOf("\"b\""));
+        assertRecordParameterNames(help, List.of("row", "labels"));
+        assertTrue(help.varargs());
+        assertTrue(help.parameters().getLast().type().endsWith("String..."));
+        assertEquals(1, help.activeParameter());
+        assertRecordParameterNames(provider.compute(workspace, document.id(), source.indexOf("true")),
+            List.of("enabled"));
+    }
+
+    @Test
+    public void usesCanonicalParameterNamesFromACompiledRecord() throws Exception {
+        Path recordFile = tempDirectory.resolve("Entry.java");
+        Path classes = Files.createDirectory(tempDirectory.resolve("classes"));
+        Files.writeString(recordFile, "package lib; public record Entry(int row, String label) {}");
+        assertEquals(0, ToolProvider.getSystemJavaCompiler().run(null, null, null, "-proc:none", "-g:none",
+            "-d", classes.toString(), recordFile.toString()));
+        String source = "import lib.Entry; class Use { Entry entry = new Entry(1, \"test\"); }";
+        TextDocumentSnapshot document = snapshot(DocumentUri.virtual("generated", "/Use.java"), source);
+        var workspace = new WorkspaceSnapshot("compiled-record-signature", Map.of(document.id(), document),
+            new WorkspaceConfigurationSnapshot(0, Set.of(":"), Map.of("module.:.classpath", classes.toString())), 0);
+        try (var analysis = new JavaWorkspaceAnalysisProvider(() -> true,
+            (roots, _) -> JavaLibrarySymbolIndex.build(roots))) {
+            var provider = new JavaSignatureHelpProvider(context -> analysis.capture(context.workspaceSnapshot(),
+                document.id()));
+            assertRecordParameterNames(provider.compute(workspace, document.id(), source.indexOf("\"test\"")),
+                List.of("row", "label"));
+        }
+    }
+
+    private static void assertRecordParameterNames(SignatureHelp help, List<String> names) {
+        assertNotNull(help);
+        assertTrue(help.constructor());
+        assertEquals(names, help.parameters().stream().map(SignatureHelp.ParameterInfo::name).toList());
     }
 
     @Test

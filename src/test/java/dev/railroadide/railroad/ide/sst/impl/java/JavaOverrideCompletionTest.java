@@ -151,15 +151,15 @@ public class JavaOverrideCompletionTest {
     }
 
     @Test
-    public void positionsOutsideMemberDeclarationsSuggestNothing() {
-        String inBody = "class A { void run() { toS } }";
-        assertNull(completeAt(inBody, inBody.indexOf("toS")));
-        String fieldName = "class A { int toS }";
-        assertNull(completeAt(fieldName, fieldName.indexOf("toS")));
-        String afterModifier = "class A { public toS }";
-        assertNull(completeAt(afterModifier, afterModifier.indexOf("toS")));
-        String topLevel = "toS";
-        assertNull(completeAt(topLevel, 0));
+    public void positionsOutsideMemberDeclarationsSuggestNoOverrides() {
+        for (String source : List.of("class A { void run() { toS } }", "class A { int toS }",
+            "class A { public toS }", "toS")) {
+            CompletionResult result = completeAt(source, source.indexOf("toS"));
+            assertTrue(
+                result == null
+                    || result.items().stream().noneMatch(item -> item.kind() == CompletionItem.Kind.OVERRIDE),
+                source);
+        }
     }
 
     private static CompletionResult completeAt(String source, int triggerAt) {

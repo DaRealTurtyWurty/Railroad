@@ -46,6 +46,10 @@ public record CompletionItem(
          */
         TYPE,
         /**
+         * A language keyword or literal.
+         */
+        KEYWORD,
+        /**
          * An inherited method inserted as an overriding declaration.
          */
         OVERRIDE
@@ -120,6 +124,16 @@ public record CompletionItem(
      */
     public CompletionItem(String insertText, String displayText) {
         this(insertText, displayText, "", "", Kind.TEXT, false, null);
+    }
+
+    /**
+     * Creates a suggestion that inserts a language keyword as written.
+     *
+     * @param word keyword or literal to insert
+     * @return the keyword suggestion
+     */
+    public static CompletionItem keyword(String word) {
+        return new CompletionItem(word, word, "", "", Kind.KEYWORD, false, null);
     }
 
     /**

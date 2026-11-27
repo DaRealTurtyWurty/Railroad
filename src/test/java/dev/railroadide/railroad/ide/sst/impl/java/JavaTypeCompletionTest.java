@@ -144,7 +144,9 @@ public class JavaTypeCompletionTest {
             index);
         assertNotNull(qualified);
         assertEquals(List.of("Available"), qualified.items().stream().map(CompletionItem::insertText).toList());
-        assertNull(JavaSemanticCompletionEngine.compute(document, document.indexOf("Hid") + 1, index));
+        var unqualified = JavaSemanticCompletionEngine.compute(document, document.indexOf("Hid") + 1, index);
+        assertTrue(unqualified == null || unqualified.items().stream()
+            .noneMatch(item -> item.kind() == CompletionItem.Kind.TYPE));
     }
 
     @Test

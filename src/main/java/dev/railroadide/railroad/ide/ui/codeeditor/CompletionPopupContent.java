@@ -106,7 +106,7 @@ public final class CompletionPopupContent extends VBox {
                 case METHOD -> FontAwesomeSolid.CODE;
                 case FIELD -> FontAwesomeSolid.TAG;
                 case TYPE -> FontAwesomeSolid.CUBE;
-                case TEXT -> FontAwesomeSolid.FONT;
+                case TEXT, KEYWORD -> FontAwesomeSolid.FONT;
                 case OVERRIDE -> FontAwesomeSolid.ARROW_UP;
             });
 

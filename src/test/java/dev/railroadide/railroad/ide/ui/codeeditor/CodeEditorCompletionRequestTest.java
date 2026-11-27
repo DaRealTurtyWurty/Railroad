@@ -2,6 +2,7 @@ package dev.railroadide.railroad.ide.ui.codeeditor;
 
 import dev.railroadide.railroad.ide.completion.*;
 import dev.railroadide.railroad.ide.sst.document.api.*;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticCompletionEngine;
 import dev.railroadide.railroad.ide.sst.request.api.*;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.project.RailroadProject;
@@ -390,6 +391,39 @@ public class CodeEditorCompletionRequestTest {
             });
 
             assertTrue(fixture.provider.requests.isEmpty());
+        }
+    }
+
+    @Test
+    public void typingAndAcceptingAJavaKeywordReplacesThePrefix() throws Exception {
+        String prefix = "class Example { int run() { ";
+        String suffix = " } }";
+        try (Fixture fixture = open(context -> {
+            String text = ((TextDocumentSnapshot) context.documentSnapshot()).text();
+            return new FeatureResult<>(context,
+                JavaSemanticCompletionEngine.compute(text, prefix.length(), null, context::checkActive));
+        }, prefix + suffix, "r"::equals)) {
+            TestEditor editor = fixture.editor;
+            onFx(() -> {
+                editor.moveTo(prefix.length());
+                editor.insertText(editor.getCaretPosition(), "r");
+                return null;
+            });
+
+            assertNotNull(fixture.provider.requests.poll(10, TimeUnit.SECONDS));
+            awaitRequests(editor.featureRequests);
+            onFx(() -> {
+                editor.insertText(editor.getCaretPosition(), "et");
+                RRListView<CompletionItem> list = editor.activeCompletionList.get();
+                assertNotNull(list);
+                CompletionItem keyword = CompletionItem.keyword("return");
+                assertTrue(list.getItems().contains(keyword));
+                list.getSelectionModel().select(keyword);
+                editor.press(KeyCode.ENTER, false);
+                assertEquals(prefix + "return" + suffix, editor.getText());
+                assertEquals(prefix.length() + "return".length(), editor.getCaretPosition());
+                return null;
+            });
         }
     }
 

@@ -29,7 +29,7 @@ import java.util.*;
 import java.lang.reflect.Modifier;
 
 /**
- * SST-backed completion for members, local variables, types and method overrides.
+ * SST-backed completion for members, local variables, types, keywords and method overrides.
  */
 public final class JavaSemanticCompletionEngine {
     private final Runnable activityCheck;
@@ -41,7 +41,8 @@ public final class JavaSemanticCompletionEngine {
     }
 
     /**
-     * Computes accessible members and method references, unqualified names for a typed prefix, and overridable
+     * Computes accessible members and method references, unqualified names and keywords for a typed prefix, and
+     * overridable
      * methods at member-declaration positions.
      *
      * @param document the Java document text
@@ -103,7 +104,8 @@ public final class JavaSemanticCompletionEngine {
                 .complete(tree, triggerAt);
             CompletionResult unqualified = completeUnqualified(tree, document, token, triggerAt, projectIndex);
             CompletionResult types = JavaTypeCompletion.complete(tree, triggerAt, projectIndex, activityCheck);
-            return merge(overrides, merge(unqualified, types));
+            CompletionResult keywords = JavaKeywordCompletion.complete(tree, token, triggerAt);
+            return merge(overrides, merge(unqualified, merge(types, keywords)));
         }
 
         CompletionResult qualifiedType = JavaTypeCompletion.completeQualifiedType(tree, triggerAt, projectIndex,
