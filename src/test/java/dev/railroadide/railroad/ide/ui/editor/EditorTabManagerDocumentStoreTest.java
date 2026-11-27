@@ -59,6 +59,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.fxmisc.flowless.VirtualizedScrollPane;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -202,6 +203,7 @@ public class EditorTabManagerDocumentStoreTest {
             markdown.applyLayout(MarkdownPreviewPane.MarkdownLayoutType.CODE);
             TextEditorPane editor = tab.view().activeEditor();
             assertNotNull(editor);
+            assertInstanceOf(VirtualizedScrollPane.class, editor.getParent());
             assertSame(access, Services.DOCUMENT_EDITOR_STATE.getActiveTextEditor().orElseThrow());
             disableDebouncedAutosave(editor);
             editor.replaceText("# Lazy draft");

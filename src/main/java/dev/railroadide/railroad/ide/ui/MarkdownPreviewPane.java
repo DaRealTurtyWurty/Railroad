@@ -27,6 +27,7 @@ import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -36,13 +37,13 @@ import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
-import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.web.WebView;
 import javafx.stage.Stage;
 import lombok.Getter;
+import org.fxmisc.flowless.VirtualizedScrollPane;
 import org.kordamp.ikonli.Ikon;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeBrands;
 import org.kordamp.ikonli.fontawesome6.FontAwesomeSolid;
@@ -94,7 +95,8 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
     private final List<SelectionObserver> selectionObservers = new ArrayList<>();
     private final TextEditorAccess textEditorAccess = new MarkdownTextAccess();
     private EventHandler<KeyEvent> sourceKeyHandler;
-    private EventHandler<ScrollEvent> sourceScrollHandler;
+    private ChangeListener<Double> sourceScrollListener;
+    private VirtualizedScrollPane<TextEditorPane> sourceViewport;
     private MarkdownLayoutType currentLayout;
     private String renderedText;
 
@@ -107,7 +109,7 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
     private final Project project;
     private final BiConsumer<String, String> themeListener;
 
-    private int scrollAmount;
+    private double scrollAmount;
 
     private final ObjectProperty<TextEditorPane> editor = new SimpleObjectProperty<>();
 
@@ -134,7 +136,12 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
                 return;
 
             textEditorPane.removeEventFilter(KeyEvent.KEY_PRESSED, sourceKeyHandler);
-            textEditorPane.removeEventFilter(ScrollEvent.SCROLL, sourceScrollHandler);
+            textEditorPane.estimatedScrollYProperty().removeListener(sourceScrollListener);
+            if (sourceViewport != null) {
+                sourceViewport.removeContent();
+                sourceViewport = null;
+            }
+
             editor.setValue(null);
         }
 
@@ -492,7 +499,7 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
         markdownButtons.setVisible(layout.layoutType() != MarkdownLayoutType.PREVIEW);
 
         Node pane = switch (layout.layoutType()) {
-            case MarkdownLayoutType.CODE -> codeView();
+            case MarkdownLayoutType.CODE -> sourceView();
             case MarkdownLayoutType.PREVIEW -> previewView();
             default -> splitView();
         };
@@ -559,8 +566,8 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
         };
 
         newTextEditorPane.addEventFilter(KeyEvent.KEY_PRESSED, sourceKeyHandler);
-        sourceScrollHandler = _ -> scrollAmount = (int) newTextEditorPane.getEstimatedScrollY();
-        newTextEditorPane.addEventFilter(ScrollEvent.SCROLL, sourceScrollHandler);
+        sourceScrollListener = (_, _, offset) -> scrollAmount = offset;
+        newTextEditorPane.estimatedScrollYProperty().addListener(sourceScrollListener);
         List.copyOf(selectionObservers).forEach(SelectionObserver::bindSource);
         queuePublishedRefresh();
 
@@ -570,7 +577,7 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
     }
 
     private SplitPane splitView() {
-        var splitPane = new SplitPane(codeView(), previewView());
+        var splitPane = new SplitPane(sourceView(), previewView());
         // ensure divider is applied after layout to avoid a 0 width child
         Platform.runLater(() -> {
             if (closed)
@@ -581,6 +588,15 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
         });
 
         return splitPane;
+    }
+
+    private VirtualizedScrollPane<TextEditorPane> sourceView() {
+        TextEditorPane source = codeView();
+        if (sourceViewport == null) {
+            sourceViewport = new VirtualizedScrollPane<>(source);
+        }
+
+        return sourceViewport;
     }
 
     private WebView previewView() {
@@ -599,7 +615,7 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
         getChildren().clear();
 
         Node pane = switch (layoutType) {
-            case CODE -> codeView();
+            case CODE -> sourceView();
             case PREVIEW -> previewView();
             case SPLIT -> splitView();
         };
@@ -618,9 +634,10 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
     private void restoreEditorScroll() {
         TextEditorPane textEditorPane = getMarkdownEditorPane();
         if (textEditorPane != null) {
+            double offset = scrollAmount;
             Platform.runLater(() -> {
                 if (!closed && !textEditorPane.isEditorClosed()) {
-                    textEditorPane.scrollToPixel(0, scrollAmount);
+                    textEditorPane.scrollToPixel(0, offset);
                 }
             });
         }
@@ -745,7 +762,7 @@ public class MarkdownPreviewPane extends RRVBox implements AutoCloseable {
     public void applyLayout(MarkdownLayoutType layoutType) {
         switchLayout(layoutType);
         showContent(switch (layoutType) {
-            case CODE -> codeView();
+            case CODE -> sourceView();
             case SPLIT -> splitView();
             case PREVIEW -> previewView();
         }, topRow);

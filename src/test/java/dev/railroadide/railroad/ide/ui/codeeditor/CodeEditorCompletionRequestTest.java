@@ -394,6 +394,58 @@ public class CodeEditorCompletionRequestTest {
     }
 
     @Test
+    public void horizontalArrowsMoveTheCaretFromAutomaticAndManualCompletion() throws Exception {
+        try (Fixture fixture = open(context -> new FeatureResult<>(context, new CompletionResult(5, List.of(
+            new CompletionItem("leaf", "leaf"), new CompletionItem("length", "length")))), "this", "."::equals)) {
+            TestEditor editor = fixture.editor;
+            onFx(() -> {
+                editor.appendText(".");
+                return null;
+            });
+
+            assertNotNull(fixture.provider.requests.poll(10, TimeUnit.SECONDS));
+            awaitRequests(editor.featureRequests);
+            onFx(() -> {
+                RRListView<CompletionItem> list = editor.activeCompletionList.get();
+                assertNotNull(list);
+                assertTrue(editor.activeCompletionPopup.get().isShowing());
+                list.requestFocus();
+                assertSame(list, editor.activeCompletionPopup.get().getScene().getFocusOwner());
+                editor.press(KeyCode.DOWN, false);
+                assertEquals(1, list.getSelectionModel().getSelectedIndex());
+                editor.press(KeyCode.UP, false);
+                assertEquals(0, list.getSelectionModel().getSelectedIndex());
+                assertEquals(5, editor.getCaretPosition());
+
+                editor.press(KeyCode.LEFT, false);
+                assertEquals(4, editor.getCaretPosition());
+                assertEquals("this.", editor.getText());
+                assertNull(editor.activeCompletionPopup.get());
+
+                editor.appendText("tail");
+                editor.moveTo(5);
+                editor.press(KeyCode.SPACE, true);
+                return null;
+            });
+
+            assertNotNull(fixture.provider.requests.poll(10, TimeUnit.SECONDS));
+            awaitRequests(editor.featureRequests);
+            onFx(() -> {
+                RRListView<CompletionItem> list = editor.activeCompletionList.get();
+                assertNotNull(list);
+                assertTrue(editor.activeCompletionPopup.get().isShowing());
+                list.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.RIGHT, true, false, false, false));
+                assertEquals(6, editor.getCaretPosition());
+                assertEquals(5, editor.getAnchor());
+                assertEquals("t", editor.getSelectedText());
+                assertEquals("this.tail", editor.getText());
+                assertNull(editor.activeCompletionPopup.get());
+                return null;
+            });
+        }
+    }
+
+    @Test
     public void ranksPrefixesBeforePartialMatchesAndHonoursTheCaseSetting() throws Exception {
         boolean previous = Settings.AUTOCOMPLETE_CASE_SENSITIVE.getOrDefaultValue();
         try {

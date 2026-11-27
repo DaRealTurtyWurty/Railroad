@@ -6,6 +6,7 @@ import javafx.beans.value.ChangeListener;
 import javafx.css.PseudoClass;
 import javafx.scene.Node;
 import javafx.scene.layout.Region;
+import org.fxmisc.flowless.VirtualizedScrollPane;
 import org.jspecify.annotations.Nullable;
 import org.fxmisc.richtext.CodeArea;
 
@@ -21,12 +22,14 @@ public final class EditorFindHost extends Region {
     private static final PseudoClass OVERLAYING = PseudoClass.getPseudoClass("overlaying");
 
     private final Node content;
+    private final Node viewport;
     private final InvalidationListener relayout = _ -> requestLayout();
     // A change listener keeps the lazily evaluated scroll offset current, so every scroll is reported.
     private final ChangeListener<Double> scrollListener = (_, _, _) -> requestLayout();
     private TextEditorPane editor;
     private FindReplaceBar bar;
     private CodeArea renamePreview;
+    private VirtualizedScrollPane<CodeArea> renameViewport;
 
     /**
      * Creates a host for editor content.
@@ -35,8 +38,9 @@ public final class EditorFindHost extends Region {
      */
     public EditorFindHost(Node content) {
         this.content = Objects.requireNonNull(content, "content");
+        this.viewport = content instanceof TextEditorPane text ? new VirtualizedScrollPane<>(text) : content;
         getStyleClass().add("editor-find-host");
-        getChildren().add(content);
+        getChildren().add(viewport);
     }
 
     /**
@@ -129,13 +133,15 @@ public final class EditorFindHost extends Region {
      * @param preview inline rename editor, or null to remove it
      */
     public void setRenamePreview(@Nullable CodeArea preview) {
-        if (renamePreview != null) {
-            getChildren().remove(renamePreview);
+        if (renameViewport != null) {
+            getChildren().remove(renameViewport);
+            renameViewport.removeContent();
         }
 
         renamePreview = preview;
-        if (preview != null) {
-            getChildren().add(preview);
+        renameViewport = preview == null ? null : new VirtualizedScrollPane<>(preview);
+        if (renameViewport != null) {
+            getChildren().add(renameViewport);
         }
 
         requestLayout();
@@ -155,9 +161,9 @@ public final class EditorFindHost extends Region {
         double barWidth = barWidth(width);
         double barHeight = barHeight(barWidth);
         double reserved = Math.min(reservedHeight(), height);
-        content.resizeRelocate(left, top + reserved, width, height - reserved);
-        if (renamePreview != null) {
-            renamePreview.resizeRelocate(left, top + reserved, width, height - reserved);
+        viewport.resizeRelocate(left, top + reserved, width, height - reserved);
+        if (renameViewport != null) {
+            renameViewport.resizeRelocate(left, top + reserved, width, height - reserved);
         }
 
         if (bar != null && bar.isVisible()) {
@@ -168,12 +174,12 @@ public final class EditorFindHost extends Region {
 
     @Override
     protected double computePrefWidth(double height) {
-        return snappedLeftInset() + content.prefWidth(height) + snappedRightInset();
+        return snappedLeftInset() + viewport.prefWidth(height) + snappedRightInset();
     }
 
     @Override
     protected double computePrefHeight(double width) {
-        return snappedTopInset() + content.prefHeight(width) + snappedBottomInset();
+        return snappedTopInset() + viewport.prefHeight(width) + snappedBottomInset();
     }
 
     private double barWidth(double available) {

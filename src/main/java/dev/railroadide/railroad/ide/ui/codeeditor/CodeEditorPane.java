@@ -1826,6 +1826,21 @@ public class CodeEditorPane extends TextEditorPane {
         event.consume();
     }
 
+    private void handleCompletionPopupKey(KeyEvent event) {
+        if (event.isConsumed())
+            return;
+
+        if (event.getCode() == KeyCode.LEFT || event.getCode() == KeyCode.RIGHT) {
+            KeyEvent editorEvent = event.copyFor(this, this);
+            event.consume();
+            hideAutoComplete();
+            fireEvent(editorEvent);
+            return;
+        }
+
+        handleCompletionKey(event);
+    }
+
     private void requestCompletionAtCaret() {
         if (codeEditorClosed || providerLifetime.isCancellationRequested())
             return;
@@ -1944,7 +1959,7 @@ public class CodeEditorPane extends TextEditorPane {
 
         var popup = new Popup();
         popup.setAutoHide(true);
-        popup.addEventFilter(KeyEvent.KEY_PRESSED, this::handleCompletionKey);
+        popup.addEventFilter(KeyEvent.KEY_PRESSED, this::handleCompletionPopupKey);
         popup.setOnHidden(_ -> {
             if (activeCompletionPopup.get() == popup) {
                 hideAutoComplete();

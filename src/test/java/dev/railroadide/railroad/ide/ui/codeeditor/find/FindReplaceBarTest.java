@@ -7,8 +7,10 @@ import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnaps
 import dev.railroadide.railroad.ide.ui.codeeditor.TextEditorPane;
 import javafx.application.Platform;
 import javafx.css.PseudoClass;
+import javafx.geometry.Orientation;
 import javafx.scene.Scene;
 import javafx.scene.control.IndexRange;
+import javafx.scene.control.ScrollBar;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -288,6 +290,49 @@ public class FindReplaceBarTest {
     }
 
     @Test
+    public void editorScrollbarsFollowOverflowAndMoveTheViewport() throws Exception {
+        String line = "long line ".repeat(40) + "\n";
+        show(line.repeat(100));
+        onFx(() -> {
+            EditorFindHost host = (EditorFindHost) stage.getScene().getRoot();
+            ScrollBar horizontal = scrollbar(host, Orientation.HORIZONTAL);
+            ScrollBar vertical = scrollbar(host, Orientation.VERTICAL);
+            assertTrue(horizontal.isVisible());
+            assertTrue(vertical.isVisible());
+            assertTrue(horizontal.getHeight() > 0);
+            assertTrue(vertical.getWidth() > 0);
+
+            horizontal.setValue(horizontal.getMax() / 2);
+            vertical.setValue(vertical.getMax() / 2);
+            host.layout();
+            assertTrue(editor().getEstimatedScrollX() > 0);
+            assertTrue(editor().getEstimatedScrollY() > 0);
+            host.requestFocus();
+            assertSame(editor(), stage.getScene().getFocusOwner());
+
+            editor().replaceText("short");
+            host.layout();
+            return null;
+        });
+
+        onFx(() -> {
+            EditorFindHost host = (EditorFindHost) stage.getScene().getRoot();
+            host.layout();
+            assertFalse(scrollbar(host, Orientation.HORIZONTAL).isVisible());
+            assertFalse(scrollbar(host, Orientation.VERTICAL).isVisible());
+            return null;
+        });
+    }
+
+    private static ScrollBar scrollbar(EditorFindHost host, Orientation orientation) {
+        return host.lookupAll(".scroll-bar").stream()
+            .filter(ScrollBar.class::isInstance)
+            .map(ScrollBar.class::cast)
+            .filter(bar -> bar.getOrientation() == orientation)
+            .findFirst().orElseThrow();
+    }
+
+    @Test
     public void barReservesSpaceOnlyWhileTheDocumentStartIsVisible() throws Exception {
         FindReplaceBar bar = show(numberedLines(200, -1));
         EditorFindHost host = (EditorFindHost) bar.getParent();
@@ -301,7 +346,7 @@ public class FindReplaceBarTest {
             assertTrue(bar.getHeight() > 0);
             assertEquals(bar.prefWidth(-1), bar.getWidth(), 1, "The bar is only as wide as its controls");
             assertTrue(bar.getWidth() < host.getWidth());
-            assertEquals(bar.getHeight(), editor().getLayoutY(), 1);
+            assertEquals(bar.getHeight(), editorTop(host), 1);
             assertEquals(host.getHeight() - bar.getHeight(), editor().getHeight(), 1);
             editor().showParagraphAtTop(100);
             return null;
@@ -310,7 +355,7 @@ public class FindReplaceBarTest {
         Thread.sleep(300);
         onFx(() -> {
             assertEquals(0, host.reservedHeight(), 0.5);
-            assertEquals(0, editor().getLayoutY(), 0.5);
+            assertEquals(0, editorTop(host), 0.5);
             assertEquals(host.getHeight(), editor().getHeight(), 1);
             assertTrue(bar.isVisible());
             assertTrue(bar.getPseudoClassStates().contains(PseudoClass.getPseudoClass("overlaying")));
@@ -321,14 +366,14 @@ public class FindReplaceBarTest {
 
         Thread.sleep(300);
         onFx(() -> {
-            assertEquals(bar.getHeight(), editor().getLayoutY(), 1);
+            assertEquals(bar.getHeight(), editorTop(host), 1);
             bar.close();
             return null;
         });
 
         Thread.sleep(300);
         onFx(() -> {
-            assertEquals(0, editor().getLayoutY(), 0.5);
+            assertEquals(0, editorTop(host), 0.5);
             assertEquals(host.getHeight(), editor().getHeight(), 1);
             return null;
         });
@@ -402,6 +447,10 @@ public class FindReplaceBarTest {
 
     private TextEditorPane editor() {
         return editors.getFirst();
+    }
+
+    private double editorTop(EditorFindHost host) {
+        return host.sceneToLocal(editor().localToScene(editor().getLayoutBounds())).getMinY();
     }
 
     private static TextRange range(int start, int end) {
