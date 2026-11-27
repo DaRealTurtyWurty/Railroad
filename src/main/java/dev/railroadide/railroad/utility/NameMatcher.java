@@ -1,14 +1,11 @@
-package dev.railroadide.railroad.ide.ui.navigation.quickopen;
+package dev.railroadide.railroad.utility;
 
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
-import java.util.Locale;
 
 /**
- * Case-insensitive fuzzy matching of a typed pattern against a name, favouring matches at word starts such as
- * camel-case humps and the characters after separators, so that {@code FRB} and {@code findRep} both match
- * {@code FindReplaceBar}.
+ * Matches a typed pattern against a name, favouring camel-case humps and matches at word starts.
  */
 public final class NameMatcher {
     private static final int MATCH = 1;
@@ -30,24 +27,34 @@ public final class NameMatcher {
      * @return best match found, or {@code null} when the text does not contain the pattern as a subsequence
      */
     public static @Nullable Match match(String pattern, String text) {
+        return match(pattern, text, false);
+    }
+
+    /**
+     * Matches and scores a name using the requested case policy.
+     *
+     * @param pattern typed pattern
+     * @param text candidate name
+     * @param caseSensitive whether each character's case must match
+     * @return best match found, or {@code null} when the pattern is not a subsequence
+     */
+    public static @Nullable Match match(String pattern, String text, boolean caseSensitive) {
         if (pattern.isEmpty())
             return new Match(0, new int[0]);
 
         if (pattern.length() > text.length())
             return null;
 
-        String lowerPattern = pattern.toLowerCase(Locale.ROOT);
-        String lowerText = text.toLowerCase(Locale.ROOT);
-        int[] humps = humpPositions(lowerPattern, text, lowerText);
+        int[] humps = humpPositions(pattern, text, caseSensitive);
         if (humps == null) {
-            humps = subsequencePositions(lowerPattern, lowerText);
+            humps = subsequencePositions(pattern, text, caseSensitive);
         }
 
         if (humps == null)
             return null;
 
         var best = new Match(score(pattern, text, humps), humps);
-        int[] substring = substringPositions(lowerPattern, text, lowerText);
+        int[] substring = substringPositions(pattern, text, caseSensitive);
         if (substring != null) {
             int substringScore = score(pattern, text, substring);
             if (substringScore > best.score()) {
@@ -56,6 +63,38 @@ public final class NameMatcher {
         }
 
         return best;
+    }
+
+    /**
+     * Checks a case-insensitive subsequence without building match positions or a score.
+     *
+     * @param pattern typed pattern
+     * @param text candidate name
+     * @return whether the name contains all pattern characters in order
+     */
+    public static boolean matches(String pattern, String text) {
+        return matches(pattern, text, 0);
+    }
+
+    /**
+     * Checks a case-insensitive subsequence within the suffix of a qualified name.
+     *
+     * @param pattern typed pattern
+     * @param text candidate name
+     * @param start the inclusive start of the name to match
+     * @return whether the suffix contains all pattern characters in order
+     */
+    public static boolean matches(String pattern, String text, int start) {
+        int from = start;
+        for (int index = 0; index < pattern.length(); index++) {
+            int found = find(pattern.charAt(index), text, from, false);
+            if (found < 0)
+                return false;
+
+            from = found + 1;
+        }
+
+        return true;
     }
 
     /**
@@ -84,24 +123,24 @@ public final class NameMatcher {
         return Character.isLetter(current) && Character.isDigit(previous);
     }
 
-    private static int @Nullable [] humpPositions(String lowerPattern, String text, String lowerText) {
-        int[] positions = new int[lowerPattern.length()];
+    private static int @Nullable [] humpPositions(String pattern, String text, boolean caseSensitive) {
+        int[] positions = new int[pattern.length()];
         int from = 0;
-        for (int index = 0; index < lowerPattern.length(); index++) {
-            char wanted = lowerPattern.charAt(index);
+        for (int index = 0; index < pattern.length(); index++) {
+            char wanted = pattern.charAt(index);
             int found = -1;
-            if (index > 0 && from < lowerText.length() && lowerText.charAt(from) == wanted) {
+            if (index > 0 && from < text.length() && sameCharacter(wanted, text.charAt(from), caseSensitive)) {
                 found = from;
             } else {
-                for (int candidate = from; candidate < lowerText.length(); candidate++) {
-                    if (lowerText.charAt(candidate) == wanted && isWordStart(text, candidate)) {
+                for (int candidate = from; candidate < text.length(); candidate++) {
+                    if (sameCharacter(wanted, text.charAt(candidate), caseSensitive) && isWordStart(text, candidate)) {
                         found = candidate;
                         break;
                     }
                 }
 
                 if (found < 0) {
-                    found = lowerText.indexOf(wanted, from);
+                    found = find(wanted, text, from, caseSensitive);
                 }
             }
 
@@ -115,11 +154,11 @@ public final class NameMatcher {
         return positions;
     }
 
-    private static int @Nullable [] subsequencePositions(String lowerPattern, String lowerText) {
-        int[] positions = new int[lowerPattern.length()];
+    private static int @Nullable [] subsequencePositions(String pattern, String text, boolean caseSensitive) {
+        int[] positions = new int[pattern.length()];
         int from = 0;
-        for (int index = 0; index < lowerPattern.length(); index++) {
-            int found = lowerText.indexOf(lowerPattern.charAt(index), from);
+        for (int index = 0; index < pattern.length(); index++) {
+            int found = find(pattern.charAt(index), text, from, caseSensitive);
             if (found < 0)
                 return null;
 
@@ -130,24 +169,43 @@ public final class NameMatcher {
         return positions;
     }
 
-    private static int @Nullable [] substringPositions(String lowerPattern, String text, String lowerText) {
-        int start = lowerText.indexOf(lowerPattern);
+    private static int @Nullable [] substringPositions(String pattern, String text, boolean caseSensitive) {
+        int start = -1;
+        for (int candidate = 0; candidate <= text.length() - pattern.length(); candidate++) {
+            if (!text.regionMatches(!caseSensitive, candidate, pattern, 0, pattern.length()))
+                continue;
+
+            if (start < 0 || isWordStart(text, candidate)) {
+                start = candidate;
+            }
+
+            if (isWordStart(text, candidate))
+                break;
+        }
+
         if (start < 0)
             return null;
 
-        for (int candidate = start; candidate >= 0; candidate = lowerText.indexOf(lowerPattern, candidate + 1)) {
-            if (isWordStart(text, candidate)) {
-                start = candidate;
-                break;
-            }
-        }
-
-        int[] positions = new int[lowerPattern.length()];
+        int[] positions = new int[pattern.length()];
         for (int index = 0; index < positions.length; index++) {
             positions[index] = start + index;
         }
 
         return positions;
+    }
+
+    private static int find(char wanted, String text, int start, boolean caseSensitive) {
+        for (int index = start; index < text.length(); index++) {
+            if (sameCharacter(wanted, text.charAt(index), caseSensitive))
+                return index;
+        }
+
+        return -1;
+    }
+
+    private static boolean sameCharacter(char left, char right, boolean caseSensitive) {
+        return left == right || !caseSensitive && Character.toLowerCase(Character.toUpperCase(left)) == Character
+            .toLowerCase(Character.toUpperCase(right));
     }
 
     private static int score(String pattern, String text, int[] positions) {

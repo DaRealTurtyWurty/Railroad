@@ -71,6 +71,20 @@ public final class Settings {
             .build());
 
     /**
+     * Whether autocomplete requires the typed letters to match the case of a candidate name.
+     */
+    public static final Setting<Boolean> AUTOCOMPLETE_CASE_SENSITIVE = registerSetting(
+        Setting.builder(Boolean.class, "railroad:autocomplete_case_sensitive")
+            .treePath("editor")
+            .category(SettingCategory.simple("railroad:editor.typing"))
+            .title("railroad.settings.editor.autocomplete_case_sensitive.title")
+            .description("railroad.settings.editor.autocomplete_case_sensitive.description")
+            .codec(DefaultSettingCodecs.BOOLEAN)
+            .defaultValue(false)
+            .canBeNull(false)
+            .build());
+
+    /**
      * Whether moving the caret or editing a call shows its parameters automatically.
      */
     public static final Setting<Boolean> AUTOMATIC_PARAMETER_HINTS = registerSetting(

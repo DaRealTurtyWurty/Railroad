@@ -1,5 +1,6 @@
 package dev.railroadide.railroad.ide.ui.navigation.quickopen;
 
+import dev.railroadide.railroad.utility.NameMatcher;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;

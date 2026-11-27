@@ -1,10 +1,20 @@
 package dev.railroadide.railroad.ide.ui.navigation.quickopen;
 
+import dev.railroadide.railroad.utility.NameMatcher;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class NameMatcherTest {
+    @Test
+    public void caseSensitivityAppliesToPartialMatches() {
+        assertNotNull(NameMatcher.match("lf", "loadFile"));
+        assertNull(NameMatcher.match("lf", "loadFile", true));
+        assertArrayEquals(new int[]{0, 4}, NameMatcher.match("lF", "loadFile", true).positions());
+        assertFalse(NameMatcher.matches("jt", "java.util.ArrayList", "java.util.".length()));
+        assertTrue(NameMatcher.matches("al", "java.util.ArrayList", "java.util.".length()));
+    }
+
     @Test
     public void humpsMatchTheStartsOfCamelCaseWords() {
         NameMatcher.Match match = NameMatcher.match("FRB", "FindReplaceBar");

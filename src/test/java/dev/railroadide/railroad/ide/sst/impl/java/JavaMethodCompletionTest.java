@@ -12,7 +12,7 @@ public class JavaMethodCompletionTest {
     public void completesCurrentClassMethodsAndTheirOverloadsFromTheFirstCharacter() {
         List<CompletionItem> items = methods("""
             class Example {
-                void caller() { r/*caret*/; }
+                void call() { r/*caret*/; }
                 private int read() { return 0; }
                 private int read(int index) { return index; }
                 static void reset() {}

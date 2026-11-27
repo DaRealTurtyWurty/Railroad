@@ -7,6 +7,7 @@ import dev.railroadide.railroad.ui.RRListView;
 import dev.railroadide.railroad.ui.RRTextField;
 import dev.railroadide.railroad.ui.localized.LocalizedLabel;
 import dev.railroadide.railroad.ui.localized.LocalizedTextProperty;
+import dev.railroadide.railroad.utility.NameMatcher;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.ObservableList;
@@ -260,7 +261,7 @@ public final class GoToPopup<T> {
         if (match == null || match.positions().length == 0)
             return List.of(segment(text, false));
 
-        List<Text> segments = new ArrayList<Text>();
+        List<Text> segments = new ArrayList<>();
         int start = 0;
         boolean matched = false;
         int next = 0;

@@ -69,6 +69,8 @@ public class ClassStubVisitor extends ClassVisitor {
         if (name.equals(internalClassName) && outerName != null) {
             enclosingClassName = outerName.replace('/', '.');
             innerInstance = (access & Opcodes.ACC_STATIC) == 0;
+            int memberFlags = Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED | Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC;
+            modifiers = (modifiers & ~memberFlags) | (access & memberFlags);
         }
     }
 

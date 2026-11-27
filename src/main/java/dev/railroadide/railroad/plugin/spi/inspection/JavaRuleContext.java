@@ -2131,7 +2131,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         if (ownerQualifiedName == null || ownerQualifiedName.isBlank())
             return true;
 
-        return isMemberAccessible(ownerQualifiedName, symbolModifiers(symbol), usageSite);
+        return isMemberAccessible(ownerQualifiedName, symbolModifiers(symbol), usageSite, null);
     }
 
     /**
@@ -2142,10 +2142,29 @@ public final class JavaRuleContext implements LanguageRuleContext {
      * @return whether access is permitted by the field's visibility
      */
     public boolean isFieldAccessible(FieldDescriptor field, SyntaxNode usageSite) {
-        return isMemberAccessible(field.ownerQualifiedName(), field.modifiers(), usageSite);
+        return isMemberAccessible(field.ownerQualifiedName(), field.modifiers(), usageSite, null);
     }
 
-    private boolean isMemberAccessible(String ownerQualifiedName, int modifiers, SyntaxNode usageSite) {
+    /**
+     * Checks whether an indexed method can be referenced from the qualifying type.
+     *
+     * @param method method to inspect
+     * @param usageSite syntax node where access occurs
+     * @param qualifierType the type of the reference qualifier
+     * @return whether access is permitted by the method's visibility
+     */
+    public boolean isMethodAccessible(MethodDescriptor method, SyntaxNode usageSite, String qualifierType) {
+        SyntaxNode qualifier = usageSite.children().getFirst();
+        String receiverType = qualifier.kind().equals(JavaSyntaxKinds.SUPER_EXPRESSION) ? null : qualifierType;
+        return isMemberAccessible(method.ownerQualifiedName(), method.modifiers(), usageSite, receiverType);
+    }
+
+    private boolean isMemberAccessible(
+        String ownerQualifiedName,
+        int modifiers,
+        SyntaxNode usageSite,
+        @Nullable String receiverType
+    ) {
         if (Modifier.isPublic(modifiers))
             return true;
 
@@ -2164,7 +2183,6 @@ public final class JavaRuleContext implements LanguageRuleContext {
                 return true;
 
             SyntaxNode receiver = unwrapTransparentExpression(explicitReceiver(usageSite));
-            String receiverType = null;
             for (SyntaxNode current = usageSite; current != null; current = current.parent().orElse(null)) {
                 Symbol enclosing = declaredSymbol(current).filter(candidate -> isTypeSymbol(candidate.kind()))
                     .orElse(null);
@@ -2172,8 +2190,8 @@ public final class JavaRuleContext implements LanguageRuleContext {
                 if (currentType == null || !isSubtype(currentType, ownerQualifiedName))
                     continue;
 
-                if (Modifier.isStatic(modifiers) || receiver == null
-                    || JavaSyntaxKinds.SUPER_EXPRESSION.id().equals(receiver.kind().id()))
+                if (Modifier.isStatic(modifiers) || receiver == null && receiverType == null
+                    || receiver != null && JavaSyntaxKinds.SUPER_EXPRESSION.id().equals(receiver.kind().id()))
                     return true;
 
                 if (receiverType == null) {
@@ -3427,6 +3445,61 @@ public final class JavaRuleContext implements LanguageRuleContext {
         }
 
         return List.copyOf(argumentTypes);
+    }
+
+    /**
+     * Finds constructors that can be referenced with {@code Type::new}, including a source class's default
+     * constructor.
+     *
+     * @param owner name of the type to construct
+     * @param usageSite syntax node where the constructor reference occurs
+     * @return constructors that the reference can name
+     */
+    public List<MethodDescriptor> referenceConstructors(String owner, SyntaxNode usageSite) {
+        Symbol local = localTypeSymbol(owner).orElse(null);
+        ClassStub stub = local == null ? availableClassStubsByQualifiedName().get(owner) : null;
+        int modifiers = typeModifiers(owner);
+        SymbolKind kind = local == null ? null : local.kind();
+        if (local == null && stub == null && symbolIndex != null) {
+            for (JavaProjectSemanticIndex.SymbolDescriptor symbol : symbolIndex.lookupQualifiedName(owner)) {
+                checkActive();
+                if (!isTypeSymbol(symbol.kind()))
+                    continue;
+
+                kind = symbol.kind();
+                if (symbol.descriptor() != null) {
+                    SymbolMetadata metadata = symbol.descriptor().metadata();
+                    modifiers = switch (metadata.visibility()) {
+                        case "public" -> Modifier.PUBLIC;
+                        case "protected" -> Modifier.PROTECTED;
+                        case "private" -> Modifier.PRIVATE;
+                        default -> 0;
+                    };
+
+                    if (metadata.modifiers().contains("abstract")) {
+                        modifiers |= Modifier.ABSTRACT;
+                    }
+                }
+
+                break;
+            }
+        }
+
+        if (Modifier.isAbstract(modifiers) || (modifiers & Opcodes.ACC_ENUM) != 0
+            || (stub == null && kind != JavaSymbolKind.CLASS && kind != JavaSymbolKind.RECORD))
+            return List.of();
+
+        List<MethodDescriptor> constructors = constructorDescriptorsForType(owner);
+        if (constructors.isEmpty() && stub == null && kind == JavaSymbolKind.CLASS) {
+            constructors = List.of(new MethodDescriptor(owner, "<init>", List.of(), List.of(),
+                new DeclaredType(owner, List.of()), List.of(), modifiers, null, null));
+        }
+
+        boolean samePackage = currentPackageName().equals(packageNameOfType(owner));
+        return constructors.stream()
+            .filter(constructor -> !Modifier.isProtected(constructor.modifiers()) || samePackage)
+            .filter(constructor -> isMemberAccessible(owner, constructor.modifiers(), usageSite, null))
+            .toList();
     }
 
     private List<MethodDescriptor> constructorDescriptorsForType(String ownerQualifiedTypeName) {

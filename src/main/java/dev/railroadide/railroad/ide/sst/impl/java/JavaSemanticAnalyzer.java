@@ -22,6 +22,7 @@ import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxTree;
 import dev.railroadide.railroad.plugin.spi.inspection.JavaRuleContext;
+import dev.railroadide.railroad.utility.NameMatcher;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
@@ -521,7 +522,7 @@ public final class JavaSemanticAnalyzer {
                 for (Map.Entry<String, List<Symbol>> entry : scope.snapshotDeclarations().entrySet()) {
                     resolver.context.poll();
                     String name = entry.getKey();
-                    if (!name.startsWith(prefix) || "_".equals(name) || variables.containsKey(name))
+                    if (!NameMatcher.matches(prefix, name) || "_".equals(name) || variables.containsKey(name))
                         continue;
 
                     for (Symbol symbol : entry.getValue()) {

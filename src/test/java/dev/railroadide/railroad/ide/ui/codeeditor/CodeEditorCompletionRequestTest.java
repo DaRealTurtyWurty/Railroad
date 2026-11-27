@@ -5,6 +5,7 @@ import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.request.api.*;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.project.RailroadProject;
+import dev.railroadide.railroad.settings.Settings;
 import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.image.WritableImage;
@@ -389,6 +390,47 @@ public class CodeEditorCompletionRequestTest {
             });
 
             assertTrue(fixture.provider.requests.isEmpty());
+        }
+    }
+
+    @Test
+    public void ranksPrefixesBeforePartialMatchesAndHonoursTheCaseSetting() throws Exception {
+        boolean previous = Settings.AUTOCOMPLETE_CASE_SENSITIVE.getOrDefaultValue();
+        try {
+            for (boolean caseSensitive : List.of(false, true)) {
+                onFx(() -> {
+                    Settings.AUTOCOMPLETE_CASE_SENSITIVE.setValue(caseSensitive);
+                    return null;
+                });
+
+                try (Fixture fixture = open(context -> new FeatureResult<>(context, new CompletionResult(5, List.of(
+                    new CompletionItem("loadFile", "loadFile"), new CompletionItem("lfPrefix", "lfPrefix")))),
+                    "this.", text -> text.endsWith("."))) {
+                    fixture.request();
+                    awaitRequests(fixture.editor.featureRequests);
+                    onFx(() -> {
+                        fixture.editor.appendText("lf");
+                        RRListView<CompletionItem> list = fixture.editor.activeCompletionList.get();
+                        assertNotNull(list);
+                        List<String> names = list.getItems().stream().map(CompletionItem::insertText).toList();
+                        assertEquals(caseSensitive ? List.of("lfPrefix") : List.of("lfPrefix", "loadFile"), names);
+                        if (caseSensitive) {
+                            int end = fixture.editor.getLength();
+                            fixture.editor.replaceText(end - 1, end, "F");
+                            assertEquals("loadFile", list.getSelectionModel().getSelectedItem().insertText());
+                            fixture.editor.press(KeyCode.ENTER, false);
+                            assertEquals("this.loadFile", fixture.editor.getText());
+                        }
+
+                        return null;
+                    });
+                }
+            }
+        } finally {
+            onFx(() -> {
+                Settings.AUTOCOMPLETE_CASE_SENSITIVE.setValue(previous);
+                return null;
+            });
         }
     }
 

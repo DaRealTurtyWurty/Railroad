@@ -34,8 +34,8 @@ public record JavaCompletionProvider(
     Function<RequestContext, JavaWorkspaceAnalysis> analysis
 ) implements CompletionProvider {
     /**
-     * Triggers member completion after a dot, value and override completion when an identifier starts, and type
-     * completion once a second unqualified identifier character has been entered.
+     * Triggers member completion after a dot or method-reference separator, value and override completion when an
+     * identifier starts, and type completion once a second unqualified identifier character has been entered.
      *
      * @param linePrefix text on the same line before the inserted text
      * @param insertedText newly inserted text
@@ -43,7 +43,8 @@ public record JavaCompletionProvider(
      */
     @Override
     public boolean shouldTrigger(String linePrefix, String insertedText) {
-        if (insertedText.endsWith("."))
+        if (insertedText.endsWith(".") || insertedText.endsWith("::")
+            || insertedText.equals(":") && linePrefix.endsWith(":"))
             return true;
 
         if (insertedText.length() != 1 || !Character.isJavaIdentifierPart(insertedText.charAt(0)))
@@ -62,7 +63,8 @@ public record JavaCompletionProvider(
             return true;
 
         char previous = linePrefix.charAt(offset);
-        return !Character.isJavaIdentifierPart(previous) && previous != '.' && previous != '@';
+        return !Character.isJavaIdentifierPart(previous) && previous != '.' && previous != '@'
+            && !(previous == ':' && offset > 0 && linePrefix.charAt(offset - 1) == ':');
     }
 
     /**

@@ -2,6 +2,7 @@ package dev.railroadide.railroad.ide.ui.codeeditor;
 
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.utility.javafx.JavaFXUtils;
+import dev.railroadide.railroad.utility.NameMatcher;
 import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.command.*;
 import dev.railroadide.railroad.ide.completion.CompletionItem;
@@ -2027,9 +2028,7 @@ public class CodeEditorPane extends TextEditorPane {
 
     private void filterAutoComplete() {
         String prefix = getText(completionReplacementStart, completionPrefixEnd);
-        List<CompletionItem> filtered = completionCandidates.stream()
-            .filter(item -> item.insertText().startsWith(prefix))
-            .toList();
+        List<CompletionItem> filtered = prefix.isEmpty() ? completionCandidates : rankCompletion(prefix);
 
         RRListView<CompletionItem> listView = activeCompletionList.get();
         if (filtered.isEmpty()) {
@@ -2040,6 +2039,26 @@ public class CodeEditorPane extends TextEditorPane {
             listView.getItems().setAll(filtered);
             listView.getSelectionModel().selectFirst();
         }
+    }
+
+    private List<CompletionItem> rankCompletion(String pattern) {
+        boolean caseSensitive = Settings.AUTOCOMPLETE_CASE_SENSITIVE.getOrDefaultValue();
+        List<RankedCompletion> matches = new ArrayList<>();
+        for (CompletionItem item : completionCandidates) {
+            String name = item.insertText();
+            NameMatcher.Match match = NameMatcher.match(pattern, name, caseSensitive);
+            if (match != null) {
+                boolean prefix = name.regionMatches(!caseSensitive, 0, pattern, 0, pattern.length());
+                matches.add(new RankedCompletion(item, prefix, match.score()));
+            }
+        }
+
+        matches.sort(Comparator.comparing(RankedCompletion::prefix)
+            .thenComparingInt(RankedCompletion::score).reversed());
+        return matches.stream().map(RankedCompletion::item).toList();
+    }
+
+    private record RankedCompletion(CompletionItem item, boolean prefix, int score) {
     }
 
     private void hideAutoComplete() {

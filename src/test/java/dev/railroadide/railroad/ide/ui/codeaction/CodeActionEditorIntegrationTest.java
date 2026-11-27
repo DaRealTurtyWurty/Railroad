@@ -238,24 +238,83 @@ public class CodeActionEditorIntegrationTest {
     }
 
     @Test
-    public void typingAndAcceptingLocalCompletionInsertsTheVariableName() throws Exception {
-        assertBareCompletionInsertsName("class A { void run() { int localCount = 1; System.out.println(); } }\n",
-            "localCount");
+    public void acceptsNestedTypeCompletionAfterADotOrWithAnAutomaticImport() throws Exception {
+        for (String qualifier : List.of("Map.", "")) {
+            String source = """
+                package p;
+
+                import java.util.Map;
+
+                class A { | field; }
+                """;
+            int start = source.indexOf('|');
+            onFx(() -> {
+                editor.replaceText(source.replace("|", ""));
+                editor.requestFocus();
+                editor.moveTo(start);
+                for (char character : (qualifier + "En").toCharArray()) {
+                    editor.insertText(editor.getCaretPosition(), String.valueOf(character));
+                }
+
+                return null;
+            });
+
+            boolean needsImport = qualifier.isEmpty();
+            awaitFx(() -> nestedEntrySuggestion(needsImport) >= 0);
+            onFx(() -> {
+                ListView<?> list = (ListView<?>) Objects
+                    .requireNonNull(visibleNode(".completion-popup").lookup(".list-view"));
+                list.getSelectionModel().select(nestedEntrySuggestion(needsImport));
+                press(list, KeyCode.ENTER, false);
+                String expected = source.replace("|", qualifier + "Entry");
+                if (needsImport) {
+                    expected = expected.replace("import java.util.Map;",
+                        "import java.util.Map;\nimport java.util.Map.Entry;");
+                }
+
+                assertEquals(expected, editor.getText());
+                return null;
+            });
+        }
+    }
+
+    private static int nestedEntrySuggestion(boolean needsImport) {
+        Node popup = visibleNode(".completion-popup");
+        if (popup == null || !(popup.lookup(".list-view") instanceof ListView<?> list))
+            return -1;
+
+        for (int index = 0; index < list.getItems().size(); index++) {
+            if (list.getItems().get(index) instanceof CompletionItem item && item.kind() == CompletionItem.Kind.TYPE
+                && "Entry".equals(item.insertText())
+                && (needsImport ? "java.util.Map".equals(item.detail()) : item.template() == null))
+                return index;
+        }
+
+        return -1;
     }
 
     @Test
-    public void typingAndAcceptingFieldCompletionInsertsTheBareFieldName() throws Exception {
-        assertBareCompletionInsertsName("class A { void run() { System.out.println(); } private int fieldCount; }\n",
-            "fieldCount");
+    public void typingAndAcceptingLocalCompletionInsertsTheVariableName() throws Exception {
+        assertBareCompletionInsertsName("class A { void run() { int localCount = 1; System.out.println(); } }\n",
+            "l", "localCount");
     }
 
-    private void assertBareCompletionInsertsName(String source, String name) throws Exception {
+    @Test
+    public void typingAFieldAbbreviationCompletesTheBareFieldName() throws Exception {
+        assertBareCompletionInsertsName("class A { void run() { System.out.println(); } private int fieldCount; }\n",
+            "fdC", "fieldCount");
+    }
+
+    private void assertBareCompletionInsertsName(String source, String prefix, String name) throws Exception {
         int start = source.indexOf("println(") + "println(".length();
         onFx(() -> {
             editor.replaceText(source);
             editor.requestFocus();
             editor.moveTo(start);
-            editor.insertText(start, name.substring(0, 1));
+            for (char character : prefix.toCharArray()) {
+                editor.insertText(editor.getCaretPosition(), String.valueOf(character));
+            }
+
             return null;
         });
 
@@ -272,6 +331,60 @@ public class CodeActionEditorIntegrationTest {
             assertEquals(start + name.length(), editor.getCaretPosition());
             return null;
         });
+    }
+
+    @Test
+    public void acceptsMethodAndConstructorReferencesWithoutAddingParentheses() throws Exception {
+        String draft = """
+            class A {
+                Runnable bind() { return |; }
+                private void load() {}
+            }
+            """;
+        int start = draft.indexOf('|');
+        for (String qualifier : List.of("this", "A")) {
+            String name = qualifier.equals("this") ? "load" : "new";
+            String source = draft.replace("|", qualifier);
+            onFx(() -> {
+                editor.replaceText(source);
+                editor.requestFocus();
+                editor.moveTo(start + qualifier.length());
+                editor.insertText(editor.getCaretPosition(), ":");
+                editor.insertText(editor.getCaretPosition(), ":");
+                return null;
+            });
+
+            awaitFx(() -> referenceSuggestion(name) >= 0);
+            onFx(() -> {
+                editor.insertText(editor.getCaretPosition(), name.substring(0, 2));
+                return null;
+            });
+
+            awaitFx(() -> referenceSuggestion(name) >= 0);
+            onFx(() -> {
+                ListView<?> list = (ListView<?>) Objects
+                    .requireNonNull(visibleNode(".completion-popup").lookup(".list-view"));
+                list.getSelectionModel().select(referenceSuggestion(name));
+                press(list, KeyCode.ENTER, false);
+                assertEquals(draft.replace("|", qualifier + "::" + name), editor.getText());
+                assertEquals(start + qualifier.length() + 2 + name.length(), editor.getCaretPosition());
+                return null;
+            });
+        }
+    }
+
+    private static int referenceSuggestion(String name) {
+        Node popup = visibleNode(".completion-popup");
+        if (popup == null || !(popup.lookup(".list-view") instanceof ListView<?> list))
+            return -1;
+
+        for (int index = 0; index < list.getItems().size(); index++) {
+            if (list.getItems().get(index) instanceof CompletionItem item && item.kind() == CompletionItem.Kind.METHOD
+                && name.equals(item.insertText()) && item.template() != null)
+                return index;
+        }
+
+        return -1;
     }
 
     @Test

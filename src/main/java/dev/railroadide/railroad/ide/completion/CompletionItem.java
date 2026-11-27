@@ -137,6 +137,20 @@ public record CompletionItem(
     }
 
     /**
+     * Creates a method or constructor suggestion that inserts the name at a method reference.
+     *
+     * @param name method name or {@code new}
+     * @param parameters formatted parameter list without parentheses
+     * @param returnType return or constructed type displayed beside the signature
+     * @param isStatic whether the method is static
+     * @return a reference suggestion
+     */
+    public static CompletionItem methodReference(String name, String parameters, String returnType, boolean isStatic) {
+        return new CompletionItem(name, label(name, isStatic), "(" + parameters + ")", returnType, Kind.METHOD,
+            !parameters.isBlank(), new Template(name, name.length()));
+    }
+
+    /**
      * Creates a field suggestion.
      *
      * @param name field name to insert

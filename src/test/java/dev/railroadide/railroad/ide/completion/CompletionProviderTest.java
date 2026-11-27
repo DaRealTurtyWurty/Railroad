@@ -42,6 +42,16 @@ public class CompletionProviderTest {
     }
 
     @Test
+    public void triggersMethodReferencesOnTheSecondColonAndKeepsTheirPrefixInTheSameRequest() {
+        CompletionProvider provider = provider();
+        assertFalse(provider.shouldTrigger("this", ":"));
+        assertTrue(provider.shouldTrigger("this:", ":"));
+        assertTrue(provider.shouldTrigger("this", "::"));
+        assertFalse(provider.shouldTrigger("this::", "l"));
+        assertFalse(provider.shouldTrigger("this::l", "o"));
+    }
+
+    @Test
     public void completesMembersFromPhysicalAndVirtualSnapshots() {
         CompletionProvider provider = provider();
         for (DocumentUri uri : List.of(

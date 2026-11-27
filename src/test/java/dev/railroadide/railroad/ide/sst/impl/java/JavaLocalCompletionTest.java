@@ -49,7 +49,7 @@ public class JavaLocalCompletionTest {
             import static java.lang.Long.*;
             interface Limits { int MAX_COUNT = 1; }
             class Example implements Limits {
-                static long read() { return MA/*caret*/; }
+                static long read() { return MAX/*caret*/; }
             }
             """);
         assertEquals(List.of("MAX_COUNT", "MAX_VALUE"), items.stream().map(CompletionItem::insertText).toList());
