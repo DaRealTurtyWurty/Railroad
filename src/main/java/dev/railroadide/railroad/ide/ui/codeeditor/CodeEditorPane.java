@@ -296,7 +296,68 @@ public class CodeEditorPane extends TextEditorPane {
         installBracketHighlighting();
         installDiagnosticPopupHandlers();
         installEditorFeatures();
+        addEventFilter(KeyEvent.KEY_TYPED, this::handleBracketTyping);
         addEventFilter(KeyEvent.KEY_PRESSED, this::handleNewline);
+    }
+
+    private void handleBracketTyping(KeyEvent event) {
+        String typed = event.getCharacter();
+        if (event.isConsumed() || !isEditable() || typed.length() != 1)
+            return;
+
+        char bracket = typed.charAt(0);
+        Character closing = OPENING_BRACKETS.get(bracket);
+        Character opening = CLOSING_BRACKETS.get(bracket);
+        if (closing == null && opening == null)
+            return;
+
+        IndexRange selection = getSelection();
+        if (selection.getLength() != 0) {
+            if (closing != null) {
+                wrapSelection(selection, typed, closing.toString());
+                requestFollowCaret();
+                event.consume();
+            }
+
+            return;
+        }
+
+        int caret = getCaretPosition();
+        String text = getText();
+        if (closing != null && caret < text.length()) {
+            char next = text.charAt(caret);
+            if (!Character.isWhitespace(next) && ")]};,:\"'".indexOf(next) == -1)
+                return;
+        } else if (opening != null && (caret == text.length() || text.charAt(caret) != bracket
+            || findMatchingBackward(text, caret, opening) < 0))
+            return;
+
+        if (!editorFeatures().allowsBracketPairing(text.substring(0, caret) + bracket))
+            return;
+
+        if (closing != null) {
+            insertText(caret, typed + closing);
+        }
+
+        moveTo(caret + 1);
+        requestFollowCaret();
+        event.consume();
+    }
+
+    private void wrapSelection(IndexRange selection, String opening, String closing) {
+        int anchor = getAnchor();
+        int caret = getCaretPosition();
+        getUndoManager().preventMerge();
+        try {
+            createMultiChange(2)
+                .insertText(selection.getEnd(), closing)
+                .insertText(selection.getStart(), opening)
+                .commit();
+        } finally {
+            getUndoManager().preventMerge();
+        }
+
+        selectRange(anchor + opening.length(), caret + opening.length());
     }
 
     private void handleNewline(KeyEvent event) {
@@ -372,8 +433,15 @@ public class CodeEditorPane extends TextEditorPane {
 
         Character closing = previous < 0 ? null : OPENING_BRACKETS.get(text.charAt(previous));
         if (closing == null || !features.isIndentingBracket(text, previous)) {
-            int anchor = features.newlineIndentationAnchor(text, selection.getStart());
-            replaceText(selection, "\n" + (anchor < 0 ? indentation : indentationBefore(anchor)));
+            EditorFeatures.NewlineIndentation override = features.newlineIndentation(text, selection.getStart());
+            if (override != null) {
+                indentation = indentationBefore(override.anchorOffset());
+                if (override.indent()) {
+                    indentation += indentationUnit();
+                }
+            }
+
+            replaceText(selection, "\n" + indentation);
             return;
         }
 

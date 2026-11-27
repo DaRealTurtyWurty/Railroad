@@ -77,6 +77,9 @@ public class JsonCodeEditorPane extends CodeEditorPane {
 
     private void autoInsertPairs() {
         addEventFilter(KeyEvent.KEY_TYPED, event -> {
+            if (event.isConsumed() || !isEditable())
+                return;
+
             String ch = event.getCharacter();
             if (ch == null || ch.isEmpty())
                 return;

@@ -1,5 +1,7 @@
 package dev.railroadide.railroad.ide.ui.codeeditor;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Language-specific behaviour of an open code editor, supplied by a language session. Covers what the editor's
  * request-based providers cannot: decorations such as gutter columns and folding, and typing rules for indentation,
@@ -39,14 +41,33 @@ public interface EditorFeatures {
     }
 
     /**
-     * Finds an earlier line to use for the indentation of a new line.
+     * Decides whether the language allows bracket pairing at the caret.
+     *
+     * @param text text before the caret, including the newly typed bracket
+     * @return whether the editor should handle typing the bracket as part of a pair
+     */
+    default boolean allowsBracketPairing(String text) {
+        return false;
+    }
+
+    /**
+     * Chooses the indentation of a new line when the language recognizes the surrounding syntax.
      *
      * @param text current editor text
      * @param offset insertion offset in {@code text}
-     * @return an offset on the line to copy indentation from, or {@code -1} to use the insertion line
+     * @return an indentation override, or {@code null} to copy the insertion line's indentation
      */
-    default int newlineIndentationAnchor(String text, int offset) {
-        return -1;
+    default @Nullable NewlineIndentation newlineIndentation(String text, int offset) {
+        return null;
+    }
+
+    /**
+     * Indentation based on a line in the document and the editor's configured indentation unit.
+     *
+     * @param anchorOffset offset on the line to copy indentation from
+     * @param indent whether to add one indentation level
+     */
+    record NewlineIndentation(int anchorOffset, boolean indent) {
     }
 
     /**

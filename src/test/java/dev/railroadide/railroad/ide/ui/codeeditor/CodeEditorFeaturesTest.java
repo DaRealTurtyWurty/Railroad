@@ -478,6 +478,113 @@ public class CodeEditorFeaturesTest {
     }
 
     @Test
+    public void typingJavaBracketsInsertsPairsAndMovesOverTheCloser() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                for (String pair : List.of("()", "[]", "{}")) {
+                    editor.replaceText("example;");
+                    editor.moveTo("example".length());
+                    typeCharacter(editor, pair.substring(0, 1));
+                    assertEquals("example" + pair + ";", editor.getText());
+                    assertEquals("example".length() + 1, editor.getCaretPosition());
+                    typeCharacter(editor, pair.substring(1));
+                    assertEquals("example" + pair + ";", editor.getText());
+                    assertEquals("example".length() + 2, editor.getCaretPosition());
+                    editor.undo();
+                    assertEquals("example;", editor.getText());
+                }
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void typingOpeningBracketsWrapsJavaSelectionsAndPreservesTheirDirection() throws Exception {
+        String prefix = "before";
+        String selected = "first\nsecond";
+        String suffix = "after";
+        String source = prefix + selected + suffix;
+        int start = prefix.length();
+        int end = start + selected.length();
+        Path file = Files.writeString(directory.resolve("Example.java"), source);
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                for (String pair : List.of("()", "[]", "{}")) {
+                    for (boolean reversed : List.of(false, true)) {
+                        int anchor = reversed ? end : start;
+                        int caret = reversed ? start : end;
+                        editor.selectRange(anchor, caret);
+                        typeCharacter(editor, pair.substring(0, 1));
+                        String wrapped = prefix + pair.charAt(0) + selected + pair.charAt(1) + suffix;
+                        assertEquals(wrapped, editor.getText());
+                        assertEquals(selected, editor.getSelectedText());
+                        assertEquals(anchor + 1, editor.getAnchor());
+                        assertEquals(caret + 1, editor.getCaretPosition());
+
+                        editor.undo();
+                        assertEquals(source, editor.getText());
+                        editor.redo();
+                        assertEquals(wrapped, editor.getText());
+                        editor.undo();
+                    }
+                }
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void typingOpeningBracketWrapsJsonSelectionBeforeItsPairInsertionRuns() throws Exception {
+        String source = "{\"name\": \"Example\", \"version\": \"1\", \"extra\": \"selected\"}";
+        Path file = Files.writeString(directory.resolve("example.json"), source);
+        onFx(() -> {
+            var project = new RailroadProject(directory, "Editor features", new WritableImage(1, 1));
+            var config = new CodeEditorConfig("json", null, null, null, null, null);
+            try (var editor = new JsonCodeEditorPane(project, DocumentId.create(), file, config)) {
+                String selected = "\"selected\"";
+                int start = source.indexOf(selected);
+                editor.selectRange(start, start + selected.length());
+                typeCharacter(editor, "[");
+                assertEquals(source.replace(selected, "[" + selected + "]"), editor.getText());
+                assertEquals(selected, editor.getSelectedText());
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void javaBracketPairingHonorsStringsSettingAndLeavesCommentsAlone() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            boolean original = Settings.AUTO_PAIR_INSIDE_STRINGS.getOrDefaultValue();
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                for (boolean enabled : List.of(false, true)) {
+                    Settings.AUTO_PAIR_INSIDE_STRINGS.setValue(enabled);
+                    for (String prefix : List.of("// comment ", "/* comment ", "String value = \"", "\"\"\"\n")) {
+                        editor.replaceText(prefix);
+                        editor.moveTo(prefix.length());
+                        typeCharacter(editor, "[");
+                        assertEquals(prefix + (enabled && !prefix.startsWith("/") ? "[]" : "["), editor.getText());
+                    }
+                }
+            } finally {
+                Settings.AUTO_PAIR_INSIDE_STRINGS.setValue(original);
+            }
+
+            return null;
+        });
+    }
+
+    private static void typeCharacter(CodeEditorPane editor, String character) {
+        editor.fireEvent(new KeyEvent(KeyEvent.KEY_TYPED, character, "", KeyCode.UNDEFINED,
+            false, false, false, false));
+    }
+
+    @Test
     public void enterAfterAJavaOpeningBraceUsesTheConfiguredIndentation() throws Exception {
         String text = "class Example {";
         Path file = Files.writeString(directory.resolve("Example.java"), text);
@@ -557,6 +664,49 @@ public class CodeEditorFeaturesTest {
                 assertJavaNewline(editor, "for (int i = 0;\n    i < check();|\n    i++) {}", "    ");
                 assertJavaNewline(editor, "// call(\n    // argument);|", "    ");
                 assertJavaNewline(editor, "if (ready)\n    return; // comment;| still editing", "    ");
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterAfterAnUnbracedJavaHeaderIndentsItsBody() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                for (String body : List.of(
+                    "if (ready)|",
+                    "if (check(value))|use(value);",
+                    "if (ready) // use the fast path|",
+                    "if (first &&\n    second)|",
+                    "if (ready)|\n    use();\nelse {}",
+                    "for (;;)|",
+                    "for (int i = 0;\n    i < limit; i++)|",
+                    "for (var item : items)|",
+                    "while (running)|")) {
+                    assertJavaNewline(editor, body, editor.indentationUnit());
+                }
+
+                assertJavaNewline(editor, "if (outer)\n    if (inner)|", "    " + editor.indentationUnit());
+            }
+
+            return null;
+        });
+    }
+
+    @Test
+    public void enterAfterJavaClosingParenthesesOnlyAddsIndentationForUnbracedHeaders() throws Exception {
+        Path file = Files.writeString(directory.resolve("Example.java"), "");
+        onFx(() -> {
+            try (CodeEditorPane editor = open(file, new JavaEditorFeatures(), CancellationToken.none())) {
+                assertJavaNewline(editor, "if (ready)|{ use(); }", "");
+                assertJavaNewline(editor, "for (var item : items)|\n{ use(item); }", "");
+                assertJavaNewline(editor, "submit(input)|", "");
+                assertJavaNewline(editor, "if (check(input)|)", "");
+                assertJavaNewline(editor, "do use(); while (running)|;", "");
+                assertJavaNewline(editor, "// if (ready)|", "");
+                assertJavaNewline(editor, "String text = \"if (ready)|\";", "");
             }
 
             return null;

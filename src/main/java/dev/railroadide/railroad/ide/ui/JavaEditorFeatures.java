@@ -21,6 +21,7 @@ import dev.railroadide.railroad.ide.ui.codeeditor.GutterColumn;
 import dev.railroadide.railroad.ide.ui.codeeditor.JavaImportFolding;
 import dev.railroadide.railroad.localization.L18n;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
+import dev.railroadide.railroad.settings.Settings;
 import dev.railroadide.railroad.ui.localized.LocalizedTooltip;
 import javafx.application.Platform;
 import javafx.scene.Node;
@@ -48,6 +49,7 @@ public final class JavaEditorFeatures implements EditorFeatures {
     private static final String LAUNCH_COLUMN_ID = "java-launch";
     private static final int SIGNATURE_SCAN_WINDOW = 2048;
     private static final SyntaxKind SEMICOLON = JavaSyntaxKinds.tokenKind(JavaTokenType.SEMICOLON);
+    private static final SyntaxKind CLOSE_PAREN = JavaSyntaxKinds.tokenKind(JavaTokenType.CLOSE_PAREN);
     private static final SyntaxKind ELSE_KEYWORD = JavaSyntaxKinds.tokenKind(JavaTokenType.ELSE_KEYWORD);
     private static final Set<SyntaxKind> SEMICOLON_STATEMENTS = Set.of(
         JavaSyntaxKinds.ASSERT_STATEMENT,
@@ -87,35 +89,83 @@ public final class JavaEditorFeatures implements EditorFeatures {
         if (text.charAt(bracketOffset) != '{')
             return false;
 
+        Token<JavaTokenType> token = tokenAt(text, bracketOffset);
+        return token != null && token.pos() == bracketOffset && token.type() == JavaTokenType.OPEN_BRACE;
+    }
+
+    @Override
+    public boolean allowsBracketPairing(String text) {
+        Token<JavaTokenType> token = tokenAt(text, text.length() - 1);
+        return token != null && switch (token.type()) {
+            case OPEN_BRACE, CLOSE_BRACE, OPEN_PAREN, CLOSE_PAREN, OPEN_BRACKET, CLOSE_BRACKET -> true;
+            case STRING_LITERAL, TEXT_BLOCK_LITERAL -> token.lexeme().startsWith("\"")
+                && Settings.AUTO_PAIR_INSIDE_STRINGS.getOrDefaultValue();
+            default -> false;
+        };
+    }
+
+    private static @Nullable Token<JavaTokenType> tokenAt(String text, int offset) {
         try (var lexer = new JavaLexer(text)) {
             while (true) {
                 Token<JavaTokenType> token = lexer.nextToken();
-                if (token.type() == JavaTokenType.EOF || token.pos() > bracketOffset)
-                    return false;
+                if (token.type() == JavaTokenType.EOF || token.pos() > offset)
+                    return null;
 
-                if (token.endOffset() > bracketOffset)
-                    return token.pos() == bracketOffset && token.type() == JavaTokenType.OPEN_BRACE;
+                if (token.endOffset() > offset)
+                    return token;
             }
         }
     }
 
     @Override
-    public int newlineIndentationAnchor(String text, int offset) {
+    public @Nullable NewlineIndentation newlineIndentation(String text, int offset) {
         int lineStart = text.lastIndexOf('\n', offset - 1) + 1;
-        if (text.lastIndexOf(';', offset - 1) < lineStart)
-            return -1;
+        if (text.lastIndexOf(';', offset - 1) < lineStart && text.lastIndexOf(')', offset - 1) < lineStart)
+            return null;
 
         SyntaxToken terminator = codeTokenBefore(JavaSyntaxParser.parse(text).root(), offset);
-        if (terminator == null || terminator.start() < lineStart || !terminator.kind().equals(SEMICOLON))
-            return -1;
+        if (terminator == null || terminator.start() < lineStart || terminator.end() > offset)
+            return null;
 
+        if (terminator.kind().equals(CLOSE_PAREN))
+            return indentAfterControlHeader(terminator);
+
+        if (!terminator.kind().equals(SEMICOLON))
+            return null;
+
+        return indentAfterStatement(terminator);
+    }
+
+    private static @Nullable NewlineIndentation indentAfterControlHeader(SyntaxToken terminator) {
+        SyntaxNode header = terminator.parent().orElse(null);
+        SyntaxNode owner = header == null ? null : header.parent().orElse(null);
+        if (owner == null)
+            return null;
+
+        boolean controlHeader = (owner.kind().equals(JavaSyntaxKinds.IF_STATEMENT)
+            || owner.kind().equals(JavaSyntaxKinds.WHILE_STATEMENT))
+            && header.kind().equals(JavaSyntaxKinds.PARENTHESIZED_EXPRESSION)
+            || owner.kind().equals(JavaSyntaxKinds.FOR_STATEMENT)
+                && (header.kind().equals(JavaSyntaxKinds.BASIC_FOR_STATEMENT)
+                    || header.kind().equals(JavaSyntaxKinds.ENHANCED_FOR_STATEMENT));
+        if (!controlHeader)
+            return null;
+
+        SyntaxNode body = owner.children().stream()
+            .filter(child -> child.start() >= header.end() && !(child instanceof SyntaxToken))
+            .findFirst().orElse(null);
+        int anchor = firstCodeOffset(owner);
+        return new NewlineIndentation(anchor, body == null || !body.kind().equals(JavaSyntaxKinds.BLOCK));
+    }
+
+    private static @Nullable NewlineIndentation indentAfterStatement(SyntaxToken terminator) {
         SyntaxNode statement = terminator.parent().orElse(null);
         if (statement == null || !SEMICOLON_STATEMENTS.contains(statement.kind()))
-            return -1;
+            return null;
 
         SyntaxNode owner = statement.parent().orElse(null);
         if (owner != null && owner.kind().equals(JavaSyntaxKinds.BASIC_FOR_STATEMENT))
-            return -1;
+            return null;
 
         while (owner != null && STATEMENT_OWNERS.contains(owner.kind())) {
             statement = owner;
@@ -127,7 +177,8 @@ public final class JavaEditorFeatures implements EditorFeatures {
             owner = statement.parent().orElse(null);
         }
 
-        return firstCodeOffset(statement);
+        int anchor = firstCodeOffset(statement);
+        return anchor < 0 ? null : new NewlineIndentation(anchor, false);
     }
 
     private static @Nullable SyntaxToken codeTokenBefore(SyntaxNode node, int offset) {
