@@ -431,6 +431,15 @@ public final class JavaDeclarationAnalysis {
                     context.poll();
                     if (JavaSyntaxKinds.BASIC_FOR_STATEMENT.id().equals(child.kind().id())) {
                         loopScope = visitBasicForHeader(child, loopScope, currentTypeQualifiedName);
+                    } else if (JavaSyntaxKinds.ENHANCED_FOR_STATEMENT.id().equals(child.kind().id())) {
+                        context.attachScope(child, scope);
+                        for (SyntaxNode headerChild : child.children()) {
+                            context.poll();
+                            Scope headerScope = headerChild.kind().equals(JavaSyntaxKinds.PARAMETER)
+                                ? loopScope
+                                : scope;
+                            visitNode(headerChild, headerScope, currentTypeQualifiedName);
+                        }
                     } else {
                         visitNode(child, loopScope, currentTypeQualifiedName);
                     }
@@ -443,7 +452,9 @@ public final class JavaDeclarationAnalysis {
                 Scope tryScope = scope.child();
                 for (SyntaxNode child : node.children()) {
                     context.poll();
-                    visitNode(child, tryScope, currentTypeQualifiedName);
+                    Scope childScope = child.kind().equals(JavaSyntaxKinds.CATCH_CLAUSE)
+                        || child.kind().equals(JavaSyntaxKinds.FINALLY_CLAUSE) ? scope : tryScope;
+                    visitNode(child, childScope, currentTypeQualifiedName);
                 }
 
                 return;

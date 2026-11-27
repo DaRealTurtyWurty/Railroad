@@ -93,7 +93,7 @@ public final class JavaRenameEngine {
     private final Map<DocumentId, SyntaxNode> trees = new HashMap<>();
 
     /**
-     * Pins the resolved graph of the request's workspace.
+     * Pins the source or workspace graph needed for the target.
      *
      * @param context captured requesting document and workspace
      * @param capture analysis capture for a request context, used again to verify the renamed workspace
@@ -104,10 +104,20 @@ public final class JavaRenameEngine {
         Function<FeatureRequestContext, JavaWorkspaceAnalysis> capture,
         SymbolId target
     ) {
+        this(context, capture, isLocalValue(target)
+            ? localGraph(context, capture)
+            : new JavaSourceSetQueries(context, capture).graph(target, true));
+    }
+
+    private JavaRenameEngine(
+        FeatureRequestContext context,
+        Function<FeatureRequestContext, JavaWorkspaceAnalysis> capture,
+        WorkspaceSymbolGraph graph
+    ) {
         this.context = Objects.requireNonNull(context, "context");
         this.workspace = context.workspaceSnapshot();
         this.capture = Objects.requireNonNull(capture, "capture");
-        this.graph = new JavaSourceSetQueries(context, capture).graph(target, true);
+        this.graph = graph;
         for (SemanticIndexShard shard : graph.shards().values()) {
             if (workspace.document(shard.documentId()).orElse(null) instanceof TextDocumentSnapshot snapshot
                 && snapshot.version().equals(shard.documentVersion()) && snapshot.uri().equals(shard.uri())
@@ -117,25 +127,55 @@ public final class JavaRenameEngine {
         }
     }
 
+    private static WorkspaceSymbolGraph localGraph(
+        FeatureRequestContext context,
+        Function<FeatureRequestContext, JavaWorkspaceAnalysis> capture
+    ) {
+        List<SemanticIndexShard> shards = context.documentSnapshot() instanceof TextDocumentSnapshot source
+            ? capture.apply(context).resolvedSource(source, context::checkActive).stream().toList()
+            : List.of();
+        return WorkspaceSymbolGraph.of(shards, context::checkActive);
+    }
+
     /**
      * Checks the symbol at an offset of the requesting document.
      *
+     * @param context captured requesting document and workspace
+     * @param capture analysis capture for the request
      * @param offset UTF-16 offset of, or just after, the identifier
      * @return renameable symbol or the reason it cannot be renamed
      */
-    public RenamePreparation prepare(int offset) {
+    public static RenamePreparation prepare(
+        FeatureRequestContext context,
+        Function<FeatureRequestContext, JavaWorkspaceAnalysis> capture,
+        int offset
+    ) {
+        var local = new JavaRenameEngine(context, capture, localGraph(context, capture));
         try {
-            Target target = resolve(offset);
-            DocumentId document = target.caret().documentId();
-            Plan local = occurrences(target, target.name(), new Conflicts(), document);
-            List<TextRange> ranges = local.replacements(document).stream()
-                .filter(change -> change.start() < change.end())
-                .map(change -> new TextRange(change.start(), change.end())).toList();
-            return new RenamePreparation.Renameable(target.id(), kindLabel(target.kind()), target.name(),
-                target.caret(), ranges);
+            Target target = local.resolveIdentifier(offset);
+            if (isLocalValue(target.id()))
+                return local.preparation(target);
+        } catch (Rejection _) {
+            // The workspace graph can supply declarations missing from the current document.
+        }
+
+        WorkspaceSymbolGraph graph = new JavaSourceSetQueries(context, capture).graph(null, true);
+        var engine = new JavaRenameEngine(context, capture, graph);
+        try {
+            return engine.preparation(engine.resolve(offset));
         } catch (Rejection rejection) {
             return new RenamePreparation.Rejected(rejection.getMessage());
         }
+    }
+
+    private RenamePreparation preparation(Target target) {
+        DocumentId document = target.caret().documentId();
+        Plan local = occurrences(target, target.name(), new Conflicts(), document);
+        List<TextRange> ranges = local.replacements(document).stream()
+            .filter(change -> change.start() < change.end())
+            .map(change -> new TextRange(change.start(), change.end())).toList();
+        return new RenamePreparation.Renameable(target.id(), kindLabel(target.kind()), target.name(),
+            target.caret(), ranges);
     }
 
     /**
@@ -240,6 +280,12 @@ public final class JavaRenameEngine {
     }
 
     private Target resolve(int offset) {
+        Target target = resolveIdentifier(offset);
+        return new Target(target.id(), target.descriptor(), target.kind(), target.name(), target.declaration(),
+            family(target.id(), target.kind()), target.caret());
+    }
+
+    private Target resolveIdentifier(int offset) {
         context.checkActive();
         if (!(context.documentSnapshot() instanceof TextDocumentSnapshot source) || !sources.containsKey(source.id()))
             throw new Rejection("Only analysed Java source files can be renamed");
@@ -310,8 +356,7 @@ public final class JavaRenameEngine {
         Declaration declaration = declaration(id)
             .orElseThrow(() -> new Rejection("'" + descriptor.simpleName()
                 + "' is declared in a library or generated source and cannot be renamed"));
-        List<SymbolId> family = family(id, kind);
-        return new Target(id, descriptor, kind, descriptor.simpleName(), declaration, family,
+        return new Target(id, descriptor, kind, descriptor.simpleName(), declaration, List.of(id),
             Location.TextLocation.from(source, caret.start, caret.end));
     }
 
@@ -1566,13 +1611,14 @@ public final class JavaRenameEngine {
         DocumentSnapshot requester = documents.get(context.documentSnapshot().id());
         var request = new FeatureRequestContext(renamedWorkspace, requester, context.cancellationToken(),
             context.deadline());
-        JavaWorkspaceAnalysis renamedAnalysis = capture.apply(request);
-        WorkspaceSymbolGraph after = new JavaSourceSetQueries(request, capture).graph(rename.apply(target.id()), true);
+        WorkspaceSymbolGraph after = isLocalValue(target.id())
+            ? localGraph(request, capture)
+            : new JavaSourceSetQueries(request, capture).graph(rename.apply(target.id()), true);
 
         compareReferences(after, rename, plan, renamedDocuments, conflicts);
         compareEdges(after, rename, conflicts);
         if (target.kind().equals(METHOD) || TYPE_KINDS.contains(target.kind())) {
-            compareImplementations(after, renamedAnalysis, rename, conflicts);
+            compareImplementations(after, capture.apply(request), rename, conflicts);
         }
     }
 
@@ -1581,6 +1627,9 @@ public final class JavaRenameEngine {
      * component changes, and so do qualified names of a renamed type in type and parameter components.
      */
     private Function<SymbolId, SymbolId> identityMapping(Target target, String newName) {
+        if (isParameter(target.id()))
+            return Function.identity();
+
         List<List<JavaSymbolIds.Component>> renamedMembers = target.family().stream()
             .map(JavaRenameEngine::components).toList();
         String oldTypeName = namedType(target.id()) ? components(target.id()).getLast().value() : null;
@@ -1959,6 +2008,12 @@ public final class JavaRenameEngine {
     private static boolean isParameter(SymbolId id) {
         List<JavaSymbolIds.Component> parts = components(id);
         return !parts.isEmpty() && parts.getLast().kind().equals("parameter");
+    }
+
+    private static boolean isLocalValue(SymbolId id) {
+        List<JavaSymbolIds.Component> parts = components(id);
+        return !parts.isEmpty() && parts.getLast().kind().equals("parameter")
+            || parts.size() > 1 && parts.get(parts.size() - 2).kind().equals("local");
     }
 
     private static boolean namedType(SymbolId id) {

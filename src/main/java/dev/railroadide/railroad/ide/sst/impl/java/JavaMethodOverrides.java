@@ -84,12 +84,13 @@ public final class JavaMethodOverrides {
     /**
      * Computes override suggestions for a member-declaration position.
      *
+     * @param tree parsed Java source
      * @param triggerAt the first character of the typed member name, or the character before the caret when no
      *            name has been typed
      * @return override suggestions replacing the typed name, or null outside a member-declaration position
      */
     @Nullable
-    public CompletionResult complete(int triggerAt) {
+    public CompletionResult complete(SyntaxTree tree, int triggerAt) {
         int prefixStart = triggerAt + 1;
         if (Character.isJavaIdentifierPart(document.charAt(triggerAt))) {
             prefixStart = triggerAt;
@@ -101,7 +102,6 @@ public final class JavaMethodOverrides {
                 return null;
         }
 
-        SyntaxTree tree = JavaSyntaxParser.parse(document, activityCheck);
         if (memberPositionBody(tree.root(), prefixStart) == null)
             return null;
 

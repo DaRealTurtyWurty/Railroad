@@ -1087,7 +1087,7 @@ public final class JavaGreenParser {
             return null;
         }
 
-        children.add(parseBlock());
+        children.add(parseBlock(true));
         return greenNode(JavaSyntaxKinds.RECORD_COMPACT_CONSTRUCTOR, children);
     }
 
@@ -1338,7 +1338,7 @@ public final class JavaGreenParser {
         }
 
         if (peekSignificantType() == JavaTokenType.OPEN_BRACE) {
-            children.add(parseBlock());
+            children.add(parseBlock(true));
         } else {
             expectSignificant(JavaTokenType.SEMICOLON, children);
         }
@@ -1377,7 +1377,7 @@ public final class JavaGreenParser {
                 consumeUntilSemicolonOrBoundary(children);
                 expectSignificant(JavaTokenType.SEMICOLON, children);
             } else if (peekSignificantType() == JavaTokenType.OPEN_BRACE) {
-                children.add(parseBlock());
+                children.add(parseBlock(true));
             } else {
                 expectSignificant(JavaTokenType.SEMICOLON, children);
             }
@@ -2329,31 +2329,23 @@ public final class JavaGreenParser {
     private GreenNode parseArgumentList() {
         List<GreenElement> children = new ArrayList<>();
         expectSignificant(JavaTokenType.OPEN_PAREN, children);
-        while (hasMoreTokens()) {
+        while (!isArgumentListEnd(peekSignificantType())) {
             consumeTrivia(children);
-            Token<JavaTokenType> next = peekSignificantToken();
-            if (next == null || isEof(next)) {
-                children.add(missingToken(JavaTokenType.CLOSE_PAREN));
-                break;
-            }
-
-            if (next.type() == JavaTokenType.CLOSE_PAREN) {
-                children.add(consumeToken());
-                break;
-            }
-
             children.add(parseExpression());
             consumeTrivia(children);
-            if (matchSignificant(JavaTokenType.COMMA, children))
-                continue;
-
-            next = peekSignificantToken();
-            if (next != null && !isEof(next) && next.type() != JavaTokenType.CLOSE_PAREN) {
+            if (!matchSignificant(JavaTokenType.COMMA, children) && !isArgumentListEnd(peekSignificantType())) {
                 children.add(missingToken(JavaTokenType.COMMA));
             }
         }
 
+        expectSignificant(JavaTokenType.CLOSE_PAREN, children);
         return greenNode(JavaSyntaxKinds.ARGUMENT_LIST, children);
+    }
+
+    private static boolean isArgumentListEnd(JavaTokenType token) {
+        return token == null || token == JavaTokenType.EOF
+            || token != JavaTokenType.COMMA && token != JavaTokenType.WHEN_KEYWORD
+                && EXPRESSION_FOLLOW_SET.contains(token);
     }
 
     private GreenNode parseMethodReferenceExpression(GreenNode expression) {
@@ -2760,6 +2752,10 @@ public final class JavaGreenParser {
     }
 
     private GreenNode parseBlock() {
+        return parseBlock(false);
+    }
+
+    private GreenNode parseBlock(boolean memberBody) {
         List<GreenElement> children = new ArrayList<>();
 
         expectSignificant(JavaTokenType.OPEN_BRACE, children);
@@ -2776,10 +2772,32 @@ public final class JavaGreenParser {
                 break;
             }
 
+            if (memberBody && startsMethodDeclaration()) {
+                children.add(missingToken(JavaTokenType.CLOSE_BRACE));
+                break;
+            }
+
             children.add(parseStatement());
         }
 
         return greenNode(JavaSyntaxKinds.BLOCK, children);
+    }
+
+    private boolean startsMethodDeclaration() {
+        JavaTokenType first = peekSignificantType();
+        if (!(first == JavaTokenType.VOID_KEYWORD || isIdentifierLike(first) || isPrimitiveTypeToken(first)
+            || isMemberModifier(first) || first == JavaTokenType.AT || first == JavaTokenType.LEFT_ANGLED_BRACKET))
+            return false;
+
+        ParserCheckpoint checkpoint = mark();
+        int previousRecoveries = recoveries;
+        parseMemberPrefix();
+        boolean method = peekSignificantType() != JavaTokenType.RECORD_KEYWORD && parseMemberType() != null
+            && consumeIdentifierLike(new ArrayList<>()) != null
+            && peekSignificantType() == JavaTokenType.OPEN_PAREN;
+        rollback(checkpoint);
+        recoveries = previousRecoveries;
+        return method;
     }
 
     private GreenNode parseStatement() {

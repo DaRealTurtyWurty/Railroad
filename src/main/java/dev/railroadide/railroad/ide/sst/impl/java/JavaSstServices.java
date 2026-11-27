@@ -166,7 +166,7 @@ public final class JavaSstServices implements SemanticProvider, IndexExtractionP
     @Override
     public FeatureResult<RenamePreparation> prepareRename(FeatureRequestContext context, int offset) {
         context.checkActive();
-        RenamePreparation preparation = new JavaRenameEngine(context, this::capture, null).prepare(offset);
+        RenamePreparation preparation = JavaRenameEngine.prepare(context, this::capture, offset);
         context.checkActive();
         return new FeatureResult<>(context, preparation);
     }

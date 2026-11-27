@@ -8,6 +8,7 @@ import dev.railroadide.railroad.ide.sst.project.JavaSymbolIndex;
 import dev.railroadide.railroad.ide.sst.request.internal.ActivityCheckpoint;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
+import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxTree;
 import dev.railroadide.railroad.plugin.spi.inspection.JavaRuleContext;
 import org.jspecify.annotations.Nullable;
 
@@ -33,26 +34,27 @@ public final class JavaTypeCompletion {
     /**
      * Computes type suggestions for a typed identifier prefix.
      *
-     * @param document captured Java source text
+     * @param tree parsed Java source
      * @param triggerAt offset of a typed character in the prefix
      * @param projectIndex captured symbols, or {@code null} to use the running JDK
      * @param check cooperative activity check
      * @return type suggestions, or {@code null} when there are none
      */
     public static @Nullable CompletionResult complete(
-        String document,
+        SyntaxTree tree,
         int triggerAt,
         @Nullable JavaSymbolIndex projectIndex,
         Runnable check
     ) {
-        if (triggerAt < 0 || triggerAt >= document.length())
+        if (triggerAt < 0 || triggerAt >= tree.documentSnapshot().text().length())
             return null;
 
-        return new JavaTypeCompletion(check).complete(document, triggerAt, projectIndex);
+        return new JavaTypeCompletion(check).complete(tree, triggerAt, projectIndex);
     }
 
     @Nullable
-    private CompletionResult complete(String document, int triggerAt, @Nullable JavaSymbolIndex projectIndex) {
+    private CompletionResult complete(SyntaxTree tree, int triggerAt, @Nullable JavaSymbolIndex projectIndex) {
+        String document = tree.documentSnapshot().text();
         int start = triggerAt;
         while (start >= 0 && Character.isJavaIdentifierPart(document.charAt(start))) {
             start--;
@@ -63,7 +65,6 @@ public final class JavaTypeCompletion {
             return null;
 
         String prefix = document.substring(start, triggerAt + 1);
-        var tree = JavaSyntaxParser.parse(document, check);
         SyntaxNode root = tree.root();
         SyntaxNode token = lookup.findDeepestNodeContaining(root, start);
         SyntaxNode usage = token == null ? null : token.parent().orElse(null);

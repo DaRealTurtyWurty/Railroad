@@ -25,7 +25,7 @@ import java.util.*;
 import java.lang.reflect.Modifier;
 
 /**
- * SST-backed completion for members, types and method overrides.
+ * SST-backed completion for members, local variables, types and method overrides.
  */
 public final class JavaSemanticCompletionEngine {
     private final Runnable activityCheck;
@@ -37,8 +37,8 @@ public final class JavaSemanticCompletionEngine {
     }
 
     /**
-     * Computes accessible members after a dot, class names for a typed prefix, and overridable methods at
-     * member-declaration positions.
+     * Computes accessible members after a dot, variables and class names for a typed prefix, and overridable
+     * methods at member-declaration positions.
      *
      * @param document the Java document text
      * @param triggerAt the zero-based offset of the triggering dot, of the first character of the typed member
@@ -84,22 +84,15 @@ public final class JavaSemanticCompletionEngine {
         if (document == null || document.isEmpty() || triggerAt < 0 || triggerAt >= document.length())
             return null;
 
+        SyntaxTree tree = JavaSyntaxParser.parse(document, activityCheck);
         if (document.charAt(triggerAt) != '.') {
             CompletionResult overrides = new JavaMethodOverrides(document, projectIndex, activityCheck)
-                .complete(triggerAt);
-            CompletionResult types = JavaTypeCompletion.complete(document, triggerAt, projectIndex, activityCheck);
-            if (overrides == null)
-                return types;
-
-            if (types == null || overrides.replacementStart() != types.replacementStart())
-                return overrides;
-
-            List<CompletionItem> items = new ArrayList<>(overrides.items());
-            items.addAll(types.items());
-            return new CompletionResult(types.replacementStart(), items);
+                .complete(tree, triggerAt);
+            CompletionResult locals = completeLocals(tree, document, triggerAt, projectIndex);
+            CompletionResult types = JavaTypeCompletion.complete(tree, triggerAt, projectIndex, activityCheck);
+            return merge(overrides, merge(locals, types));
         }
 
-        SyntaxTree tree = JavaSyntaxParser.parse(document, activityCheck);
         SyntaxNode access = findMemberAccess(lookup.findDeepestNodeContaining(tree.root(), triggerAt));
         SyntaxNode receiver = access == null ? null : JavaSemanticAnalyzer.explicitReceiver(access);
         if (receiver == null)
@@ -130,6 +123,49 @@ public final class JavaSemanticCompletionEngine {
             .sorted(Comparator.comparing(CompletionItem::displayText, String.CASE_INSENSITIVE_ORDER))
             .toList();
         return new CompletionResult(triggerAt + 1, items);
+    }
+
+    private @Nullable CompletionResult completeLocals(
+        SyntaxTree tree,
+        String document,
+        int triggerAt,
+        @Nullable JavaSymbolIndex projectIndex
+    ) {
+        if (!Character.isJavaIdentifierPart(document.charAt(triggerAt)))
+            return null;
+
+        SyntaxNode token = lookup.findDeepestNodeContaining(tree.root(), triggerAt);
+        if (!(token instanceof SyntaxToken syntaxToken) || JavaSemanticAnalyzer.isTriviaToken(syntaxToken)
+            || !Character.isJavaIdentifierStart(document.charAt(token.start())))
+            return null;
+
+        SyntaxNode usage = token.parent().orElse(null);
+        if (usage == null || !usage.kind().equals(JavaSyntaxKinds.NAME_EXPRESSION)
+            || JavaSemanticAnalyzer.isSelectorNameExpression(usage))
+            return null;
+
+        String prefix = document.substring(token.start(), triggerAt + 1);
+        List<CompletionItem> items = JavaSemanticAnalyzer.visibleVariables(tree, usage, prefix, projectIndex,
+            activityCheck).entrySet().stream()
+            .sorted(Map.Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER))
+            .map(entry -> CompletionItem.field(entry.getKey(), entry.getValue(), false))
+            .toList();
+        return items.isEmpty() ? null : new CompletionResult(token.start(), items);
+    }
+
+    private static @Nullable CompletionResult merge(
+        @Nullable CompletionResult first,
+        @Nullable CompletionResult second
+    ) {
+        if (first == null)
+            return second;
+
+        if (second == null || first.replacementStart() != second.replacementStart())
+            return first;
+
+        List<CompletionItem> items = new ArrayList<>(first.items());
+        items.addAll(second.items());
+        return new CompletionResult(first.replacementStart(), items);
     }
 
     private @Nullable SyntaxNode findMemberAccess(@Nullable SyntaxNode node) {

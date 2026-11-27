@@ -18,12 +18,17 @@ import dev.railroadide.railroad.project.RailroadProject;
 import dev.railroadide.railroad.settings.keybinds.Keybinds;
 import dev.railroadide.railroad.theme.ThemeManager;
 import javafx.application.Platform;
+import javafx.event.EventType;
+import javafx.geometry.Point2D;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.ListView;
 import javafx.scene.image.WritableImage;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
+import javafx.scene.input.PickResult;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import org.junit.jupiter.api.AfterEach;
@@ -130,7 +135,36 @@ public class CodeActionEditorIntegrationTest {
     }
 
     @Test
-    public void lightbulbAndAltEnterAddAnImportThatUndoAndRedoAsOneStep() throws Exception {
+    public void clickingTheLightBulbOpensQuickFixesWithoutMovingTheCaretOrSelection() throws Exception {
+        int start = SOURCE.indexOf("ArrayList");
+        int end = start + "ArrayList".length();
+        onFx(() -> {
+            editor.requestFocus();
+            editor.selectRange(end, start);
+            return null;
+        });
+
+        awaitFx(() -> {
+            Node bulb = editor.lookup(".editor-code-action-bulb");
+            if (bulb == null)
+                return false;
+
+            firePrimaryMouseEvent(bulb, MouseEvent.MOUSE_PRESSED);
+            assertEquals(start, editor.getCaretPosition());
+            assertEquals(end, editor.getAnchor());
+            firePrimaryMouseEvent(bulb, MouseEvent.MOUSE_RELEASED);
+            firePrimaryMouseEvent(bulb, MouseEvent.MOUSE_CLICKED);
+            return true;
+        });
+
+        awaitFx(() -> editor.activeCodeActionMenu() != null);
+        assertEquals(List.of("Import 'java.util.ArrayList'"), titles(onFx(editor::activeCodeActionMenu)));
+        assertEquals(start, onFx(editor::getCaretPosition));
+        assertEquals(end, onFx(editor::getAnchor));
+    }
+
+    @Test
+    public void altEnterAddsAnImportThatUndoAndRedoAsOneStep() throws Exception {
         moveTo("ArrayList<");
         awaitFx(() -> editor.codeActionBulbLine() == 6);
 
@@ -199,6 +233,73 @@ public class CodeActionEditorIntegrationTest {
             assertEquals(expected.lastIndexOf("Fluids") + "Fluids".length(), editor.getCaretPosition());
             editor.undo();
             assertEquals(typed, editor.getText());
+            return null;
+        });
+    }
+
+    @Test
+    public void typingAndAcceptingLocalCompletionInsertsTheVariableName() throws Exception {
+        String source = "class A { void run() { int localCount = 1; System.out.println(); } }\n";
+        int start = source.indexOf("println(") + "println(".length();
+        onFx(() -> {
+            editor.replaceText(source);
+            editor.requestFocus();
+            editor.moveTo(start);
+            editor.insertText(start, "l");
+            return null;
+        });
+
+        awaitFx(() -> {
+            Node popup = visibleNode(".completion-popup");
+            return popup != null && popup.lookup(".list-view") instanceof ListView<?> list
+                && list.getSelectionModel().getSelectedItem() instanceof CompletionItem item
+                && "localCount".equals(item.insertText());
+        });
+
+        onFx(() -> {
+            press(Objects.requireNonNull(visibleNode(".completion-popup").lookup(".list-view")), KeyCode.ENTER, false);
+            assertEquals(source.replace("println()", "println(localCount)"), editor.getText());
+            assertEquals(start + "localCount".length(), editor.getCaretPosition());
+            return null;
+        });
+    }
+
+    @Test
+    public void completesAMethodWhileAnEarlierCallIsMissingItsClosingParenthesis() throws Exception {
+        String source = """
+            class A {
+                void broken() { helper(1; }
+                void later(String text) { text; }
+                void helper(int number) {}
+            }
+            """;
+        onFx(() -> {
+            editor.replaceText(source);
+            editor.requestFocus();
+            editor.moveTo(source.indexOf("text;") + "text".length());
+            for (char character : ".sub".toCharArray()) {
+                editor.insertText(editor.getCaretPosition(), String.valueOf(character));
+            }
+
+            return null;
+        });
+
+        awaitFx(() -> {
+            Node popup = visibleNode(".completion-popup");
+            return popup != null && popup.lookup(".list-view") instanceof ListView<?> list
+                && list.getItems().stream()
+                    .anyMatch(entry -> entry instanceof CompletionItem item && "substring".equals(item.insertText()));
+        });
+
+        onFx(() -> {
+            ListView<?> list = (ListView<?>) Objects
+                .requireNonNull(visibleNode(".completion-popup").lookup(".list-view"));
+            Object suggestion = list.getItems().stream()
+                .filter(entry -> entry instanceof CompletionItem item && "substring".equals(item.insertText()))
+                .findFirst().orElseThrow();
+            list.getSelectionModel().select(list.getItems().indexOf(suggestion));
+            press(list, KeyCode.ENTER, false);
+            assertEquals(source.replace("text;", "text.substring();"), editor.getText());
             return null;
         });
     }
@@ -395,6 +496,15 @@ public class CodeActionEditorIntegrationTest {
 
     private static void press(Node node, KeyCode code, boolean alt) {
         node.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, false, false, alt, false));
+    }
+
+    private static void firePrimaryMouseEvent(Node node, EventType<MouseEvent> type) {
+        var center = new Point2D(node.getLayoutBounds().getCenterX(), node.getLayoutBounds().getCenterY());
+        Point2D scene = node.localToScene(center);
+        Point2D screen = node.localToScreen(center);
+        node.fireEvent(new MouseEvent(type, scene.getX(), scene.getY(), screen.getX(), screen.getY(),
+            MouseButton.PRIMARY, 1, false, false, false, false, type == MouseEvent.MOUSE_PRESSED,
+            false, false, false, false, true, new PickResult(node, scene.getX(), scene.getY())));
     }
 
     private static Node visibleNode(String selector) {

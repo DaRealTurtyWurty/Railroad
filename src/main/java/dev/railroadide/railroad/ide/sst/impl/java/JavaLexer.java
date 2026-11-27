@@ -228,6 +228,9 @@ public class JavaLexer implements Lexer<JavaTokenType> {
         consume();
         while (hasNext()) {
             char current = charAt(pos);
+            if (current == '\r' || current == '\n')
+                break;
+
             if (current == '"' && !escapeNext) {
                 consume();
                 popMode();

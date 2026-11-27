@@ -36,8 +36,10 @@ import io.github.palexdev.mfxresources.fonts.MFXFontIcon;
 import io.github.palexdev.mfxresources.fonts.fontawesome.FontAwesomeSolid;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
+import javafx.event.EventHandler;
 import javafx.geometry.Bounds;
 import javafx.geometry.Point2D;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.input.*;
@@ -1370,12 +1372,7 @@ public class CodeEditorPane extends TextEditorPane {
         });
 
         getGutter().addColumn(new GutterColumn("diagnostics", 12, this::createDiagnosticMarker));
-        getGutter().addColumn(new GutterColumn("code-actions", 14, this::createCodeActionBulb, (line, event) -> {
-            if (line == codeActionBulbLine) {
-                event.consume();
-                showCodeActions();
-            }
-        }));
+        getGutter().addColumn(new GutterColumn("code-actions", 14, this::createCodeActionBulb));
     }
 
     private @Nullable Node createCodeActionBulb(int line) {
@@ -1384,8 +1381,28 @@ public class CodeEditorPane extends TextEditorPane {
 
         var icon = new MFXFontIcon(FontAwesomeSolid.LIGHTBULB, 12);
         icon.getStyleClass().add("editor-code-action-bulb");
-        Tooltip.install(icon, new Tooltip(L18n.localize("railroad.code_actions.bulb")));
-        return icon;
+        var marker = new StackPane(icon);
+        marker.setAlignment(Pos.CENTER_LEFT);
+        Tooltip.install(marker, new Tooltip(L18n.localize("railroad.code_actions.bulb")));
+
+        // RichTextFX moves the caret on mouse press, before a click handler can consume the event.
+        EventHandler<MouseEvent> keepEditorSelection = event -> {
+            if (event.getButton() == MouseButton.PRIMARY || event.isPrimaryButtonDown()) {
+                event.consume();
+            }
+        };
+
+        marker.addEventFilter(MouseEvent.MOUSE_PRESSED, keepEditorSelection);
+        marker.addEventFilter(MouseEvent.MOUSE_DRAGGED, keepEditorSelection);
+        marker.addEventFilter(MouseEvent.MOUSE_RELEASED, keepEditorSelection);
+        marker.setOnMouseClicked(event -> {
+            if (event.getButton() == MouseButton.PRIMARY && event.isStillSincePress() && line == codeActionBulbLine) {
+                event.consume();
+                showCodeActions();
+            }
+        });
+
+        return marker;
     }
 
     private @Nullable Node createDiagnosticMarker(int line) {

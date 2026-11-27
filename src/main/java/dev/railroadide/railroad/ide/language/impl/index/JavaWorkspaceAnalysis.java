@@ -221,6 +221,24 @@ public final class JavaWorkspaceAnalysis implements JavaSourceSnapshotIndex {
         return result;
     }
 
+    /**
+     * Resolves the captured source document against this workspace's symbols.
+     *
+     * @param source captured source revision
+     * @param activityCheck cooperative cancellation check
+     * @return resolved facts, or empty if the revision is unavailable
+     */
+    public Optional<SemanticIndexShard> resolvedSource(TextDocumentSnapshot source, Runnable activityCheck) {
+        activityCheck.run();
+        return source.uri().filePath().flatMap(sourceIndex::getFile)
+            .filter(file -> {
+                SemanticIndexShard shard = file.semanticShard();
+                return shard != null && shard.documentId().equals(source.id())
+                    && shard.documentVersion().equals(source.version()) && shard.uri().equals(source.uri());
+            })
+            .map(file -> resolveShard(new JavaProjectSemanticExtractor(), file, activityCheck));
+    }
+
     private Collection<SemanticIndexShard> withReferencedDeclarations(
         List<SemanticIndexShard> sources,
         Runnable check

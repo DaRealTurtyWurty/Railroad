@@ -1,8 +1,10 @@
 package dev.railroadide.railroad.ide.sst.impl.java;
 
+import dev.railroadide.railroad.ide.language.impl.index.JavaWorkspaceAnalysis;
 import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.edit.api.WorkspaceChange;
 import dev.railroadide.railroad.ide.sst.edit.api.WorkspaceEdit;
+import dev.railroadide.railroad.ide.sst.project.JavaLibrarySources;
 import dev.railroadide.railroad.ide.sst.provider.api.RenameConflict;
 import dev.railroadide.railroad.ide.sst.provider.api.RenamePreparation;
 import dev.railroadide.railroad.ide.sst.provider.api.RenameProposal;
@@ -135,6 +137,53 @@ public class JavaRenameServiceTest {
         assertEquals(expected, renamed("p/A.java", "total = 0", 0, "result").get("p/A.java"));
         int end = text("p/A.java").indexOf("total = 0") + "total".length();
         assertEquals(expected, applyAt("p/A.java", end, "result").get("p/A.java"));
+    }
+
+    @Test
+    public void renamesLocalValuesWithoutResolvingOtherSourceBodies() {
+        String file = "p/A.java";
+        String original = "package p; class A { int get(int amount) { int total = amount; return total; } }";
+        source(file, "package p; class A {}");
+        overlay(file, original);
+        source("p/Other.java", "package p; class Other { int get(int amount) { return amount; } }");
+
+        try (var localServices = new JavaSstServices(JavaLibrarySources.shared(), request -> {
+            JavaWorkspaceAnalysis analysis = services.capture(request);
+            Path indexed = analysis.sourceIndex().getFile(path(file)).orElseThrow().path();
+            return new JavaWorkspaceAnalysis(analysis.sourceIndex(), analysis.symbols(),
+                Map.of(indexed, analysis.sourceTexts().get(indexed)),
+                analysis.classpath(), analysis.jdkHome());
+        })) {
+            for (String name : List.of("amount", "total")) {
+                FeatureRequestContext request = context(file);
+                int offset = original.lastIndexOf(name) + name.length();
+                RenamePreparation.Renameable prepared = assertInstanceOf(RenamePreparation.Renameable.class,
+                    localServices.prepareRename(request, offset).value());
+                RenameProposal proposal = localServices.rename(request, offset, prepared.symbol(), "result").value();
+                assertTrue(proposal.applicable(), proposal.conflicts()::toString);
+                assertTrue(proposal.conflicts().isEmpty(), proposal.conflicts()::toString);
+                assertEquals(1, proposal.edit().changes().size());
+                assertEquals(original.replace(name, "result"), apply(proposal.edit()).get(file));
+            }
+        }
+    }
+
+    @Test
+    public void renamesParameterThatSharesItsMethodsName() {
+        source("p/A.java", """
+            package p;
+            class A {
+                int read(int read) { return read; }
+                int other() { return read(1); }
+            }
+            """);
+        assertEquals("""
+            package p;
+            class A {
+                int read(int value) { return value; }
+                int other() { return read(1); }
+            }
+            """, renamed("p/A.java", "return read;", "return ".length(), "value").get("p/A.java"));
     }
 
     @Test

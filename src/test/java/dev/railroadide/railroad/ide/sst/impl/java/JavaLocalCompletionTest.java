@@ -1,0 +1,127 @@
+package dev.railroadide.railroad.ide.sst.impl.java;
+
+import dev.railroadide.railroad.ide.completion.CompletionItem;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+public class JavaLocalCompletionTest {
+    @Test
+    public void completesParametersAndEarlierLocalsFromEnclosingBlocks() {
+        String document = """
+            class Example {
+                void other() { int countOtherMethod = 0; }
+                void run(int countParameter) {
+                    { int countSibling = 0; }
+                    var countOuter = 1;
+                    {
+                        long countInner = 2;
+                        use(co/*caret*/);
+                        int countLater = 3;
+                    }
+                }
+                void use(int value) {}
+            }
+            """;
+        List<CompletionItem> items = locals(document);
+        assertEquals(List.of("countInner", "countOuter", "countParameter"),
+            items.stream().map(CompletionItem::insertText).toList());
+        assertEquals(List.of("long", "int", "int"), items.stream().map(CompletionItem::detail).toList());
+    }
+
+    @Test
+    public void completesPatternVariablesOnlyWhereThePatternMatched() {
+        String source = """
+            class Example {
+                void run(Object value) {
+                    if (value instanceof String matchedText) {
+                        use(%s);
+                    } else {
+                        use(%s);
+                    }
+                }
+                void use(Object value) {}
+            }
+            """;
+        assertEquals(List.of("matchedText"),
+            locals(source.formatted("ma/*caret*/", "null")).stream().map(CompletionItem::insertText).toList());
+        assertTrue(locals(source.formatted("null", "ma/*caret*/")).isEmpty());
+    }
+
+    @Test
+    public void completesLambdaParametersAtTheFirstCharacter() {
+        String document = """
+            class Example {
+                java.util.function.IntUnaryOperator increment() {
+                    return lambdaValue -> l/*caret*/ + 1;
+                }
+            }
+            """;
+        assertEquals(List.of("lambdaValue"), locals(document).stream().map(CompletionItem::insertText).toList());
+    }
+
+    @Test
+    public void completesAnEnhancedForVariableOnlyInTheLoopBody() {
+        String source = """
+            class Example {
+                void run() {
+                    for (String itemValue : %s) {
+                        use(%s);
+                    }
+                }
+                void use(Object value) {}
+            }
+            """;
+        assertEquals(List.of("itemValue"),
+            locals(source.formatted("new String[0]", "it/*caret*/")).stream().map(CompletionItem::insertText).toList());
+        assertTrue(locals(source.formatted("it/*caret*/", "null")).isEmpty());
+    }
+
+    @Test
+    public void completesATryResourceOnlyInTheTryBody() {
+        String source = """
+            class Example {
+                void run() throws Exception {
+                    try (AutoCloseable resourceValue = () -> {}) {
+                        use(%s);
+                    } finally {
+                        use(%s);
+                    }
+                }
+                void use(Object value) {}
+            }
+            """;
+        assertEquals(List.of("resourceValue"),
+            locals(source.formatted("re/*caret*/", "null")).stream().map(CompletionItem::insertText).toList());
+        assertTrue(locals(source.formatted("null", "re/*caret*/")).isEmpty());
+    }
+
+    @Test
+    public void omitsLocalsInCommentsStringsAndTypePositions() {
+        for (String statement : List.of("// lo/*caret*/\n", "use(\"lo/*caret*/\");", "lo/*caret*/ variable;")) {
+            assertTrue(locals("class Example { void run() { int localValue = 1; " + statement + "} }").isEmpty());
+        }
+    }
+
+    private static List<CompletionItem> locals(String document) {
+        int caret = document.indexOf("/*caret*/");
+        String source = document.replace("/*caret*/", "");
+        var result = JavaSemanticCompletionEngine.compute(source, caret - 1, null);
+        if (result == null)
+            return List.of();
+
+        assertEquals(identifierStart(source, caret), result.replacementStart());
+        return result.items().stream().filter(item -> item.kind() == CompletionItem.Kind.FIELD).toList();
+    }
+
+    private static int identifierStart(String source, int caret) {
+        int start = caret;
+        while (start > 0 && Character.isJavaIdentifierPart(source.charAt(start - 1))) {
+            start--;
+        }
+
+        return start;
+    }
+}

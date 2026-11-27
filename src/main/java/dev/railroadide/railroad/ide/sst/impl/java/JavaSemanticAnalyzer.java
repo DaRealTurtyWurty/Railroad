@@ -499,6 +499,52 @@ public final class JavaSemanticAnalyzer {
     }
 
     /**
+     * Finds local variables and parameters visible at a name expression, with their type labels.
+     *
+     * @param tree parsed Java source
+     * @param usage name expression being completed
+     * @param prefix typed identifier prefix
+     * @param index captured Java symbols, or {@code null} for the runtime library
+     * @param check cooperative request activity check
+     * @return variable names and type labels, with an empty label when the type is unknown
+     */
+    public static Map<String, String> visibleVariables(
+        SyntaxTree tree,
+        SyntaxNode usage,
+        String prefix,
+        @Nullable JavaSymbolIndex index,
+        Runnable check
+    ) {
+        Map<String, String> variables = new LinkedHashMap<>();
+        performAnalysis(tree, true, false, index, check, resolver -> {
+            for (Scope scope = resolver.context.scopeFor(usage); scope != null; scope = scope.parent().orElse(null)) {
+                for (Map.Entry<String, List<Symbol>> entry : scope.snapshotDeclarations().entrySet()) {
+                    resolver.context.poll();
+                    String name = entry.getKey();
+                    if (!name.startsWith(prefix) || "_".equals(name) || variables.containsKey(name))
+                        continue;
+
+                    for (Symbol symbol : entry.getValue()) {
+                        if (symbol.kind() != JavaSymbolKind.LOCAL_VARIABLE && symbol.kind() != JavaSymbolKind.PARAMETER)
+                            continue;
+
+                        SyntaxNode declaration = symbol.declaration().orElse(null);
+                        if (declaration == null || declaration.end() > usage.start()
+                            || declaration.kind().equals(JavaSyntaxKinds.RECORD_COMPONENT))
+                            continue;
+
+                        Type type = resolver.typeOfResolvedSymbol(symbol);
+                        variables.put(name, type.kind() == JavaTypes.Kind.UNKNOWN ? "" : type.displayName());
+                        break;
+                    }
+                }
+            }
+        });
+
+        return Collections.unmodifiableMap(variables);
+    }
+
+    /**
      * @param model semantic facts for the source being completed
      * @param receiverBounds qualified bounds for a type-variable receiver, or empty for other receivers
      */

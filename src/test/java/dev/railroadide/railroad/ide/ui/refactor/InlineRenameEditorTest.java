@@ -4,6 +4,8 @@ import com.panemu.tiwulfx.control.dock.DetachableTabPane;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.command.CommandContext;
+import dev.railroadide.railroad.command.CommandMenuItems;
+import dev.railroadide.railroad.command.Commands;
 import dev.railroadide.railroad.command.EditCommands;
 import dev.railroadide.railroad.ide.WorkspaceModes;
 import dev.railroadide.railroad.ide.projectexplorer.ProjectExplorerPane;
@@ -174,6 +176,51 @@ public class InlineRenameEditorTest {
 
         assertEquals(SOURCE, Files.readString(file));
         assertFalse(Services.IDE_STATE.getWorkspaceEdits().orElseThrow().canUndo());
+    }
+
+    @Test
+    public void renamesAnUnsavedParameterAndLocalThroughTheEditorCommand() throws Exception {
+        String source = """
+            class A {
+                int read(int amount) { int total = amount; return total; }
+                int other(int amount) { return amount; }
+            }
+            """;
+        onFx(() -> {
+            editor.replaceText(source);
+            return null;
+        });
+
+        for (String name : List.of("amount", "total")) {
+            String expected = name.equals("amount")
+                ? source.replace("read(int amount) { int total = amount", "read(int input) { int total = input")
+                : source.replace("int total = amount; return total", "int input = amount; return input");
+            int caret = source.indexOf(name) + 1;
+            onFx(() -> {
+                editor.moveTo(caret);
+                CommandMenuItems.create(Commands.RENAME,
+                    () -> CommandContext.withArgument(project, editor, editor)).fire();
+                return null;
+            });
+
+            awaitFx(() -> visibleNode(".inline-rename-editor") != null);
+            onFx(() -> {
+                InlineRenameEditor draft = (InlineRenameEditor) visibleNode(".inline-rename-editor");
+                type(draft, "input");
+                assertEquals(expected, draft.getText());
+                assertEquals(source, editor.getText());
+                press(draft, KeyCode.ENTER, false);
+                return null;
+            });
+
+            click("railroad.rename.apply");
+            onFx(() -> {
+                assertEquals(expected, editor.getText());
+                editor.undo();
+                assertEquals(source, editor.getText());
+                return null;
+            });
+        }
     }
 
     @Test
