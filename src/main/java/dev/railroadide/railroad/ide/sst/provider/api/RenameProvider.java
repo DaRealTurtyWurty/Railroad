@@ -40,4 +40,14 @@ public interface RenameProvider {
      * @return the proposed edit and its conflicts; an edit with errors requires explicit confirmation
      */
     FeatureResult<RenameProposal> rename(FeatureRequestContext context, int offset, SymbolId symbol, String newName);
+
+    /**
+     * Plans a rename of the requesting file within its directory, including references to a declaration whose
+     * name follows the filename. The resulting workspace edit includes the file move.
+     *
+     * @param context captured file and workspace
+     * @param newFileName requested filename including its extension
+     * @return proposed changes or conflicts preventing the rename
+     */
+    FeatureResult<RenameProposal> renameFile(FeatureRequestContext context, String newFileName);
 }

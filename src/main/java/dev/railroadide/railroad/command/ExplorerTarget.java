@@ -103,7 +103,17 @@ public record ExplorerTarget(TreeView<PathItem> tree, TreeItem<PathItem> item, W
      * Requests inline rename for this exact tree entry.
      */
     public void rename() {
+        rename(item.getValue().toString());
+    }
+
+    /**
+     * Resumes inline rename with the filename last reviewed in the refactoring preview.
+     *
+     * @param name initial filename in the tree's edit field
+     */
+    public void rename(String name) {
         tree.getProperties().put("railroad:rename-item", item);
+        tree.getProperties().put("railroad:rename-name", name);
         tree.edit(item);
     }
 

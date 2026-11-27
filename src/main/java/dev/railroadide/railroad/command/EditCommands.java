@@ -138,6 +138,9 @@ public final class EditCommands {
 
     private static boolean enabled(String action, Node target) {
         if (target instanceof ProjectExplorerPane pane) {
+            if (action.equals("undo") || action.equals("redo"))
+                return pane.canStepWorkspaceHistory(action.equals("redo"));
+
             Command<ExplorerTarget> command = explorerCommand(action);
             return command != null && command.canExecute(CommandContext.withArgument(null, pane, pane.commandTarget()));
         }
@@ -176,8 +179,12 @@ public final class EditCommands {
 
     private static void execute(String action, Node target, CommandContext<Void> context) {
         if (target instanceof ProjectExplorerPane pane) {
-            CommandDispatcher.execute(explorerCommand(action),
-                CommandContext.withArgument(context.project(), pane, pane.commandTarget()));
+            if (action.equals("undo") || action.equals("redo")) {
+                pane.stepWorkspaceHistory(action.equals("redo"));
+            } else {
+                CommandDispatcher.execute(explorerCommand(action),
+                    CommandContext.withArgument(context.project(), pane, pane.commandTarget()));
+            }
         } else if (target instanceof TextInputControl text) {
             switch (action) {
                 case "undo" -> text.undo();

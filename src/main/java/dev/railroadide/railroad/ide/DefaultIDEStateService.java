@@ -20,6 +20,7 @@ import lombok.Getter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import lombok.AccessLevel;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexService;
 
@@ -51,6 +52,18 @@ public class DefaultIDEStateService implements IDEStateService {
      */
     public boolean isDocumentWatched(Path path) {
         return documentSynchronizer != null && documentSynchronizer.covers(path);
+    }
+
+    /**
+     * Completes after the current project's initial filesystem scan has published its documents, including
+     * closed files. Call on the editor UI thread.
+     *
+     * @return completion for the current session, failed if discovery is unavailable
+     */
+    public CompletableFuture<Void> initialDocumentScan() {
+        return documentSynchronizer == null
+            ? CompletableFuture.failedFuture(new IllegalStateException("Project file discovery is unavailable"))
+            : documentSynchronizer.initialScan().copy();
     }
 
     private DefaultIDEStateService() {

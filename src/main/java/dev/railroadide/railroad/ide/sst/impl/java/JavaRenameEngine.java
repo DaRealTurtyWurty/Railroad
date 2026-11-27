@@ -181,6 +181,64 @@ public final class JavaRenameEngine {
 
     // region Target resolution
 
+    /**
+     * Plans a sibling file rename and resolves the matching top-level declaration in its own source set before
+     * collecting references from dependent source sets.
+     *
+     * @param context captured source document and workspace
+     * @param capture source-set analysis for each request
+     * @param newFileName requested sibling filename
+     * @return file and symbol changes or a conflict
+     */
+    public static RenameProposal renameFile(
+        FeatureRequestContext context,
+        Function<FeatureRequestContext, JavaWorkspaceAnalysis> capture,
+        String newFileName
+    ) {
+        DocumentSnapshot source = context.documentSnapshot();
+        Path path = source.uri().filePath().orElseThrow();
+        String oldFileName = path.getFileName().toString();
+        Path destination;
+        try {
+            Path name = Path.of(newFileName);
+            if (newFileName.isBlank() || name.getRoot() != null || name.getNameCount() != 1
+                || !name.toString().equals(newFileName) || newFileName.equals(".") || newFileName.equals(".."))
+                throw new InvalidPathException(newFileName, "Expected a filename");
+
+            destination = path.resolveSibling(name);
+        } catch (InvalidPathException exception) {
+            return blocked(oldFileName, newFileName, List.of(error("Enter a filename in the same directory", null)));
+        }
+
+        SemanticIndexShard shard = capture.apply(context).sourceIndex().graph().shard(source.id()).orElse(null);
+        if (shard == null || !shard.uri().equals(source.uri()) || !shard.documentVersion().equals(source.version()))
+            return blocked(oldFileName, newFileName,
+                List.of(error("The Java source is not available for analysis", null)));
+
+        for (SymbolDescriptor type : shard.declarations()) {
+            context.checkActive();
+            if (!TYPE_KINDS.contains(type.kind().id()) || !topLevel(type)
+                || !oldFileName.equals(type.simpleName() + ".java"))
+                continue;
+
+            if (!newFileName.endsWith(".java"))
+                return blocked(oldFileName, newFileName, List.of(error("A Java type needs a .java filename", null)));
+
+            var engine = new JavaRenameEngine(context, capture, type.id());
+            Location.TextLocation declaration = engine.declarationLocation(type);
+            if (declaration == null || !declaration.documentId().equals(source.id()))
+                return blocked(oldFileName, newFileName, List.of(error("The type declaration is unavailable", null)));
+
+            String typeName = newFileName.substring(0, newFileName.length() - ".java".length());
+            RenameProposal proposal = engine.rename(declaration.range().start, type.id(), typeName);
+            return new RenameProposal(oldFileName, newFileName, proposal.edit(), proposal.conflicts());
+        }
+
+        WorkspaceEdit edit = WorkspaceEdit.builder("Rename " + oldFileName)
+            .rename(source, DocumentUri.fromPath(destination)).build();
+        return new RenameProposal(oldFileName, newFileName, edit, List.of());
+    }
+
     private Target resolve(int offset) {
         context.checkActive();
         if (!(context.documentSnapshot() instanceof TextDocumentSnapshot source) || !sources.containsKey(source.id()))
@@ -1918,7 +1976,7 @@ public final class JavaRenameEngine {
             .anyMatch(part -> part.kind().equals("local") && part.value().startsWith("JAVA_RECORD_HEADER"));
     }
 
-    private boolean topLevel(SymbolDescriptor type) {
+    private static boolean topLevel(SymbolDescriptor type) {
         if (type.ownerId() == null)
             return true;
 

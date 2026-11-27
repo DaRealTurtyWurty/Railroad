@@ -90,7 +90,7 @@ public final class JavaSstServices implements SemanticProvider, IndexExtractionP
     public FeatureResult<List<SymbolOccurrence>> extract(FeatureRequestContext context) {
         SemanticModel model = analyze(context).value();
         TextDocumentSnapshot snapshot = model.syntaxTree().documentSnapshot();
-        List<SymbolOccurrence> declarations = new ArrayList<SymbolOccurrence>();
+        List<SymbolOccurrence> declarations = new ArrayList<>();
         Deque<SyntaxNode> pending = new ArrayDeque<>();
         pending.add(model.syntaxTree().root());
         while (!pending.isEmpty()) {
@@ -108,7 +108,7 @@ public final class JavaSstServices implements SemanticProvider, IndexExtractionP
     @Override
     public FeatureResult<List<SymbolOccurrence>> query(WorkspaceRequestContext context, String name) {
         Objects.requireNonNull(name, "name");
-        List<SymbolOccurrence> found = new ArrayList<SymbolOccurrence>();
+        List<SymbolOccurrence> found = new ArrayList<>();
         for (DocumentSnapshot snapshot : context.workspaceSnapshot().documents().values()) {
             context.checkActive();
             if (!(snapshot instanceof TextDocumentSnapshot) || !snapshot.languageId().equals("java"))
@@ -182,6 +182,14 @@ public final class JavaSstServices implements SemanticProvider, IndexExtractionP
         Objects.requireNonNull(newName, "newName");
         context.checkActive();
         RenameProposal proposal = new JavaRenameEngine(context, this::capture, symbol).rename(offset, symbol, newName);
+        context.checkActive();
+        return new FeatureResult<>(context, proposal);
+    }
+
+    @Override
+    public FeatureResult<RenameProposal> renameFile(FeatureRequestContext context, String newFileName) {
+        context.checkActive();
+        RenameProposal proposal = JavaRenameEngine.renameFile(context, this::capture, newFileName);
         context.checkActive();
         return new FeatureResult<>(context, proposal);
     }

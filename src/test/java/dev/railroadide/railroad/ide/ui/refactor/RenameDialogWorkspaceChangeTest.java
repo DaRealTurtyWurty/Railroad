@@ -64,6 +64,7 @@ public class RenameDialogWorkspaceChangeTest {
     @TempDir
     public Path scratch;
     private final Map<String, TextDocumentSnapshot> documents = new LinkedHashMap<>();
+    private final DocumentIdentityRegistry identities = new DocumentIdentityRegistry();
     private DefaultDocumentStore store;
     private WorkspaceEditService edits;
     private RenameDialog dialog;
@@ -97,7 +98,6 @@ public class RenameDialogWorkspaceChangeTest {
         var configuration = new WorkspaceConfigurationSnapshot(0, Set.of("main"),
             Map.of("module.main.sources", root.toString()));
         store = new DefaultDocumentStore("rename-dialog", configuration);
-        var identities = new DocumentIdentityRegistry();
         edits = new WorkspaceEditService(root, store, identities, new WorkspaceEditorHost() {
             @Override
             public Optional<TextEditorPane> openEditor(DocumentId id) {
@@ -111,7 +111,9 @@ public class RenameDialogWorkspaceChangeTest {
 
             @Override
             public void relocate(DocumentIdentity identity, Path newPath) {
-                store.relocate(identity.id(), DocumentUri.fromPath(newPath));
+                DocumentUri uri = DocumentUri.fromPath(newPath);
+                identities.rebind(identity.id(), identity.uri(), uri);
+                store.relocate(identity.id(), uri);
             }
         });
 
@@ -131,6 +133,32 @@ public class RenameDialogWorkspaceChangeTest {
             edits.close();
             return null;
         });
+    }
+
+    @Test
+    public void fileRenameAndUndoUpdateClosedFilesAndPreserveAnUnsavedDraft() throws Exception {
+        TextDocumentSnapshot source = documents.get("p/Calc.java");
+        String draft = USE.replace("Calc.calc(5)", "Calc.calc(7) + Calc.calc(8)");
+        overlay("p/Use.java", draft);
+        dialog = onFx(() -> new RenameDialog(new RenameDialog.Request("Calc.java", "file", services::renameFile,
+            CancellationToken.none(), store, source, () -> Optional.of(edits)), "Maths.java", _ -> {
+            }));
+
+        assertEquals(RenameDialog.State.PREVIEWED, onFx(dialog::preview).get(60, TimeUnit.SECONDS));
+        assertTrue(onFx(dialog::apply).orElseThrow().applied());
+        assertFalse(Files.exists(root.resolve("p/Calc.java")));
+        assertEquals(CALC.replace("class Calc", "class Maths"), Files.readString(root.resolve("p/Maths.java")));
+        DocumentId caller = documents.get("p/Use.java").id();
+        assertEquals(draft.replace("Calc.calc", "Maths.calc"),
+            ((TextDocumentSnapshot) store.current(caller).orElseThrow()).text());
+        assertEquals(USE, Files.readString(root.resolve("p/Use.java")));
+
+        assertTrue(onFx(edits::undo).applied());
+        assertFalse(onFx(edits::canUndo));
+        assertFalse(Files.exists(root.resolve("p/Maths.java")));
+        assertEquals(CALC, Files.readString(root.resolve("p/Calc.java")));
+        assertEquals(draft, ((TextDocumentSnapshot) store.state(caller).orElseThrow().overlay()).text());
+        assertEquals(USE, Files.readString(root.resolve("p/Use.java")));
     }
 
     @Test
@@ -244,7 +272,7 @@ public class RenameDialogWorkspaceChangeTest {
         TextDocumentSnapshot saved = documents.get(file);
         var uri = DocumentUri.fromPath(path);
         TextDocumentSnapshot document = saved == null
-            ? new TextDocumentSnapshot(DocumentId.create(), uri, DocumentVersion.initial(), "java",
+            ? new TextDocumentSnapshot(identities.getOrCreate(path), uri, DocumentVersion.initial(), "java",
                 DocumentOrigin.original(uri), text, StandardCharsets.UTF_8)
             : new TextDocumentSnapshot(saved.id(), saved.uri(), saved.version().next(), "java", saved.origin(), text,
                 StandardCharsets.UTF_8);

@@ -144,6 +144,15 @@ public class GradleSourceSetIntegrationTest {
                 .map(WorkspaceChange.TextEdit.class::cast).map(edit -> edit.expected().id())
                 .collect(Collectors.toSet()));
 
+            RenameProposal fileRename = services.renameFile(gameContext, "Engine.java").value();
+            assertTrue(fileRename.applicable(), () -> fileRename.conflicts().toString());
+            assertEquals(Set.of(game.id(), test.id(), client.id()), fileRename.edit().changes().stream()
+                .filter(WorkspaceChange.TextEdit.class::isInstance).map(WorkspaceChange.TextEdit.class::cast)
+                .map(edit -> edit.expected().id()).collect(Collectors.toSet()));
+            assertEquals(List.of(game.id()), fileRename.edit().changes().stream()
+                .filter(WorkspaceChange.RenameFile.class::isInstance).map(WorkspaceChange.RenameFile.class::cast)
+                .map(move -> move.expected().id()).toList());
+
             var cache = new PersistedGradleModelStore(directory.resolve("cache"), "test");
             assertTrue(cache.save(directory, updated, Instant.now()));
             PersistedGradleModelStore.Restored reopened = cache.load(directory).orElseThrow();

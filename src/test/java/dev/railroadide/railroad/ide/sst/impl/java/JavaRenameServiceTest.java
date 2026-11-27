@@ -43,6 +43,41 @@ public class JavaRenameServiceTest {
     }
 
     @Test
+    public void fileRenameTargetsOnlyTheMatchingTopLevelTypeInTheCurrentDraft() {
+        source("p/Box.java", "package p; class Old {}");
+        overlay("p/Box.java", "package p; class Other {} public record Box(int size) {}");
+        source("q/Use.java", "package q; import p.Box; class Use { Box b = new Box(1); }");
+        source("r/Box.java", "package r; class Box { Box other; }");
+
+        RenameProposal proposal = services.renameFile(context("p/Box.java"), "Crate.java").value();
+        assertTrue(proposal.applicable(), proposal.conflicts()::toString);
+        Map<String, String> changed = apply(proposal.edit());
+        assertEquals("package p; class Other {} public record Crate(int size) {}", changed.get("p/Box.java"));
+        assertEquals("package q; import p.Crate; class Use { Crate b = new Crate(1); }", changed.get("q/Use.java"));
+        assertEquals(text("r/Box.java"), changed.get("r/Box.java"));
+        assertTrue(proposal.edit().changes().stream()
+            .anyMatch(change -> change instanceof WorkspaceChange.RenameFile move
+                && move.expected().equals(documents.get("p/Box.java"))
+                && move.newUri().equals(DocumentUri.fromPath(path("p/Crate.java")))));
+    }
+
+    @Test
+    public void fileRenameLeavesNestedAndDifferentlyNamedTypesAloneAndRefusesOccupiedDestinations() {
+        source("p/Box.java", "package p; class Other { static class Box {} }");
+        RenameProposal fileOnly = services.renameFile(context("p/Box.java"), "Types.java").value();
+        assertTrue(fileOnly.applicable(), fileOnly.conflicts()::toString);
+        assertEquals(1, fileOnly.edit().changes().size());
+        assertInstanceOf(WorkspaceChange.RenameFile.class, fileOnly.edit().changes().getFirst());
+
+        overlay("p/Box.java", "package p; public class Box {}");
+        source("p/Types.java", "package p; public class Types {}");
+        RenameProposal collision = services.renameFile(context("p/Box.java"), "Types.java").value();
+        assertFalse(collision.applicable());
+        assertNull(collision.edit());
+        assertFalse(services.renameFile(context("p/Box.java"), "../Elsewhere.java").value().applicable());
+    }
+
+    @Test
     public void renamesReferencesAndImportsWrittenWithUnicodeEscapes() {
         source("p/A.java", """
             package p;

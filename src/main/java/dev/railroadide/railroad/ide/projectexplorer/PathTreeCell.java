@@ -24,12 +24,14 @@ import org.kordamp.ikonli.javafx.FontIcon;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
+import java.util.function.BiConsumer;
 
 /**
  * An editable project explorer cell with file icons and rename support.
@@ -47,6 +49,7 @@ public class PathTreeCell extends TreeCell<PathItem> {
 
     private final StringProperty messageProperty;
     private final Supplier<ProjectStructure> structure;
+    private final BiConsumer<Path, String> reviewJavaRename;
     private TextField textField;
     private Path editingPath;
     private ContextMenu contextMenu;
@@ -57,12 +60,18 @@ public class PathTreeCell extends TreeCell<PathItem> {
      *
      * @param messageProperty property receiving file operation messages
      * @param structure current build roles used to decorate module and source directories
+     * @param reviewJavaRename opens a workspace rename preview for a Java source file
      */
-    public PathTreeCell(StringProperty messageProperty, Supplier<ProjectStructure> structure) {
+    public PathTreeCell(
+        StringProperty messageProperty,
+        Supplier<ProjectStructure> structure,
+        BiConsumer<Path, String> reviewJavaRename
+    ) {
         super();
 
         this.messageProperty = messageProperty;
         this.structure = structure;
+        this.reviewJavaRename = reviewJavaRename;
     }
 
     private static Node createIcon(Path path, ProjectStructure.Role role) {
@@ -170,10 +179,6 @@ public class PathTreeCell extends TreeCell<PathItem> {
             setTooltip(new Tooltip(item.getPath().toString()));
             Node image = icon(item.getPath());
             if (isEditing()) {
-                if (textField != null) {
-                    textField.setText(item.toString());
-                }
-
                 setText(null);
 
                 var hbox = new RRHBox();
@@ -219,53 +224,69 @@ public class PathTreeCell extends TreeCell<PathItem> {
     public void startEdit() {
         if (getTreeView().getProperties().get("railroad:rename-item") == getTreeItem() && getItem() != null) {
             getTreeView().getProperties().remove("railroad:rename-item");
-            super.startEdit();
             if (textField == null) {
                 createTextField();
             }
 
-            textField.setText(getItem().toString());
+            super.startEdit();
+            String name = (String) getTreeView().getProperties().remove("railroad:rename-name");
+            editingPath = getItem().getPath();
+            int extension = name.indexOf('.');
+            textField.setText(isJavaSource(editingPath) && extension > 0 && name.substring(extension).equals(".java")
+                ? name.substring(0, extension)
+                : name);
 
             setText(null);
 
             var hbox = new RRHBox();
             hbox.getChildren().addAll(icon(getItem().getPath()), textField);
             setGraphic(hbox);
-            textField.selectAll();
-
-            if (getItem() == null) {
-                editingPath = null;
-            } else {
-                editingPath = getItem().getPath();
-            }
+            messageProperty.set("");
+            Platform.runLater(() -> {
+                if (isEditing()) {
+                    textField.requestFocus();
+                    textField.selectAll();
+                }
+            });
         }
     }
 
     /**
-     * Commits the edit by renaming the file or directory.
-     * Moves the file to the new path and updates the item.
+     * Reviews Java file renames as workspace edits and moves other filesystem entries directly.
      *
      * @param newValue the new PathItem with the updated path
      */
     @Override
     public void commitEdit(PathItem newValue) {
         if (editingPath != null) {
+            Path source = editingPath;
+            String newName = newValue.getPath().getFileName().toString();
+            if (source.getFileName().toString().equals(newName)) {
+                cancelEdit();
+                return;
+            }
+
+            if (isJavaSource(source)) {
+                cancelEdit();
+                reviewJavaRename.accept(source, newName);
+                return;
+            }
+
             try {
                 // TODO: This should really use the IDEStateService to rename the document rather than have manual
                 // handling
                 ProjectExplorerPane.disableFileChangeListener();
 
-                String oldName = editingPath.getFileName().toString();
-                String newName = newValue.getPath().getFileName().toString();
-
-                Files.move(editingPath, newValue.getPath());
+                String oldName = source.getFileName().toString();
+                Files.move(source, newValue.getPath());
                 getItem().setPath(newValue.getPath());
                 Railroad.EVENT_BUS
                     .publish(new DocumentRenamedEvent(new FileSystemDocument(newValue.getPath()), oldName, newName));
             } catch (IOException exception) {
                 cancelEdit();
                 messageProperty
-                    .setValue(L18n.localize("railroad.project_explorer.rename_failed", editingPath.getFileName()));
+                    .setValue(L18n.localize("railroad.project_explorer.rename_failed", source.getFileName()));
+                return;
             } finally {
                 Platform.runLater(() -> {
                     ProjectExplorerPane.enableFileChangeListener();
@@ -277,6 +298,7 @@ public class PathTreeCell extends TreeCell<PathItem> {
         }
 
         super.commitEdit(newValue);
+        editingPath = null;
         setText(getString());
         setGraphic(icon(newValue.getPath()));
     }
@@ -287,6 +309,7 @@ public class PathTreeCell extends TreeCell<PathItem> {
     @Override
     public void cancelEdit() {
         super.cancelEdit();
+        editingPath = null;
         setText(getString());
         setGraphic(getItem() == null ? null : icon(getItem().getPath()));
     }
@@ -300,13 +323,38 @@ public class PathTreeCell extends TreeCell<PathItem> {
 
     private void createTextField() {
         textField = new TextField(getString());
-        textField.setOnKeyReleased(event -> {
-            if (event.getCode() == KeyCode.ENTER) {
-                Path path = Path.of(getItem().getPath().getParent().toAbsolutePath().toString(), textField.getText());
-                commitEdit(new PathItem(path));
-            } else if (event.getCode() == KeyCode.ESCAPE) {
-                cancelEdit();
+        textField.setOnAction(event -> {
+            if (editingPath != null) {
+                String name = textField.getText();
+                if (isJavaSource(editingPath) && !name.isBlank() && !name.contains(".")) {
+                    name += ".java";
+                }
+
+                try {
+                    Path filename = Path.of(name);
+                    if (name.isBlank() || filename.getRoot() != null || filename.getNameCount() != 1
+                        || !filename.toString().equals(name) || name.equals(".") || name.equals(".."))
+                        throw new InvalidPathException(name, "Expected a filename");
+
+                    commitEdit(new PathItem(editingPath.resolveSibling(filename)));
+                } catch (InvalidPathException exception) {
+                    messageProperty.set(L18n.localize("railroad.project_explorer.invalid_filename"));
+                }
+
+                event.consume();
             }
         });
+
+        textField.setOnKeyPressed(event -> {
+            if (event.getCode() == KeyCode.ESCAPE) {
+                cancelEdit();
+                event.consume();
+            }
+        });
+    }
+
+    private static boolean isJavaSource(Path path) {
+        return path.getFileName() != null && path.getFileName().toString().endsWith(".java")
+            && Files.isRegularFile(path);
     }
 }

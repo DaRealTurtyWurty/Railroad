@@ -5,6 +5,11 @@ import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.request.api.*;
 import dev.railroadide.railroad.ide.ProjectWorkspaceConfiguration;
+import dev.railroadide.railroad.ide.edit.WorkspaceEditService;
+import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
+import dev.railroadide.railroad.ide.sst.provider.api.SstCapabilities;
+import dev.railroadide.railroad.ide.ui.refactor.RenameDialog;
+import dev.railroadide.railroad.localization.L18n;
 import dev.railroadide.railroad.ide.sst.provider.api.ProviderExecutor;
 import java.time.Duration;
 import java.util.Map;
@@ -73,6 +78,10 @@ import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
 import javafx.beans.binding.Bindings;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexService;
+import java.util.stream.Collectors;
+import dev.railroadide.railroad.ide.sst.edit.api.WorkspaceEditResult;
+import dev.railroadide.railroad.ide.sst.provider.api.LanguageSession;
+import dev.railroadide.railroad.ide.sst.provider.api.RenameProvider;
 
 /**
  * Project filesystem browser with search, file operations, watching, and editor navigation.
@@ -88,6 +97,8 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
     private final TextField searchField;
     private final ShutdownHooks.Registration shutdownRegistration;
     private boolean closed;
+    private RenameDialog renameDialog;
+    private long renameRequest;
     private volatile ProjectStructure structure = ProjectStructure.EMPTY;
     private GradleModelService gradleModels;
     private final GradleModelListener gradleModelListener = new GradleModelListener() {
@@ -148,7 +159,7 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
             this.treeView.setEditable(true);
             this.treeView.getStyleClass().add("rr-tree-view");
             this.treeView.setCellFactory(_ -> {
-                var cell = new PathTreeCell(messageProperty, () -> structure);
+                var cell = new PathTreeCell(messageProperty, () -> structure, this::reviewJavaRename);
                 handleDragDrop(cell);
                 return cell;
             });
@@ -174,7 +185,12 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
             var watchTask = new WatchTask(rootPath, this);
             this.executorService.submit(watchTask);
 
-            getChildren().addAll(header, this.treeView);
+            var message = new Label();
+            message.textProperty().bind(messageProperty);
+            message.setWrapText(true);
+            message.visibleProperty().bind(messageProperty.isNotEmpty());
+            message.managedProperty().bind(message.visibleProperty());
+            getChildren().addAll(header, this.treeView, message);
 
             KeybindHandler.registerCapture(KeybindContexts.of("railroad:project_explorer"), this.treeView);
 
@@ -234,6 +250,10 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
             return;
 
         closed = true;
+        if (renameDialog != null) {
+            renameDialog.close();
+        }
+
         Settings.COMPACT_MIDDLE_PACKAGES.removeListener(compactPackagesListener);
         if (gradleModels != null) {
             gradleModels.removeListener(gradleModelListener);
@@ -302,6 +322,98 @@ public class ProjectExplorerPane extends RRVBox implements WatchTask.FileChangeL
      */
     public void renameSelectedItem() {
         selectedTreeItem().ifPresent(selectedItem -> commandTarget().rename());
+    }
+
+    private void reviewJavaRename(Path path, String newFileName) {
+        if (closed || renameDialog != null || Services.IDE_STATE.getCurrentProject() != project)
+            return;
+
+        DocumentStore store = Services.IDE_STATE.getDocumentStore().orElseThrow();
+        long request = ++renameRequest;
+        CompletableFuture<Void> scan = Services.IDE_STATE.initialDocumentScan();
+        if (!scan.isDone()) {
+            messageProperty.set(L18n.localize("railroad.activity.scanning_files"));
+        }
+
+        scan.whenCompleteAsync((_, failure) -> {
+            if (closed || request != renameRequest || Services.IDE_STATE.getDocumentStore().orElse(null) != store)
+                return;
+
+            if (failure != null) {
+                messageProperty.set(L18n.localize("railroad.project_explorer.rename_unavailable", path.getFileName()));
+                return;
+            }
+
+            messageProperty.set("");
+            showJavaRename(store, path, newFileName);
+        }, Platform::runLater);
+    }
+
+    private void showJavaRename(DocumentStore store, Path path, String newFileName) {
+        DocumentUri uri = DocumentUri.fromPath(path);
+        DocumentSnapshot source = Services.IDE_STATE.findDocumentIdentity(uri)
+            .flatMap(identity -> store.current(identity.id())).orElse(null);
+        if (!(source instanceof TextDocumentSnapshot text) || !source.uri().equals(uri)) {
+            messageProperty.set(L18n.localize("railroad.project_explorer.rename_unavailable", path.getFileName()));
+            return;
+        }
+
+        LanguageSession session = LanguageSupportRegistry.get(text.languageId())
+            .map(support -> LanguageSupportRegistry.runtime().session(project, support.id(), "")).orElse(null);
+        RenameProvider provider = session == null ? null : session.capability(SstCapabilities.RENAME).orElse(null);
+        if (provider == null) {
+            messageProperty.set(L18n.localize("railroad.project_explorer.rename_unavailable", path.getFileName()));
+            return;
+        }
+
+        var request = new RenameDialog.Request(path.getFileName().toString(),
+            L18n.localize("railroad.rename.kind.file"),
+            provider::renameFile, session.cancellationToken(), store, text, this::workspaceEdits);
+        renameDialog = new RenameDialog(request, newFileName, resume -> {
+            boolean applied = renameDialog.state() == RenameDialog.State.APPLIED;
+            renameDialog = null;
+            if (closed)
+                return;
+
+            if (applied) {
+                refreshProjectExplorer();
+                revealPath(path.resolveSibling(newFileName));
+            }
+
+            treeView.requestFocus();
+            if (resume) {
+                TreeItem<PathItem> item = PathTreeItem.find(treeView.getRoot(), path);
+                if (item != null) {
+                    new ExplorerTarget(treeView, item, getScene().getWindow()).rename(newFileName);
+                }
+            }
+        });
+
+        renameDialog.show(getScene().getWindow());
+    }
+
+    private Optional<WorkspaceEditService> workspaceEdits() {
+        return !closed && Services.IDE_STATE.getCurrentProject() == project
+            ? Services.IDE_STATE.getWorkspaceEdits()
+            : Optional.empty();
+    }
+
+    /**
+     * Returns whether the project's workspace history contains an edit to undo or redo from the explorer.
+     */
+    public boolean canStepWorkspaceHistory(boolean redo) {
+        return workspaceEdits().map(service -> redo ? service.canRedo() : service.canUndo()).orElse(false);
+    }
+
+    /**
+     * Applies one project undo or redo and displays any conflict in the explorer.
+     */
+    public void stepWorkspaceHistory(boolean redo) {
+        workspaceEdits().ifPresent(service -> {
+            WorkspaceEditResult result = redo ? service.redo() : service.undo();
+            messageProperty.set(result.problems().stream().map(problem -> problem.message())
+                .collect(Collectors.joining("\n")));
+        });
     }
 
     /**

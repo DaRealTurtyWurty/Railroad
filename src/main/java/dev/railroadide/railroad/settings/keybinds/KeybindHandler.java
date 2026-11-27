@@ -6,6 +6,8 @@ import dev.railroadide.railroad.command.CommandDispatcher;
 import dev.railroadide.railroad.registry.Registry;
 import dev.railroadide.railroad.registry.RegistryManager;
 import javafx.scene.Node;
+import javafx.scene.control.TextInputControl;
+import javafx.scene.control.TreeView;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 
@@ -40,6 +42,11 @@ public class KeybindHandler {
             }
 
             for (Node node = captureNode; node != null; node = node.getParent()) {
+                // The inline filename field owns Enter, Delete and other editing keys while a tree row is edited.
+                if (target instanceof TextInputControl && node instanceof TreeView<?> tree
+                    && tree.getEditingItem() != null)
+                    continue;
+
                 Object registered = node.getProperties().get("railroad:keybind-context");
                 if (registered instanceof KeybindContexts.KeybindContext active &&
                     dispatchKeyEvent(active, event, target)) {

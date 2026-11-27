@@ -1002,7 +1002,7 @@ public class CodeEditorPane extends TextEditorPane {
                 switch (result.value()) {
                     case RenamePreparation.Rejected rejected -> showNavigationMessage(
                         L18n.localize("railroad.editor.rename.rejected", rejected.reason()));
-                    case RenamePreparation.Renameable symbol -> startInlineRename(
+                    case RenamePreparation.Renameable symbol -> startInlineRename(symbol,
                         new RenameDialog.Request(provider, providerLifetime, store, snapshot, offset, symbol,
                             Services.IDE_STATE::getWorkspaceEdits));
                 }
@@ -1032,7 +1032,7 @@ public class CodeEditorPane extends TextEditorPane {
             });
     }
 
-    private void startInlineRename(RenameDialog.Request request) {
+    private void startInlineRename(RenamePreparation.Renameable symbol, RenameDialog.Request request) {
         EditorFindHost host = EditorFindHost.enclosing(this);
         if (host == null || getScene() == null)
             return;
@@ -1040,7 +1040,7 @@ public class CodeEditorPane extends TextEditorPane {
         hideAutoComplete();
         hideSignatureHelp();
         diagnosticPopup.hide();
-        var draft = new InlineRenameEditor(this, request.symbol(), name -> reviewRename(request, name),
+        var draft = new InlineRenameEditor(this, symbol, name -> reviewRename(request, name),
             this::discardInlineRename);
         renameHost = host;
         inlineRename = draft;
@@ -1056,7 +1056,7 @@ public class CodeEditorPane extends TextEditorPane {
         if (activeRenameDialog != null)
             return;
 
-        if (name.equals(request.symbol().name())) {
+        if (name.equals(request.oldName())) {
             discardInlineRename();
             return;
         }

@@ -42,6 +42,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 import java.util.function.Consumer;
+import java.util.function.BiFunction;
 
 /**
  * Reviews an inline rename against a captured workspace, and applies the confirmed edit as one undoable step.
@@ -74,25 +75,25 @@ public final class RenameDialog implements AutoCloseable {
     /**
      * Captured inputs of one rename.
      *
-     * @param provider rename provider of the document's language session
+     * @param oldName name displayed before the rename
+     * @param kind kind displayed in the dialog title
+     * @param compute plans the rename against the workspace captured for each preview
      * @param providerLifetime lifetime of the provider's session; cancelling it cancels pending computations
      * @param store document store the rename is computed against
      * @param prepared document revision in which the symbol was prepared
-     * @param offset UTF-16 offset of the symbol in the prepared revision
-     * @param symbol prepared symbol
      * @param edits project workspace-edit service, resolved when the rename is applied
      */
     public record Request(
-        RenameProvider provider,
+        String oldName,
+        String kind,
+        BiFunction<FeatureRequestContext, String, FeatureResult<RenameProposal>> compute,
         CancellationToken providerLifetime,
         DocumentStore store,
         TextDocumentSnapshot prepared,
-        int offset,
-        RenamePreparation.Renameable symbol,
         Supplier<Optional<WorkspaceEditService>> edits
     ) {
         /**
-         * Validates that all inputs are present.
+         * Captures a symbol prepared by the editor.
          *
          * @param provider rename provider
          * @param providerLifetime provider session lifetime
@@ -102,12 +103,27 @@ public final class RenameDialog implements AutoCloseable {
          * @param symbol prepared symbol
          * @param edits project workspace-edit service supplier
          */
+        public Request(
+            RenameProvider provider,
+            CancellationToken providerLifetime,
+            DocumentStore store,
+            TextDocumentSnapshot prepared,
+            int offset,
+            RenamePreparation.Renameable symbol,
+            Supplier<Optional<WorkspaceEditService>> edits
+        ) {
+            this(symbol.name(), symbol.kind(),
+                (context, name) -> provider.rename(context, offset, symbol.symbol(), name),
+                providerLifetime, store, prepared, edits);
+        }
+
         public Request {
-            Objects.requireNonNull(provider, "provider");
+            Objects.requireNonNull(oldName, "oldName");
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(compute, "compute");
             Objects.requireNonNull(providerLifetime, "providerLifetime");
             Objects.requireNonNull(store, "store");
             Objects.requireNonNull(prepared, "prepared");
-            Objects.requireNonNull(symbol, "symbol");
             Objects.requireNonNull(edits, "edits");
         }
     }
@@ -145,7 +161,7 @@ public final class RenameDialog implements AutoCloseable {
         this.request = Objects.requireNonNull(request, "request");
         this.name = Objects.requireNonNull(name, "name");
         this.finished = Objects.requireNonNull(finished, "finished");
-        var title = new LocalizedLabel("railroad.rename.confirm", request.symbol().name(), name);
+        var title = new LocalizedLabel("railroad.rename.confirm", request.oldName(), name);
         title.getStyleClass().add("rename-heading");
         title.setWrapText(true);
         status.setWrapText(true);
@@ -193,7 +209,7 @@ public final class RenameDialog implements AutoCloseable {
             return;
 
         stage = WindowBuilder.create()
-            .title(L18n.localize("railroad.rename.title", request.symbol().kind()), false)
+            .title(L18n.localize("railroad.rename.title", request.kind()), false)
             .owner(owner)
             .modality(Modality.WINDOW_MODAL)
             .scene(new Scene(content))
@@ -223,7 +239,7 @@ public final class RenameDialog implements AutoCloseable {
 
         WorkspaceSnapshot workspace = request.store().capture();
         if (!(workspace.document(request.prepared().id()).orElse(null) instanceof TextDocumentSnapshot source)
-            || !source.text().equals(request.prepared().text())) {
+            || !source.uri().equals(request.prepared().uri()) || !source.text().equals(request.prepared().text())) {
             block("railroad.rename.status.document_changed");
             return CompletableFuture.completedFuture(state);
         }
@@ -242,8 +258,7 @@ public final class RenameDialog implements AutoCloseable {
         try {
             future = requests.submit("rename", RequestPriority.NAVIGATION, context, cancellation,
                 () -> ProviderExecutor.shared().execute(source.languageId() + ":rename", context, RENAME_BUDGET,
-                    () -> request.provider().rename(context, request.offset(), request.symbol().symbol(),
-                        name)));
+                    () -> request.compute().apply(context, name)));
         } catch (RuntimeException exception) {
             future = CompletableFuture.failedFuture(exception);
         }
@@ -291,7 +306,7 @@ public final class RenameDialog implements AutoCloseable {
             return Optional.empty();
 
         Optional<WorkspaceEditService> service = request.edits().get();
-        if (service.isEmpty()) {
+        if (request.providerLifetime().isCancellationRequested() || service.isEmpty()) {
             block("railroad.rename.status.no_project");
             return Optional.empty();
         }
