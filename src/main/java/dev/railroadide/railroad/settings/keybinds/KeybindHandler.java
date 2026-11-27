@@ -14,8 +14,8 @@ import javafx.scene.input.MouseEvent;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * Central registry and dispatcher for application keybinds.
@@ -67,17 +67,9 @@ public class KeybindHandler {
             if (binding == null)
                 continue;
 
-            Consumer<KeybindActionContext> action = keybind.getActions().get(context);
-            if (action == null)
-                continue;
-
-            action.accept(new KeybindActionContext(
-                keybind,
-                context,
-                binding,
-                event,
-                target));
-            return true;
+            Predicate<KeybindActionContext> action = keybind.getActions().get(context);
+            if (action != null && action.test(new KeybindActionContext(keybind, context, binding, event, target)))
+                return true;
         }
 
         return false;
@@ -101,11 +93,9 @@ public class KeybindHandler {
             if (binding == null)
                 continue;
 
-            Consumer<KeybindActionContext> action = keybind.getActions().get(context);
-            if (action != null) {
-                action.accept(new KeybindActionContext(keybind, context, binding, event, target));
+            Predicate<KeybindActionContext> action = keybind.getActions().get(context);
+            if (action != null && action.test(new KeybindActionContext(keybind, context, binding, event, target)))
                 return true;
-            }
         }
 
         return false;
@@ -178,7 +168,7 @@ public class KeybindHandler {
 
         contextFactories.forEach((keybindContext, contextFactory) -> builder
             .addValidContext(keybindContext)
-            .addAction(keybindContext, action -> CommandDispatcher.execute(
+            .addHandledAction(keybindContext, action -> CommandDispatcher.execute(
                 command,
                 contextFactory.apply(action))));
 

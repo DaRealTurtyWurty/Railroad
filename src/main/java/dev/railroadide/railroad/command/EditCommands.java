@@ -1,10 +1,11 @@
 package dev.railroadide.railroad.command;
 
+import com.kodedu.terminalfx.Terminal;
 import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.ide.projectexplorer.ProjectExplorerPane;
-import org.fxmisc.richtext.CodeArea;
 import dev.railroadide.railroad.ide.ui.codeeditor.find.EditorFindHost;
 import dev.railroadide.railroad.ide.ui.editor.EditorTab;
+import dev.railroadide.railroad.ide.ui.setup.TerminalFactory;
 import dev.railroadide.railroad.settings.keybinds.KeybindData;
 import dev.railroadide.railroad.ui.id.UIIds;
 import javafx.scene.Node;
@@ -12,6 +13,7 @@ import javafx.scene.control.TextInputControl;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCombination;
+import org.fxmisc.richtext.GenericStyledArea;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -92,7 +94,7 @@ public final class EditCommands {
 
     private static String selectedText(CommandContext<?> context) {
         return switch (target(context)) {
-            case CodeArea editor -> editor.getSelectedText();
+            case GenericStyledArea<?, ?, ?> text -> text.getSelectedText();
             case TextInputControl text -> text.getSelectedText();
             case null, default -> null;
         };
@@ -121,8 +123,8 @@ public final class EditCommands {
             ? context.source()
             : context.source().getScene().getFocusOwner();
         for (Node node = focus; node != null; node = node.getParent()) {
-            if (node instanceof TextInputControl || node instanceof CodeArea
-                || node instanceof ProjectExplorerPane)
+            if (node instanceof TextInputControl || node instanceof GenericStyledArea<?, ?, ?>
+                || node instanceof Terminal || node instanceof ProjectExplorerPane)
                 return node;
         }
 
@@ -137,6 +139,9 @@ public final class EditCommands {
     }
 
     private static boolean enabled(String action, Node target) {
+        if (target instanceof Terminal terminal)
+            return action.equals("paste") && TerminalFactory.canPasteClipboard(terminal);
+
         if (target instanceof ProjectExplorerPane pane) {
             if (action.equals("undo") || action.equals("redo"))
                 return pane.canStepWorkspaceHistory(action.equals("redo"));
@@ -155,7 +160,7 @@ public final class EditCommands {
                 default -> false;
             };
 
-        if (target instanceof CodeArea text)
+        if (target instanceof GenericStyledArea<?, ?, ?> text)
             return switch (action) {
                 case "undo" -> text.isEditable() && text.isUndoAvailable();
                 case "redo" -> text.isEditable() && text.isRedoAvailable();
@@ -178,7 +183,9 @@ public final class EditCommands {
     }
 
     private static void execute(String action, Node target, CommandContext<Void> context) {
-        if (target instanceof ProjectExplorerPane pane) {
+        if (target instanceof Terminal terminal) {
+            TerminalFactory.pasteClipboard(terminal);
+        } else if (target instanceof ProjectExplorerPane pane) {
             if (action.equals("undo") || action.equals("redo")) {
                 pane.stepWorkspaceHistory(action.equals("redo"));
             } else {
@@ -193,7 +200,7 @@ public final class EditCommands {
                 case "copy" -> text.copy();
                 case "paste" -> text.paste();
             }
-        } else if (target instanceof CodeArea text) {
+        } else if (target instanceof GenericStyledArea<?, ?, ?> text) {
             switch (action) {
                 case "undo" -> text.undo();
                 case "redo" -> text.redo();

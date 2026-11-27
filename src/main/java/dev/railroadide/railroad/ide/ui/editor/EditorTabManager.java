@@ -105,9 +105,9 @@ public class EditorTabManager {
 
     private final Map<DocumentId, EditorTab> openTabs = new LinkedHashMap<>();
     private final Deque<ClosedEditorTab> recentlyClosedTabs = new ArrayDeque<>();
-    private final Set<EditorTab> tabsByRecency = new LinkedHashSet<>();
+    private final SequencedSet<EditorTab> tabsByRecency = new LinkedHashSet<>();
     private final Map<Tab, EditorTab> tabsByControl = new IdentityHashMap<>();
-    private final Map<DocumentId, ClosedEditorTab> pendingCloseSnapshots = new LinkedHashMap<>();
+    private final Map<DocumentId, PendingTabClose> pendingCloses = new LinkedHashMap<>();
     private final Map<DetachableTabPane, ChangeListener<Tab>> selectionListeners = new IdentityHashMap<>();
     private final Map<DetachableTabPane, EventHandler<MouseEvent>> mouseKeybindHandlers = new IdentityHashMap<>();
     private final Map<DetachableTabPane, EditorTabStripSupport> tabStripSupport = new IdentityHashMap<>();
@@ -161,6 +161,9 @@ public class EditorTabManager {
                 ? null
                 : new RevealTarget(snapshot, new TextSelection(target.range().start, target.range().end));
         }
+    }
+
+    private record PendingTabClose(ClosedEditorTab snapshot, @Nullable EditorTab activeTab) {
     }
 
     private record TabOpenRequest(
@@ -297,12 +300,7 @@ public class EditorTabManager {
         IDEContentRouter.routeActive(WorkspaceContentTargets.CODE_EDITOR, tabPane -> {
             EditorTab tab = openInTabPane(project, path, tabPane, TabOpenRequest.normal());
             if (tab != null && focus) {
-                Platform.runLater(() -> {
-                    if (tab.tab().isSelected() && Services.IDE_STATE.getActiveDocument() == tab.document()) {
-                        TextEditorPane editor = tab.view().activeEditor();
-                        (editor == null ? tab.view().content() : editor).requestFocus();
-                    }
-                });
+                focusWhenActive(tab);
             }
         });
     }
@@ -706,7 +704,7 @@ public class EditorTabManager {
      */
     public void restore(Iterable<Path> paths, Path activePath) {
         Objects.requireNonNull(paths, "Paths cannot be null");
-        List<EditorTabSessionState> legacyState = new ArrayList<EditorTabSessionState>();
+        List<EditorTabSessionState> legacyState = new ArrayList<>();
         int order = 0;
         for (Path path : paths) {
             if (path != null) {
@@ -964,7 +962,7 @@ public class EditorTabManager {
                 .map(EditorTabSessionState::editorGroupId)
                 .collect(Collectors.toSet());
 
-            List<Map.Entry<DetachedEditorWindowState, Map<String, DetachableTabPane>>> detachedLayouts = new ArrayList<Map.Entry<DetachedEditorWindowState, Map<String, DetachableTabPane>>>();
+            List<Map.Entry<DetachedEditorWindowState, Map<String, DetachableTabPane>>> detachedLayouts = new ArrayList<>();
             if (idePane != null) {
                 for (DetachedEditorWindowState windowState : workspaceState.detachedWindows()) {
                     Set<String> windowGroups = new LinkedHashSet<>();
@@ -1320,7 +1318,7 @@ public class EditorTabManager {
     }
 
     private static List<DetachableTabPane> collectEditorPanes(Node root) {
-        List<DetachableTabPane> panes = new ArrayList<DetachableTabPane>();
+        List<DetachableTabPane> panes = new ArrayList<>();
         collectTabPanes(root, panes);
         return panes;
     }
@@ -1496,6 +1494,15 @@ public class EditorTabManager {
 
         tabsByRecency.remove(editorTab);
         tabsByRecency.add(editorTab);
+    }
+
+    private void focusWhenActive(EditorTab tab) {
+        Platform.runLater(() -> {
+            if (tab.tab().isSelected() && Services.IDE_STATE.getActiveDocument() == tab.document()) {
+                TextEditorPane editor = tab.view().activeEditor();
+                (editor == null ? tab.view().content() : editor).requestFocus();
+            }
+        });
     }
 
     private void scheduleTabLimitEnforcement() {
@@ -1838,7 +1845,7 @@ public class EditorTabManager {
         Window mainWindow = mainRoot == null || mainRoot.getScene() == null
             ? null
             : mainRoot.getScene().getWindow();
-        List<DetachedEditorWindowState> detachedWindows = new ArrayList<DetachedEditorWindowState>();
+        List<DetachedEditorWindowState> detachedWindows = new ArrayList<>();
         Set<Window> capturedWindows = Collections.newSetFromMap(new IdentityHashMap<>());
         selectionListeners.keySet().stream()
             .map(DetachableTabPane::getScene)
@@ -1921,7 +1928,7 @@ public class EditorTabManager {
 
         selectionListeners.keySet().forEach(this::reconcilePaneMembership);
 
-        List<EditorTabSessionState> sessionState = new ArrayList<EditorTabSessionState>();
+        List<EditorTabSessionState> sessionState = new ArrayList<>();
         Set<DocumentId> capturedTabs = new HashSet<>();
         DocumentId activeDocumentId = Optional.ofNullable(Services.IDE_STATE.getActiveDocument())
             .map(Services.IDE_STATE::identifyDocument)
@@ -2037,17 +2044,17 @@ public class EditorTabManager {
             failedCloseDialog.close();
         }
 
-        ClosedEditorTab closedTab = pendingCloseSnapshots.remove(editorTab.documentId());
+        PendingTabClose close = pendingCloses.remove(editorTab.documentId());
         if (!editorTab.preview()) {
-            if (closedTab == null) {
-                closedTab = captureClosedTab(editorTab);
-            }
-
+            ClosedEditorTab closedTab = close == null ? captureClosedTab(editorTab) : close.snapshot();
             recentlyClosedTabs.removeIf(tab -> tab.documentId().equals(editorTab.documentId()));
             recentlyClosedTabs.addFirst(closedTab);
             trimRecentlyClosedTabs(Settings.RECENTLY_CLOSED_TAB_LIMIT.getValue());
         }
 
+        EditorTab activeBeforeClose = close != null
+            ? close.activeTab()
+            : Services.IDE_STATE.getActiveDocument() == editorTab.document() ? editorTab : null;
         tabsByControl.remove(editorTab.tab());
         refreshTabPresentations();
         Services.IDE_STATE.closeDocument(editorTab.document());
@@ -2057,6 +2064,29 @@ public class EditorTabManager {
 
         if (openTabs.isEmpty()) {
             restoreEmptyEditorState();
+        } else if (!restoring && !replacingPreview) {
+            restoreSelectionAfterClose(editorTab, activeBeforeClose);
+        }
+    }
+
+    private void restoreSelectionAfterClose(EditorTab closed, @Nullable EditorTab activeBeforeClose) {
+        if (activeBeforeClose != closed) {
+            if (activeBeforeClose != null && activeBeforeClose.tab().isSelected()) {
+                queueSelectionUpdate(activeBeforeClose.tab());
+            }
+
+            return;
+        }
+
+        for (EditorTab candidate : tabsByRecency.reversed()) {
+            TabPane pane = candidate.tab().getTabPane();
+            if (pane == null)
+                continue;
+
+            pane.getSelectionModel().select(candidate.tab());
+            queueSelectionUpdate(candidate.tab());
+            focusWhenActive(candidate);
+            return;
         }
     }
 
@@ -2079,7 +2109,7 @@ public class EditorTabManager {
             return;
 
         if (discardApprovedTabs.remove(editorTab)) {
-            pendingCloseSnapshots.put(editorTab.documentId(), captureClosedTab(editorTab));
+            rememberTabClose(editorTab);
             if (editorTab.view().activeEditor() != null) {
                 editorTab.view().activeEditor().close();
             }
@@ -2106,7 +2136,7 @@ public class EditorTabManager {
             }
         }
 
-        pendingCloseSnapshots.put(editorTab.documentId(), captureClosedTab(editorTab));
+        rememberTabClose(editorTab);
     }
 
     private void showFailedCloseDialog(EditorTab editorTab) {
@@ -2317,7 +2347,7 @@ public class EditorTabManager {
         trackedDetachedWindows.clear();
         tabsByControl.clear();
         tabsByRecency.clear();
-        pendingCloseSnapshots.clear();
+        pendingCloses.clear();
         List.copyOf(failedCloseDialogs.values()).forEach(Stage::close);
         failedCloseDialogs.clear();
         discardApprovedTabs.clear();
@@ -2746,7 +2776,7 @@ public class EditorTabManager {
         if (sourceTabPane.getScene() == null)
             return List.of();
 
-        List<DetachableTabPane> groups = new ArrayList<DetachableTabPane>();
+        List<DetachableTabPane> groups = new ArrayList<>();
         collectEditorGroups(sourceTabPane.getScene().getRoot(), groups);
         return groups;
     }
@@ -3128,13 +3158,21 @@ public class EditorTabManager {
             return false;
 
         Tab tab = editorTab.tab();
-        pendingCloseSnapshots.put(editorTab.documentId(), captureClosedTab(editorTab));
+        rememberTabClose(editorTab);
         if (!IDETabLifecycle.requestClose(tab)) {
-            pendingCloseSnapshots.remove(editorTab.documentId());
+            pendingCloses.remove(editorTab.documentId());
             return false;
         }
 
         return true;
+    }
+
+    private void rememberTabClose(EditorTab tab) {
+        // JavaFX will choose a neighbour on removal before the closed handler runs.
+        EditorTab current = pendingSelection != null && pendingSelection.tab().isSelected()
+            ? pendingSelection
+            : activeTab().orElse(null);
+        pendingCloses.put(tab.documentId(), new PendingTabClose(captureClosedTab(tab), current));
     }
 
     private ClosedEditorTab captureClosedTab(EditorTab tab) {

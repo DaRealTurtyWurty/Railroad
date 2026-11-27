@@ -7,6 +7,7 @@ import lombok.Getter;
 
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * Defines a user-configurable keyboard or mouse action and its dispatch behavior.
@@ -23,7 +24,7 @@ public class Keybind {
     @Getter
     private final List<KeybindContexts.KeybindContext> validContexts;
     @Getter
-    private final Map<KeybindContexts.KeybindContext, Consumer<KeybindActionContext>> actions;
+    private final Map<KeybindContexts.KeybindContext, Predicate<KeybindActionContext>> actions;
 
     /**
      * Creates a Keybind instance. Should not be called directly. See {@link Keybind.Builder}
@@ -41,7 +42,7 @@ public class Keybind {
         KeybindCategory category,
         List<KeybindData> defaultKeys,
         List<KeybindContexts.KeybindContext> contexts,
-        Map<KeybindContexts.KeybindContext, Consumer<KeybindActionContext>> actions
+        Map<KeybindContexts.KeybindContext, Predicate<KeybindActionContext>> actions
     ) {
         this.id = id;
         this.category = category;
@@ -154,7 +155,7 @@ public class Keybind {
         private final List<KeybindData> defaultKeys = new ArrayList<>();
         private final List<KeybindContexts.KeybindContext> validContexts = new ArrayList<>();
         private boolean ignoreAll = false;
-        private final Map<KeybindContexts.KeybindContext, Consumer<KeybindActionContext>> actions = new HashMap<>();
+        private final Map<KeybindContexts.KeybindContext, Predicate<KeybindActionContext>> actions = new HashMap<>();
 
         /**
          * Sets the ID of the keybind. This is used for localization and saving in settings.json.
@@ -232,6 +233,23 @@ public class Keybind {
          * @return the modified Builder instance.
          */
         public Builder addAction(KeybindContexts.KeybindContext context, Consumer<KeybindActionContext> action) {
+            return addHandledAction(context, invocation -> {
+                action.accept(invocation);
+                return true;
+            });
+        }
+
+        /**
+         * Adds an action that can leave matching input available for other handlers.
+         *
+         * @param context the context in which to invoke the action
+         * @param action returns whether it handled the input
+         * @return the modified builder
+         */
+        public Builder addHandledAction(
+            KeybindContexts.KeybindContext context,
+            Predicate<KeybindActionContext> action
+        ) {
             actions.put(context, action);
             return this;
         }

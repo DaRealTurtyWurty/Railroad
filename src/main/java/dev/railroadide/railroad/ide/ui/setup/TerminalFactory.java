@@ -16,9 +16,11 @@ import javafx.collections.ListChangeListener;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.input.Clipboard;
 import javafx.scene.paint.Color;
 import javafx.scene.web.WebView;
 import javafx.stage.Window;
+import netscape.javascript.JSObject;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -68,6 +70,40 @@ public final class TerminalFactory {
         registerTerminal(terminal);
         installTerminalSurface(terminal);
         return terminal;
+    }
+
+    /**
+     * Returns whether the terminal is ready to receive clipboard text.
+     *
+     * @param terminal target terminal
+     * @return whether the terminal has an open input and the clipboard contains text
+     */
+    public static boolean canPasteClipboard(Terminal terminal) {
+        Process process = terminal.getProcess();
+        return terminal.getOutputWriter() != null && (process == null || process.isAlive())
+            && Clipboard.getSystemClipboard().hasString();
+    }
+
+    /**
+     * Sends system clipboard text through hterm's paste handling.
+     *
+     * @param terminal target terminal
+     */
+    public static void pasteClipboard(Terminal terminal) {
+        if (!canPasteClipboard(terminal))
+            return;
+
+        String text = Clipboard.getSystemClipboard().getString();
+        if (text == null || text.isEmpty())
+            return;
+
+        JSObject window = terminal.getWindow();
+        if (window.getMember("t") instanceof JSObject hterm) {
+            // WebView cannot read the system clipboard. hterm still handles line endings and bracketed paste.
+            JSObject event = (JSObject) window.eval("({})");
+            event.setMember("text", text.replace("\r\n", "\n"));
+            hterm.call("onPaste_", event);
+        }
     }
 
     /**

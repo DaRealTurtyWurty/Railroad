@@ -15,6 +15,7 @@ import dev.railroadide.railroad.ide.sst.request.api.RequestPriority;
 import dev.railroadide.railroad.ide.sst.request.api.SstScheduler;
 import dev.railroadide.railroad.ide.sst.request.api.WorkspaceRequestContext;
 import dev.railroadide.railroad.ide.ui.MarkdownPreviewPane;
+import dev.railroadide.railroad.ide.ui.IDETabLifecycle;
 import dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorPane;
 import dev.railroadide.railroad.ide.ui.codeeditor.TextEditorPane;
 import dev.railroadide.railroad.plugin.defaults.FileSystemDocument;
@@ -83,6 +84,75 @@ public class EditorTabManagerDocumentStoreTest {
         if (hostServices.get(null) == null) {
             hostServices.set(null, new Railroad().getHostServices());
         }
+    }
+
+    @Test
+    public void closingTheActiveTabReturnsToTheMostRecentlyUsedTab() throws Exception {
+        Path firstFile = Files.writeString(tempDirectory.resolve("First.java"), "class First {}");
+        Path middleFile = Files.writeString(tempDirectory.resolve("Middle.java"), "class Middle {}");
+        Path lastFile = Files.writeString(tempDirectory.resolve("Last.java"), "class Last {}");
+        var manager = Services.EDITOR_TAB_MANAGER;
+        DetachableTabPane pane = onFxThread(DetachableTabPane::new);
+        List<EditorTab> tabs = onFxThread(() -> List.of(openInTabPane(firstFile, pane),
+            openInTabPane(middleFile, pane), openInTabPane(lastFile, pane)));
+        EditorTab first = tabs.getFirst();
+        EditorTab last = tabs.getLast();
+        onFxThread(() -> {
+            pane.getSelectionModel().select(first.tab());
+            return null;
+        });
+
+        onFxThread(() -> {
+            assertSame(first.document(), Services.IDE_STATE.getActiveDocument());
+            pane.getSelectionModel().select(last.tab());
+            return null;
+        });
+
+        onFxThread(() -> {
+            assertSame(last.document(), Services.IDE_STATE.getActiveDocument());
+            assertTrue(IDETabLifecycle.requestClose(last.tab()));
+            assertSame(first.tab(), pane.getSelectionModel().getSelectedItem());
+            return null;
+        });
+
+        onFxThread(() -> {
+            assertSame(first.document(), Services.IDE_STATE.getActiveDocument());
+            assertSame(first, manager.activeTab().orElseThrow());
+            assertSame(first.view().textEditor().orElseThrow(),
+                Services.DOCUMENT_EDITOR_STATE.getActiveTextEditor().orElseThrow());
+            return null;
+        });
+    }
+
+    @Test
+    public void closingASelectedTabInABackgroundGroupKeepsTheActiveTab() throws Exception {
+        Path firstFile = Files.writeString(tempDirectory.resolve("First.java"), "class First {}");
+        Path secondFile = Files.writeString(tempDirectory.resolve("Second.java"), "class Second {}");
+        Path activeFile = Files.writeString(tempDirectory.resolve("Active.java"), "class Active {}");
+        DetachableTabPane background = onFxThread(DetachableTabPane::new);
+        DetachableTabPane foreground = onFxThread(DetachableTabPane::new);
+        List<EditorTab> tabs = onFxThread(() -> List.of(openInTabPane(firstFile, background),
+            openInTabPane(secondFile, background), openInTabPane(activeFile, foreground)));
+        EditorTab active = tabs.getLast();
+        onFxThread(() -> {
+            assertSame(active.document(), Services.IDE_STATE.getActiveDocument());
+            Services.EDITOR_TAB_MANAGER.close(tabs.get(1));
+            assertSame(tabs.getFirst().tab(), background.getSelectionModel().getSelectedItem());
+            return null;
+        });
+
+        onFxThread(() -> {
+            assertSame(active.document(), Services.IDE_STATE.getActiveDocument());
+            assertSame(active.tab(), foreground.getSelectionModel().getSelectedItem());
+            Services.EDITOR_TAB_MANAGER.close(active);
+            return null;
+        });
+
+        onFxThread(() -> {
+            assertSame(tabs.getFirst().document(), Services.IDE_STATE.getActiveDocument());
+            assertSame(tabs.getFirst().tab(), background.getSelectionModel().getSelectedItem());
+            return null;
+        });
     }
 
     @Test
@@ -2623,6 +2693,10 @@ public class EditorTabManagerDocumentStoreTest {
     }
 
     private EditorTab openInTabPane(Path file) throws ReflectiveOperationException {
+        return openInTabPane(file, new DetachableTabPane());
+    }
+
+    private EditorTab openInTabPane(Path file, DetachableTabPane pane) throws ReflectiveOperationException {
         // Exercise the opening path with a real tab pane without constructing unrelated IDE docks.
         Class<?> requestType = Class.forName(EditorTabManager.class.getName() + "$TabOpenRequest");
         Method normalRequest = requestType.getDeclaredMethod("normal");
@@ -2630,7 +2704,7 @@ public class EditorTabManagerDocumentStoreTest {
         Method open = EditorTabManager.class.getDeclaredMethod("openInTabPane", Project.class, Path.class,
             DetachableTabPane.class, requestType);
         open.setAccessible(true);
-        return (EditorTab) open.invoke(Services.EDITOR_TAB_MANAGER, project, file, new DetachableTabPane(),
+        return (EditorTab) open.invoke(Services.EDITOR_TAB_MANAGER, project, file, pane,
             normalRequest.invoke(null));
     }
 

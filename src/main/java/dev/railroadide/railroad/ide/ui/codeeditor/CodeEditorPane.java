@@ -2540,8 +2540,17 @@ public class CodeEditorPane extends TextEditorPane {
         if (styleSpansEqual(lastAppliedStyles, styledSpans))
             return;
 
+        boolean hasViewport = getScene() != null && getWidth() > 0 && getHeight() > 0;
+        if (hasViewport) {
+            layout();
+        }
+
         setStyleSpans(0, styledSpans);
         lastAppliedStyles = styledSpans;
+        if (hasViewport) {
+            layout();
+        }
+
         onEditorStylesApplied();
     }
 

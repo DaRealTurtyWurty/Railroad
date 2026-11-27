@@ -5,7 +5,12 @@ import dev.railroadide.railroad.ide.sst.request.api.*;
 import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.project.RailroadProject;
 import javafx.application.Platform;
+import javafx.scene.Scene;
 import javafx.scene.image.WritableImage;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.layout.StackPane;
+import javafx.stage.Stage;
 import org.fxmisc.richtext.model.StyleSpans;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -37,6 +42,85 @@ public class CodeEditorHighlightingRequestTest {
             Platform.setImplicitExit(false);
             return null;
         });
+    }
+
+    @Test
+    public void refreshingHighlightingWhileTypingKeepsTheResourceDeclarationInPlace() throws Exception {
+        String source = """
+            class Example {
+                void run() throws Exception {
+            """ + "        // padding\n".repeat(55) + """
+                    try (var input = new java.io.ByteArrayInputStream(new byte[0])) {
+                        input.read();
+                    }
+            """ + "        // padding\n".repeat(55) + """
+                }
+            }
+            """;
+        int edit = source.indexOf("input =") + "input".length();
+        try (Fixture fixture = open(context -> styles(context,
+            ((TextDocumentSnapshot) context.documentSnapshot()).text().equals(source) ? "BEFORE" : "AFTER"),
+            true, source)) {
+            fixture.nextRequest();
+            awaitRequests(fixture.editor.featureRequests);
+            TestEditor editor = fixture.editor;
+            Stage stage = onFx(() -> {
+                var window = new Stage();
+                window.setScene(new Scene(new StackPane(editor), 700, 330));
+                window.show();
+                editor.requestFocus();
+                return window;
+            });
+
+            try {
+                int first = onFx(() -> {
+                    editor.moveTo(edit);
+                    editor.showParagraphAtTop(editor.getCurrentParagraph() - 6);
+                    editor.layout();
+                    editor.scrollYBy(5);
+                    editor.layout();
+                    int top = editor.visibleParToAllParIndex(0);
+                    assertEquals(editor.getCurrentParagraph() - 6, top);
+                    double caretY = editor.getCaretBounds().orElseThrow().getMinY();
+                    editor.type("X");
+                    editor.highlightImmediately("AFTER_TYPING");
+                    editor.layout();
+                    assertEquals(edit + 1, editor.getCaretPosition());
+                    assertEquals(top, editor.visibleParToAllParIndex(0), "Highlighting arrived after typing");
+                    assertEquals(caretY, editor.getCaretBounds().orElseThrow().getMinY(), 1);
+
+                    editor.highlightImmediately("BEFORE_TYPING");
+                    editor.type("X");
+                    editor.layout();
+                    assertEquals(edit + 2, editor.getCaretPosition());
+                    assertEquals(top, editor.visibleParToAllParIndex(0), "Typing followed a highlight refresh");
+                    assertEquals(caretY, editor.getCaretBounds().orElseThrow().getMinY(), 1);
+                    return top;
+                });
+
+                fixture.nextRequest();
+                awaitRequests(editor.featureRequests);
+                onFx(() -> {
+                    editor.layout();
+                    assertEquals(List.of("AFTER"), editor.highlightLabels());
+                    assertEquals(edit + 2, editor.getCaretPosition());
+                    assertEquals(first, editor.visibleParToAllParIndex(0));
+
+                    editor.moveTo(editor.getLength());
+                    editor.requestFollowCaret();
+                    editor.highlightImmediately("REVEAL");
+                    editor.layout();
+                    assertTrue(editor.getCaretBounds().isPresent(),
+                        "A caret outside the viewport still scrolls into it");
+                    return null;
+                });
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    return null;
+                });
+            }
+        }
     }
 
     @Test
@@ -415,7 +499,7 @@ public class CodeEditorHighlightingRequestTest {
         store.publishBacking(dependency);
         var provider = new ControlledProvider(computation);
         return onFx(() -> {
-            BlockingQueue<Throwable> failures = new LinkedBlockingQueue<Throwable>();
+            BlockingQueue<Throwable> failures = new LinkedBlockingQueue<>();
             Thread.UncaughtExceptionHandler previousHandler = Thread.currentThread().getUncaughtExceptionHandler();
             Thread.currentThread().setUncaughtExceptionHandler((_, failure) -> failures.add(failure));
             Project project = new RailroadProject(directory, "Highlighting request", new WritableImage(1, 1));
@@ -532,6 +616,15 @@ public class CodeEditorHighlightingRequestTest {
 
         private List<String> highlightLabels() {
             return List.copyOf(lastHighlight.getStyleSpan(0).getStyle());
+        }
+
+        private void highlightImmediately(String label) {
+            lastHighlight = StyleSpans.singleton(List.of(label), getLength());
+            reapplyEditorStyles();
+        }
+
+        private void type(String text) {
+            fireEvent(new KeyEvent(KeyEvent.KEY_TYPED, text, "", KeyCode.UNDEFINED, false, false, false, false));
         }
     }
 }
