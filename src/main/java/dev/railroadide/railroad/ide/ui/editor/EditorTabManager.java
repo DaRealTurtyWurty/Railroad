@@ -273,6 +273,19 @@ public class EditorTabManager {
      * @param path path of the document file
      */
     public void open(Path path) {
+        open(path, false);
+    }
+
+    /**
+     * Opens a file in the editor and gives its content keyboard focus once the tab is selected.
+     *
+     * @param path path of the document file
+     */
+    public void openAndFocus(Path path) {
+        open(path, true);
+    }
+
+    private void open(Path path, boolean focus) {
         Objects.requireNonNull(path, "Path cannot be null");
         if (Files.isDirectory(path))
             return;
@@ -281,8 +294,17 @@ public class EditorTabManager {
         if (project == null)
             throw new IllegalStateException("Cannot open a file without an active project");
 
-        IDEContentRouter.routeActive(WorkspaceContentTargets.CODE_EDITOR,
-            tabPane -> openInTabPane(project, path, tabPane, TabOpenRequest.normal()));
+        IDEContentRouter.routeActive(WorkspaceContentTargets.CODE_EDITOR, tabPane -> {
+            EditorTab tab = openInTabPane(project, path, tabPane, TabOpenRequest.normal());
+            if (tab != null && focus) {
+                Platform.runLater(() -> {
+                    if (tab.tab().isSelected() && Services.IDE_STATE.getActiveDocument() == tab.document()) {
+                        TextEditorPane editor = tab.view().activeEditor();
+                        (editor == null ? tab.view().content() : editor).requestFocus();
+                    }
+                });
+            }
+        });
     }
 
     /**

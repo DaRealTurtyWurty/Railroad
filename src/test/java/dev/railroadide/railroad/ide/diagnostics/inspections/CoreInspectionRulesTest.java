@@ -3201,6 +3201,33 @@ public class CoreInspectionRulesTest {
     }
 
     @Test
+    public void reportsIndexedJdkTypesThatAreMissingImports() {
+        String source = """
+            import java.util.List;
+            import java.math.*;
+            import static java.lang.Thread.State;
+            import static java.util.Map.*;
+            class Example<T> {
+                ArrayList<String> names;
+                List<HashMap<String, T>[]> nested;
+                nonexistent.ArrayList<String> wrongQualifier;
+                java.util.ArrayList<String> qualified;
+                BigInteger fromWildcard;
+                State fromStaticImport;
+                Entry<String, T> fromStaticWildcard;
+                String implicit;
+                Example<T> local;
+            }
+            """;
+
+        List<SemanticDiagnostic> diagnostics = runProvider(new CoreTypeResolutionInspection(), source);
+        assertEquals(List.of("Cannot resolve type 'ArrayList'", "Cannot resolve type 'HashMap'",
+            "Cannot resolve type 'nonexistent.ArrayList'"),
+            diagnostics.stream().map(SemanticDiagnostic::message)
+                .toList());
+    }
+
+    @Test
     public void typeResolutionHandlesAnnotatedTypesAndMultiCatchAlternativesIndividually() {
         String source = """
             import java.io.IOException;

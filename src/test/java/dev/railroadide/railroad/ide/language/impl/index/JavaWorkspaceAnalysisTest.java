@@ -97,6 +97,66 @@ public class JavaWorkspaceAnalysisTest {
         }
     }
 
+    @Test
+    public void completesStorageTypeVariablesThroughTheirBounds() {
+        DefaultDocumentStore store = store();
+        store.publishBacking(source("ResourceStorage.java", """
+            package api;
+            public interface ResourceStorage<R> {
+                long amount(int index);
+            }
+            """));
+        store.publishBacking(source("WrappedStorage.java", """
+            package demo;
+            import java.util.List;
+            public class WrappedStorage<T> {
+                protected List<T> storages;
+                public List<T> getStorages() { return storages; }
+            }
+            """));
+        TextDocumentSnapshot storage = source("WrappedGasStorage.java", """
+            package demo;
+            import api.ResourceStorage;
+            interface Named { String name(); }
+            class WrappedGasStorage<T extends ResourceStorage<String> & Named> extends WrappedStorage<T> {
+                void inspect() {
+                    for (T tank : this.storages) {
+                        tank.;
+                    }
+                    this.storages.get(0).;
+                    this.;
+                }
+                record Serializer<T extends ResourceStorage<String>>(T storage) {
+                    void inspect() { storage.; }
+                }
+            }
+            """);
+        store.publishBacking(storage);
+
+        try (var provider = new JavaWorkspaceAnalysisProvider()) {
+            JavaWorkspaceAnalysis context = provider.capture(store.capture(), storage.id());
+            assertAll(
+                () -> assertCompletionDetails(storage, context, "tank.", "amount", "long"),
+                () -> assertCompletionDetails(storage, context, "tank.", "name", "String"),
+                () -> assertCompletionDetails(storage, context, "storage.", "amount", "long"),
+                () -> assertCompletionDetails(storage, context, "this.storages.get(0).", "amount", "long"),
+                () -> assertCompletionDetails(storage, context, "this.", "getStorages", "List<T>"));
+        }
+    }
+
+    private static void assertCompletionDetails(
+        TextDocumentSnapshot snapshot,
+        JavaWorkspaceAnalysis context,
+        String expression,
+        String name,
+        String detail
+    ) {
+        CompletionResult completion = completeAfter(snapshot, context, expression);
+        assertNotNull(completion, expression);
+        assertTrue(completion.items().stream().anyMatch(item -> item.insertText().equals(name)
+            && item.detail().equals(detail)), () -> expression + " " + completion.items());
+    }
+
     private static CompletionResult completeAfter(
         TextDocumentSnapshot snapshot,
         JavaWorkspaceAnalysis context,

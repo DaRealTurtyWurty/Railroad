@@ -46,7 +46,9 @@ public class CompletionResultTest {
         assertTrue(provider.shouldTrigger("    ", "t"));
         assertTrue(provider.shouldTrigger("", "t"));
         assertTrue(provider.shouldTrigger("class A {", "_"));
-        assertFalse(provider.shouldTrigger("    t", "o"));
+        assertTrue(provider.shouldTrigger("    F", "l"));
+        assertFalse(provider.shouldTrigger("    Fl", "u"));
+        assertFalse(provider.shouldTrigger("value.l", "e"));
         assertFalse(provider.shouldTrigger("value.", "l"));
         assertFalse(provider.shouldTrigger("    @", "O"));
         assertFalse(provider.shouldTrigger("    ", "1"));

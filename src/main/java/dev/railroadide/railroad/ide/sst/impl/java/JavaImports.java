@@ -1,9 +1,13 @@
 package dev.railroadide.railroad.ide.sst.impl.java;
 
+import dev.railroadide.railroad.ide.sst.document.api.TextRange;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
+import dev.railroadide.railroad.plugin.spi.editor.TextReplacement;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.module.ModuleFinder;
+import java.lang.module.ModuleReference;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -95,6 +99,106 @@ public final class JavaImports {
         }
 
         return List.copyOf(imports);
+    }
+
+    /**
+     * Creates an insertion for an explicit type import using the compilation unit's existing import layout.
+     *
+     * @param text captured Java source text
+     * @param root compilation unit for the source text
+     * @param imports complete imports in source order
+     * @param name fully qualified type name to import
+     * @return insertion into the captured source
+     */
+    public static TextReplacement insertType(
+        String text,
+        SyntaxNode root,
+        List<ImportDeclaration> imports,
+        String name
+    ) {
+        String newline = text.contains("\r\n") ? "\r\n" : "\n";
+        String statement = "import " + name + ";";
+        ImportDeclaration last = null;
+        for (ImportDeclaration entry : imports) {
+            if (entry.isStatic())
+                continue;
+
+            if (entry.target().compareTo(name) > 0)
+                return insertBefore(text, entry.start(), statement, newline);
+
+            last = entry;
+        }
+
+        if (last != null)
+            return insertion(afterTrailingComment(text, last.end()), newline + statement);
+
+        if (!imports.isEmpty())
+            return insertBefore(text, imports.getFirst().start(), statement, newline);
+
+        SyntaxNode packageNode = JavaSemanticAnalyzer.directChild(root, JavaSyntaxKinds.PACKAGE_DECLARATION.id());
+        if (packageNode != null)
+            return insertion(packageNode.end(), newline + newline + statement);
+
+        return insertBefore(text, firstDeclaration(root), statement, newline + newline);
+    }
+
+    private static int firstDeclaration(SyntaxNode root) {
+        Deque<SyntaxNode> pending = new ArrayDeque<>(root.children());
+        int documentation = -1;
+        while (!pending.isEmpty()) {
+            SyntaxNode node = pending.removeFirst();
+            if (node instanceof SyntaxToken token) {
+                String kind = node.kind().id();
+                if (kind.equals(JAVADOC)) {
+                    documentation = node.start();
+                } else if (!JavaSemanticAnalyzer.isTriviaToken(token) && !kind.equals("JAVA_TOKEN_EOF"))
+                    return documentation >= 0 ? documentation : node.start();
+
+            } else if (!node.kind().id().equals(IMPORT_DECLARATION)) {
+                node.children().reversed().forEach(pending::addFirst);
+            }
+        }
+
+        return 0;
+    }
+
+    private static TextReplacement insertBefore(String text, int start, String statement, String newline) {
+        int lineStart = text.lastIndexOf('\n', start - 1) + 1;
+        return text.substring(lineStart, start).isBlank()
+            ? insertion(lineStart, statement + newline)
+            : insertion(start, statement + " ");
+    }
+
+    private static TextReplacement insertion(int offset, String text) {
+        return new TextReplacement(new TextRange(offset, offset), text);
+    }
+
+    /**
+     * Tests whether the JDK exports a package to arbitrary callers.
+     *
+     * @param packageName package to check
+     * @return whether the package belongs to the JDK and has no unqualified export
+     */
+    public static boolean hiddenJdkPackage(String packageName) {
+        return JdkPackages.HIDDEN.contains(packageName);
+    }
+
+    private static final class JdkPackages {
+        private static final Set<String> HIDDEN = hiddenPackages();
+
+        private static Set<String> hiddenPackages() {
+            Set<String> packages = new HashSet<>();
+            Set<String> exported = new HashSet<>();
+            for (ModuleReference module : ModuleFinder.ofSystem().findAll()) {
+                packages.addAll(module.descriptor().packages());
+                module.descriptor().exports().stream()
+                    .filter(export -> !export.isQualified())
+                    .forEach(export -> exported.add(export.source()));
+            }
+
+            packages.removeAll(exported);
+            return Set.copyOf(packages);
+        }
     }
 
     /**

@@ -297,6 +297,24 @@ public final class JvmSourceSets {
         return Set.copyOf(roots);
     }
 
+    /**
+     * Relativizes a path against its closest configured JVM source root.
+     *
+     * @param configuration captured module settings
+     * @param path file or directory to look up
+     * @return path relative to its source root, or empty when no configured root contains it
+     */
+    public static Optional<Path> relativeSourcePath(WorkspaceConfigurationSnapshot configuration, Path path) {
+        Path imported = of(configuration).importedPath(path);
+        Set<Path> roots = sourceRoots(configuration);
+        for (Path current = imported; current != null; current = current.getParent()) {
+            if (roots.contains(current))
+                return Optional.of(current.relativize(imported));
+        }
+
+        return Optional.empty();
+    }
+
     private static List<Path> sourceRoots(WorkspaceConfigurationSnapshot configuration, String module) {
         String sources = configuration.settings().getOrDefault("module." + module + ".sources", "");
         return sources.lines().filter(line -> !line.isBlank())

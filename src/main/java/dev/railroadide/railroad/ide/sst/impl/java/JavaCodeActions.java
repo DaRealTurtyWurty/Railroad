@@ -16,10 +16,9 @@ import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxTree;
 import dev.railroadide.railroad.plugin.spi.editor.TextReplacement;
+import dev.railroadide.railroad.plugin.spi.inspection.JavaRuleContext;
 import org.jspecify.annotations.Nullable;
 
-import java.lang.module.ModuleFinder;
-import java.lang.module.ModuleReference;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -67,6 +66,7 @@ public final class JavaCodeActions {
     private @Nullable SyntaxTree tree;
     private @Nullable Names names;
     private @Nullable JavaSymbolIndex symbols;
+    private @Nullable JavaRuleContext resolution;
 
     /**
      * Binds the engine to one captured request.
@@ -335,22 +335,23 @@ public final class JavaCodeActions {
         List<TextEditorDiagnostic> diagnostics,
         List<CodeAction> actions
     ) {
-        Map<String, Boolean> touched = new LinkedHashMap<>();
+        Map<String, List<Reference>> touched = new LinkedHashMap<>();
         for (Reference reference : names().references()) {
             if (request.touches(reference.start(), reference.end()) || diagnostics.stream()
                 .filter(diagnostic -> UNRESOLVED_CODES.contains(diagnostic.code()))
                 .anyMatch(diagnostic -> diagnostic.location().range().start <= reference.start()
                     && reference.end() <= diagnostic.location().range().end)) {
-                touched.merge(reference.name(), reference.annotation(), Boolean::logicalAnd);
+                touched.computeIfAbsent(reference.name(), _ -> new ArrayList<>()).add(reference);
             }
         }
 
-        for (Map.Entry<String, Boolean> reference : touched.entrySet()) {
+        for (Map.Entry<String, List<Reference>> entry : touched.entrySet()) {
             context.checkActive();
-            String name = reference.getKey();
-            boolean annotation = reference.getValue();
-            Candidates candidates = candidates(name, annotation);
-            if (candidates == null || candidates.names().isEmpty())
+            String name = entry.getKey();
+            List<Reference> references = entry.getValue();
+            boolean annotation = references.stream().allMatch(Reference::annotation);
+            Candidates candidates = candidates(name, annotation, references);
+            if (candidates == null)
                 continue;
 
             List<TextEditorDiagnostic> fixed = diagnostics.stream()
@@ -409,14 +410,15 @@ public final class JavaCodeActions {
         boolean annotation = encoded.startsWith("@");
         String qualifiedName = annotation ? encoded.substring(1) : encoded;
         String name = qualifiedName.substring(qualifiedName.lastIndexOf('.') + 1);
-        boolean referenced = names().references().stream()
-            .anyMatch(reference -> reference.name().equals(name) && (!annotation || reference.annotation()));
-        Candidates candidates = referenced ? candidates(name, annotation) : null;
+        List<Reference> references = names().references().stream()
+            .filter(reference -> reference.name().equals(name) && (!annotation || reference.annotation())).toList();
+        Candidates candidates = references.isEmpty() ? null : candidates(name, annotation, references);
         if (candidates == null || !candidates.names().equals(List.of(qualifiedName)) || !candidates.accessible())
             return action.asUnavailable("'" + name + "' no longer needs this import");
 
         return action.withEdit(WorkspaceEdit.builder(action.title())
-            .replace(snapshot, insertion(qualifiedName))
+            .replace(snapshot, JavaImports.insertType(snapshot.text(), root(), JavaImports.imports(root()),
+                qualifiedName))
             .build());
     }
 
@@ -424,7 +426,7 @@ public final class JavaCodeActions {
      * Finds the types an import could make {@code name} refer to, or {@code null} when the name may already refer
      * to something in this file, so that adding an import is not provably a fix.
      */
-    private @Nullable Candidates candidates(String name, boolean annotation) {
+    private @Nullable Candidates candidates(String name, boolean annotation, List<Reference> references) {
         if (names().declared().contains(name))
             return null;
 
@@ -439,9 +441,6 @@ public final class JavaCodeActions {
         boolean nestedOrField = named.stream().anyMatch(symbol -> symbol.kind() == JavaSymbolKind.FIELD
             || symbol.kind() instanceof JavaSymbolKind kind && TYPE_KINDS.contains(kind) && !symbol.isTopLevel());
         if (isType(index, "java.lang." + name) || isType(index, qualify(names().packageName(), name)))
-            return null;
-
-        if (nestedOrField && names().inherits())
             return null;
 
         for (JavaImports.ImportDeclaration declaration : imports) {
@@ -476,11 +475,14 @@ public final class JavaCodeActions {
             String qualifiedName = symbol.qualifiedName();
             if (qualifiedName == null || qualifiedName.indexOf('.') < 0 || qualifiedName.indexOf('$') >= 0
                 || !qualifiedName.substring(qualifiedName.lastIndexOf('.') + 1).equals(name)
-                || JdkPackages.hidden(qualifiedName.substring(0, qualifiedName.lastIndexOf('.'))))
+                || JavaImports.hiddenJdkPackage(qualifiedName.substring(0, qualifiedName.lastIndexOf('.'))))
                 continue;
 
             types.merge(qualifiedName, symbol, (first, second) -> accessible(first) ? first : second);
         }
+
+        if (types.isEmpty() || names().inherits() && references.stream().allMatch(this::resolves))
+            return null;
 
         List<String> accessible = types.entrySet().stream()
             .filter(type -> accessible(type.getValue()))
@@ -496,70 +498,19 @@ public final class JavaCodeActions {
         return symbol.descriptor() != null && "public".equals(symbol.descriptor().metadata().visibility());
     }
 
-    /**
-     * Packages of the JDK's system modules that no module exports to all code.
-     */
-    private static final class JdkPackages {
-        private static final Set<String> HIDDEN = hiddenPackages();
-
-        private static boolean hidden(String packageName) {
-            return HIDDEN.contains(packageName);
+    private boolean resolves(Reference reference) {
+        if (resolution == null) {
+            var model = JavaSemanticAnalyzer.analyzeFacts(tree(), symbols(), context::checkActive);
+            resolution = new JavaRuleContext(snapshot.uri(), snapshot.text(), model, symbols(), context::checkActive);
         }
 
-        private static Set<String> hiddenPackages() {
-            Set<String> packages = new HashSet<>();
-            Set<String> exported = new HashSet<>();
-            for (ModuleReference module : ModuleFinder.ofSystem().findAll()) {
-                packages.addAll(module.descriptor().packages());
-                module.descriptor().exports().stream()
-                    .filter(export -> !export.isQualified())
-                    .forEach(export -> exported.add(export.source()));
-            }
-
-            packages.removeAll(exported);
-            return Set.copyOf(packages);
-        }
+        return resolution.resolvedSymbol(reference.node()).isPresent()
+            || !reference.name().equals(resolution.resolveQualifiedTypeName(reference.name(), reference.node()));
     }
 
     private static boolean isType(JavaSymbolIndex index, String qualifiedName) {
         return index.lookupQualifiedName(qualifiedName).stream()
             .anyMatch(symbol -> symbol.kind() instanceof JavaSymbolKind kind && TYPE_KINDS.contains(kind));
-    }
-
-    private TextReplacement insertion(String qualifiedName) {
-        String text = snapshot.text();
-        String newline = text.contains("\r\n") ? "\r\n" : "\n";
-        String statement = "import " + qualifiedName + ";";
-        List<JavaImports.ImportDeclaration> imports = JavaImports.imports(root());
-        List<JavaImports.ImportDeclaration> plain = imports.stream()
-            .filter(declaration -> !declaration.isStatic()).toList();
-        for (JavaImports.ImportDeclaration declaration : plain) {
-            if (declaration.target().compareTo(qualifiedName) > 0)
-                return before(text, declaration.start(), statement, newline);
-        }
-
-        if (!plain.isEmpty())
-            return insertAt(JavaImports.afterTrailingComment(text, plain.getLast().end()), newline + statement);
-
-        if (!imports.isEmpty())
-            return before(text, imports.getFirst().start(), statement, newline);
-
-        int packageEnd = names().packageEnd();
-        if (packageEnd >= 0)
-            return insertAt(packageEnd, newline + newline + statement);
-
-        int first = names().firstDeclaration();
-        int lineStart = text.lastIndexOf('\n', first - 1) + 1;
-        return text.substring(lineStart, first).isBlank()
-            ? insertAt(lineStart, statement + newline + newline)
-            : insertAt(first, statement + " ");
-    }
-
-    private static TextReplacement before(String text, int start, String statement, String newline) {
-        int lineStart = text.lastIndexOf('\n', start - 1) + 1;
-        return text.substring(lineStart, start).isBlank()
-            ? insertAt(lineStart, statement + newline)
-            : insertAt(start, statement + " ");
     }
 
     private static TextReplacement insertAt(int offset, String text) {
@@ -673,7 +624,7 @@ public final class JavaCodeActions {
      * A simple name used where an import could make it refer to a type: the first identifier of a type reference,
      * the qualifier of a member access or method reference, or the name of an annotation.
      */
-    private record Reference(String name, int start, int end, boolean annotation) {
+    private record Reference(String name, int start, int end, boolean annotation, SyntaxNode node) {
     }
 
     /**
@@ -684,22 +635,16 @@ public final class JavaCodeActions {
         List<Reference> references,
         Set<String> declared,
         boolean inherits,
-        String packageName,
-        int packageEnd,
-        int firstDeclaration
+        String packageName
     ) {
         private static Names collect(SyntaxNode root, Runnable check) {
             List<Reference> references = new ArrayList<>();
             Set<String> declared = new HashSet<>();
             boolean inherits = false;
             String packageName = "";
-            int packageEnd = -1;
-            int firstDeclaration = -1;
-            int documentation = -1;
             List<SyntaxToken> tokens = new ArrayList<>();
             for (SyntaxNode child : root.children()) {
                 if (child.kind().id().equals("JAVA_PACKAGE_DECLARATION")) {
-                    packageEnd = child.end();
                     packageName = packageName(child);
                 }
             }
@@ -718,13 +663,6 @@ public final class JavaCodeActions {
 
                 inherits |= INHERITING.contains(kind);
                 if (node instanceof SyntaxToken token) {
-                    if (firstDeclaration < 0 && kind.equals("JAVA_TOKEN_JAVADOC_COMMENT")) {
-                        documentation = token.start();
-                    } else if (firstDeclaration < 0 && !kind.equals("JAVA_TOKEN_WHITESPACE")
-                        && !kind.endsWith("_COMMENT") && !kind.equals("JAVA_TOKEN_EOF")) {
-                        firstDeclaration = documentation >= 0 ? documentation : token.start();
-                    }
-
                     tokens.add(token);
                     continue;
                 }
@@ -743,13 +681,13 @@ public final class JavaCodeActions {
                 switch (parentKind) {
                     case TYPE_REFERENCE -> {
                         if (firstIdentifier(parent) == token) {
-                            references.add(new Reference(name, token.start(), token.end(), false));
+                            references.add(new Reference(name, token.start(), token.end(), false, parent));
                         }
                     }
 
                     case NAME_EXPRESSION -> {
                         if (qualifier(tokens, index)) {
-                            references.add(new Reference(name, token.start(), token.end(), false));
+                            references.add(new Reference(name, token.start(), token.end(), false, parent));
                         }
                     }
 
@@ -758,7 +696,7 @@ public final class JavaCodeActions {
                             declared.add(name);
                         } else if (firstIdentifier(parent) == token && significant(tokens, index, 1)
                             .filter(next -> next.kind().id().equals("JAVA_TOKEN_DOT")).isEmpty()) {
-                            references.add(new Reference(name, token.start(), token.end(), true));
+                            references.add(new Reference(name, token.start(), token.end(), true, parent));
                         }
                     }
 
@@ -770,8 +708,7 @@ public final class JavaCodeActions {
             }
 
             check.run();
-            return new Names(List.copyOf(references), Set.copyOf(declared), inherits, packageName, packageEnd,
-                firstDeclaration < 0 ? 0 : firstDeclaration);
+            return new Names(List.copyOf(references), Set.copyOf(declared), inherits, packageName);
         }
 
         private static @Nullable SyntaxNode firstIdentifier(SyntaxNode node) {

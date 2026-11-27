@@ -21,6 +21,7 @@ import javafx.scene.control.IndexRange;
 import javafx.scene.Node;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.text.Font;
 import javafx.util.Pair;
 import lombok.Getter;
@@ -224,6 +225,7 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
 
         gutter = new EditorGutter(this);
         setMouseOverTextDelay(Duration.ofMillis(500));
+        setOnSelectionDropped(this::finishSelectionDrag);
 
         initialContentLoaded = loadInitialContent();
         // Loading is not an edit; undoing it would empty the editor and, once saved, the file.
@@ -251,6 +253,18 @@ public class TextEditorPane extends CodeArea implements AutoCloseable {
         });
 
         shutdownRegistration = ShutdownHooks.registerHook(this::close);
+    }
+
+    private void finishSelectionDrag(MouseEvent event) {
+        int position = hit(event.getX(), event.getY()).getInsertionIndex();
+        IndexRange selection = getSelection();
+        if (selection.getLength() > 0 && position >= selection.getStart() && position <= selection.getEnd()) {
+            int anchor = getAnchor();
+            int caret = anchor == selection.getStart() ? selection.getEnd() : selection.getStart();
+            selectRange(anchor, caret);
+        } else {
+            moveSelectedText(position);
+        }
     }
 
     /**

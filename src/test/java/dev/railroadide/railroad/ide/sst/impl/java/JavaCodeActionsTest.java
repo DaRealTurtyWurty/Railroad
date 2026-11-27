@@ -20,7 +20,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import javax.tools.ToolProvider;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CancellationException;
@@ -332,6 +335,7 @@ public class JavaCodeActionsTest {
 
     @Test
     public void inheritedMemberTypesBlockImportsOfNestedNames() {
+        source("q/Entry.java", "package q; public class Entry<K, V> {}");
         source("p/A.java", """
             package p;
             class A extends java.util.HashMap<String, String> {
@@ -341,6 +345,39 @@ public class JavaCodeActionsTest {
             """);
         assertEquals(List.of(), actionsAt("p/A.java", "Entry<"));
         assertEquals("Import 'java.util.ArrayList'", single(actionsAt("p/A.java", "ArrayList")).title());
+    }
+
+    @Test
+    public void importsMinecraftFluidsWhenOnlyAnUnrelatedNestedTypeSharesItsName() throws IOException {
+        Path library = Files.createDirectories(directory.resolve(root).resolve("dependency"));
+        Path source = library.resolve("Fluids.java");
+        Files.writeString(source, """
+            package net.minecraft.world.level.material;
+            public class Fluids { public static final Object WATER = new Object(); }
+            """);
+        Path classes = Files.createDirectory(library.resolve("classes"));
+        assertEquals(0, ToolProvider.getSystemJavaCompiler().run(null, null, null, "-proc:none", "-d",
+            classes.toString(), source.toString()));
+        store().publishConfiguration(new WorkspaceConfigurationSnapshot(1, Set.of("main"), Map.of(
+            "module.main.sources", directory.resolve(root).toString(), "module.main.classpath", classes.toString())));
+        source("q/TagList.java", """
+            package q;
+            public class TagList { public static class Fluids {} }
+            """);
+        source("p/A.java", """
+            package p;
+            class Parent {}
+            class Tags extends q.TagList { Fluids tag; }
+            class A extends Parent {
+                Object fluid = Fluids.WATER;
+            }
+            """);
+
+        assertEquals(List.of(), actionsAt("p/A.java", "Fluids tag"));
+        CodeAction action = single(actionsAt("p/A.java", "Fluids.WATER"));
+        assertEquals("Import 'net.minecraft.world.level.material.Fluids'", action.title());
+        assertTrue(applied("p/A.java", resolve("p/A.java", action))
+            .startsWith("package p;\n\nimport net.minecraft.world.level.material.Fluids;\n"));
     }
 
     @Test
@@ -738,6 +775,27 @@ public class JavaCodeActionsTest {
         CodeAction action = single(actionsAt("p/A.java", "Thing thing"));
         assertEquals("'Thing' is ambiguous: a.Thing, b.Thing, c.Thing, d.Thing and 1 more",
             action.unavailableReason());
+    }
+
+    @Test
+    public void anIndexedTypeMissingItsImportReportsAnErrorThatTheQuickFixClears() {
+        source("q/Fluids.java", "package q; public class Fluids {}");
+        source("p/Local.java", "package p; class Local {}");
+        String file = "p/A.java";
+        source(file, "package p; class A { Fluids fluid; q.Fluids qualified; Local local; }");
+        List<TextEditorDiagnostic> errors = new JavaDiagnosticsProvider(null, null, services::capture)
+            .compute(context(file)).value().stream()
+            .filter(issue -> JavaSemanticRules.UNRESOLVED_TYPE.id().equals(issue.code()))
+            .toList();
+        assertEquals(1, errors.size(), errors::toString);
+        TextEditorDiagnostic diagnostic = errors.getFirst();
+        assertEquals(DiagnosticSeverity.ERROR, diagnostic.kind());
+        assertEquals("Cannot resolve type 'Fluids'", diagnostic.message());
+        CodeAction action = single(actions(file, new CodeActionRequest(new TextRange(0, 0), List.of(diagnostic))));
+        assertEquals("Import 'q.Fluids'", action.title());
+        overlay(file, applied(file, resolve(file, action)));
+        assertFalse(new JavaDiagnosticsProvider(null, null, services::capture).compute(context(file)).value().stream()
+            .anyMatch(issue -> JavaSemanticRules.UNRESOLVED_TYPE.id().equals(issue.code())));
     }
 
     @Test

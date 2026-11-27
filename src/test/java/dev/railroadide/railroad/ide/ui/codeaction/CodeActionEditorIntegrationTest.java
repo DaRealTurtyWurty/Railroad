@@ -4,8 +4,10 @@ import com.panemu.tiwulfx.control.dock.DetachableTabPane;
 import dev.railroadide.railroad.Railroad;
 import dev.railroadide.railroad.Services;
 import dev.railroadide.railroad.ide.WorkspaceModes;
+import dev.railroadide.railroad.ide.completion.CompletionItem;
 import dev.railroadide.railroad.ide.language.LanguageSupportRegistry;
 import dev.railroadide.railroad.ide.language.LanguageSupports;
+import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.provider.api.CodeAction;
 import dev.railroadide.railroad.ide.ui.codeeditor.CodeEditorPane;
 import dev.railroadide.railroad.ide.ui.editor.EditorTab;
@@ -18,6 +20,7 @@ import dev.railroadide.railroad.theme.ThemeManager;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.ListView;
 import javafx.scene.image.WritableImage;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
@@ -30,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -153,6 +157,50 @@ public class CodeActionEditorIntegrationTest {
         });
 
         assertEquals(imported, onFx(editor::getText));
+    }
+
+    @Test
+    public void acceptingTypeCompletionBeforeADotImportsTheClassInOneUndoStep() throws Exception {
+        String before = "package p;\n\nclass A { void run() {  } }\n";
+        int start = before.indexOf("{  }") + 2;
+        onFx(() -> {
+            var uri = DocumentUri.fromPath(
+                projectDirectory.resolve("src/main/java/net/minecraft/world/level/material/Fluids.java"));
+            Services.IDE_STATE.getDocumentStore().orElseThrow().publishBacking(new TextDocumentSnapshot(
+                DocumentId.create(), uri, DocumentVersion.initial(), "java", DocumentOrigin.original(uri),
+                "package net.minecraft.world.level.material; public class Fluids {}", StandardCharsets.UTF_8));
+            return null;
+        });
+
+        onFx(() -> {
+            editor.replaceText(before);
+            editor.requestFocus();
+            editor.moveTo(start);
+            for (char character : "Fluids".toCharArray()) {
+                editor.insertText(editor.getCaretPosition(), String.valueOf(character));
+            }
+
+            return null;
+        });
+
+        String typed = before.substring(0, start) + "Fluids" + before.substring(start);
+        assertEquals(typed, onFx(editor::getText));
+        awaitFx(() -> visibleNode(".completion-popup") != null);
+        awaitFx(() -> visibleNode(".completion-popup").lookup(".list-view") instanceof ListView<?> list
+            && list.getSelectionModel().getSelectedItem() instanceof CompletionItem item
+            && "Fluids".equals(item.insertText()) && "net.minecraft.world.level.material".equals(item.detail()));
+
+        onFx(() -> {
+            assertEquals(typed, editor.getText());
+            press(Objects.requireNonNull(visibleNode(".completion-popup").lookup(".list-view")), KeyCode.ENTER, false);
+            String expected = typed.replace("package p;",
+                "package p;\n\nimport net.minecraft.world.level.material.Fluids;");
+            assertEquals(expected, editor.getText());
+            assertEquals(expected.lastIndexOf("Fluids") + "Fluids".length(), editor.getCaretPosition());
+            editor.undo();
+            assertEquals(typed, editor.getText());
+            return null;
+        });
     }
 
     @Test

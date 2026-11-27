@@ -50,6 +50,7 @@ import javafx.scene.text.TextFlow;
 import javafx.stage.Popup;
 import javafx.stage.PopupWindow;
 import javafx.stage.Screen;
+import org.fxmisc.richtext.CharacterHit;
 import org.fxmisc.richtext.event.MouseOverTextEvent;
 import org.fxmisc.richtext.model.PlainTextChange;
 import org.fxmisc.richtext.model.StyleSpan;
@@ -1282,11 +1283,12 @@ public class CodeEditorPane extends TextEditorPane {
                 return;
 
             if (!event.isKeyboardTrigger()) {
-                int index = hit(event.getX(), event.getY()).getCharacterIndex().orElse(-1);
+                CharacterHit hit = hit(event.getX(), event.getY());
+                int insertion = hit.getInsertionIndex();
                 IndexRange selection = getSelection();
-                if (index >= 0 && (selection.getLength() == 0 || index < selection.getStart()
-                    || index >= selection.getEnd())) {
-                    moveTo(index);
+                if (selection.getLength() == 0 || insertion < selection.getStart()
+                    || insertion > selection.getEnd()) {
+                    hit.getCharacterIndex().ifPresent(this::moveTo);
                 }
             }
 

@@ -184,7 +184,7 @@ public record CompletionItem(
      */
     public String displayText() {
         if (kind == Kind.TYPE)
-            return label + " (type)";
+            return label + " (type)" + (detail.isEmpty() ? "" : " : " + detail);
 
         return label + suffix + (detail.isEmpty() ? "" : " : " + detail);
     }

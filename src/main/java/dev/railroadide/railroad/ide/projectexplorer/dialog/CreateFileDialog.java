@@ -2,7 +2,13 @@ package dev.railroadide.railroad.ide.projectexplorer.dialog;
 
 import dev.railroadide.railroad.AppResources;
 import dev.railroadide.railroad.Railroad;
+import dev.railroadide.railroad.Services;
+import dev.railroadide.railroad.ide.language.jvm.JvmProjectResolver;
+import dev.railroadide.railroad.ide.language.jvm.JvmSourceSets;
 import dev.railroadide.railroad.ide.projectexplorer.FileCreateType;
+import dev.railroadide.railroad.ide.sst.document.api.DocumentStore;
+import dev.railroadide.railroad.ide.sst.document.api.WorkspaceSnapshot;
+import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.ui.RRButton;
 import dev.railroadide.railroad.ui.RRGridPane;
 import dev.railroadide.railroad.ui.RRListView;
@@ -18,9 +24,14 @@ import javafx.stage.StageStyle;
 import javafx.stage.Window;
 import lombok.Getter;
 
+import javax.lang.model.SourceVersion;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Optional;
+import java.util.StringJoiner;
 
 // TODO: Refactor this to use WindowBuilder(?)
 /**
@@ -90,36 +101,35 @@ public class CreateFileDialog {
 
         var okButton = new RRButton("railroad.generic.ok");
         okButton.setOnAction(_ -> {
-            dialog.hide();
-
             TypeSelection selectedItem = listView.getSelectionModel().getSelectedItem();
-            if (type != FileCreateType.FOLDER && selectedItem != null) {
-                String template = selectedItem.getTemplate();
-                String fileName = textField.getText();
-                String extension = selectedItem.getExtension();
-                String content = template
-                    .replace("<package_loc>", path.toString().replace("\\", ".").replace("/", "."))
-                    .replace("<class_name>", fileName);
+            try {
+                String name = textField.getText();
+                if (type == FileCreateType.FOLDER) {
+                    Files.createDirectories(path.resolve(name));
+                    dialog.hide();
+                    return;
+                }
 
-                try {
-                    Path file = path.resolve(fileName + "." + extension);
+                Path file;
+                if (selectedItem == null) {
+                    file = Files.createFile(path.resolve(name));
+                } else {
+                    file = path.resolve(name + "." + selectedItem.getExtension());
                     Files.createDirectories(file.getParent());
-                    Files.writeString(file, content);
-                } catch (IOException exception) {
-                    Railroad.LOGGER.error("Failed to create file", exception);
+                    String content = selectedItem.getTemplate();
+                    if (type == FileCreateType.JAVA_CLASS) {
+                        String className = file.getFileName().toString();
+                        className = className.substring(0, className.length() - ".java".length());
+                        content = packageDeclaration(file.getParent()) + content.replace("<class_name>", className);
+                    }
+
+                    Files.writeString(file, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
                 }
-            } else if (type == FileCreateType.FOLDER) {
-                try {
-                    Files.createDirectories(path.resolve(textField.getText()));
-                } catch (IOException exception) {
-                    Railroad.LOGGER.error("Failed to create folder", exception);
-                }
-            } else {
-                try {
-                    Files.createFile(path.resolve(textField.getText()));
-                } catch (IOException exception) {
-                    Railroad.LOGGER.error("Failed to create file", exception);
-                }
+
+                dialog.hide();
+                Services.EDITOR_TAB_MANAGER.openAndFocus(file);
+            } catch (IOException | InvalidPathException exception) {
+                Railroad.LOGGER.error("Failed to create entry in {}", path, exception);
             }
         });
 
@@ -145,6 +155,37 @@ public class CreateFileDialog {
         dialog.showAndWait();
     }
 
+    private static String packageDeclaration(Path directory) {
+        Optional<Path> relative = Services.IDE_STATE.getDocumentStore().map(DocumentStore::capture)
+            .map(WorkspaceSnapshot::configuration)
+            .flatMap(configuration -> JvmSourceSets.relativeSourcePath(configuration, directory));
+        if (relative.isEmpty()) {
+            Project project = Services.IDE_STATE.getCurrentProject();
+            if (project != null) {
+                Path normalized = JvmSourceSets.lookupPath(directory);
+                relative = JvmProjectResolver.conventionalSourceRoots(project.getPath()).stream()
+                    .map(JvmSourceSets::lookupPath)
+                    .filter(normalized::startsWith)
+                    .findFirst()
+                    .map(root -> root.relativize(normalized));
+            }
+        }
+
+        if (relative.isEmpty() || relative.get().toString().isEmpty())
+            return "";
+
+        var name = new StringJoiner(".");
+        for (Path folder : relative.get()) {
+            String part = folder.toString();
+            if (!SourceVersion.isIdentifier(part) || SourceVersion.isKeyword(part))
+                return "";
+
+            name.add(part);
+        }
+
+        return "package " + name + ";\n\n";
+    }
+
     /**
      * File templates available in the creation dialog.
      */
@@ -154,8 +195,6 @@ public class CreateFileDialog {
          * Creates a Java class source file.
          */
         JAVA_CLASS("Java Class", "java", null, """
-            package <package_loc>.<class_name>;
-
             public class <class_name> {
                 public <class_name>() {
 
@@ -166,8 +205,6 @@ public class CreateFileDialog {
          * Creates a Java interface source file.
          */
         JAVA_INTERFACE("Java Interface", "java", null, """
-            package <package_loc>.<class_name>;
-
             public interface <class_name> {
 
             }
@@ -176,8 +213,6 @@ public class CreateFileDialog {
          * Creates a Java enum source file.
          */
         JAVA_ENUM("Java Enum", "java", null, """
-            package <package_loc>.<class_name>;
-
             public enum <class_name> {
 
             }
@@ -186,8 +221,6 @@ public class CreateFileDialog {
          * Creates a Java annotation type source file.
          */
         JAVA_ANNOTATION("Java Annotation", "java", null, """
-            package <package_loc>.<class_name>;
-
             public @interface <class_name> {
 
             }

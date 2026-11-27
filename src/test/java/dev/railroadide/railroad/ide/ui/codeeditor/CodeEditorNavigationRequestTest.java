@@ -9,6 +9,7 @@ import dev.railroadide.railroad.plugin.spi.dto.Project;
 import dev.railroadide.railroad.project.RailroadProject;
 import dev.railroadide.railroad.settings.keybinds.Keybinds;
 import javafx.application.Platform;
+import javafx.event.EventType;
 import javafx.geometry.Bounds;
 import javafx.geometry.Point2D;
 import javafx.scene.Scene;
@@ -324,9 +325,10 @@ public class CodeEditorNavigationRequestTest {
     public void rightClickMovesTheCaretToTheSymbolAndItsMenuNavigates() throws Exception {
         try (Fixture fixture = open((context, offset) -> target(context, 0))) {
             onFx(() -> {
-                fixture.editor.moveTo(0);
+                fixture.editor.selectRange(0, 5);
                 fireContextMenu(fixture.editor, REFERENCE + 1);
                 assertEquals(REFERENCE + 1, fixture.editor.getCaretPosition());
+                assertEquals(0, fixture.editor.getSelection().getLength());
                 ContextMenu menu = fixture.editor.activeContextMenu();
                 assertNotNull(menu);
                 assertTrue(menu.isShowing());
@@ -382,14 +384,87 @@ public class CodeEditorNavigationRequestTest {
         }
     }
 
+    @Test
+    public void openingContextMenuAtSelectionEdgeKeepsRangeAvailableForReplacement() throws Exception {
+        try (Fixture fixture = open((context, offset) -> target(context, 0))) {
+            onFx(() -> {
+                CodeEditorPane editor = fixture.editor;
+                editor.selectRange(REFERENCE + 5, REFERENCE);
+                fireContextMenu(editor, REFERENCE + 5);
+                editor.replaceSelection("replacement");
+                assertSelectionReplaced(editor);
+                return null;
+            });
+        }
+    }
+
+    @Test
+    public void replacingSelectionAfterDraggingItBackOntoItselfReplacesWholeRange() throws Exception {
+        try (Fixture fixture = open((context, offset) -> target(context, 0))) {
+            onFx(() -> {
+                CodeEditorPane editor = fixture.editor;
+                editor.selectRange(REFERENCE + 5, REFERENCE);
+                dragSelection(editor, REFERENCE + 3);
+                assertEquals(REFERENCE + 5, editor.getAnchor());
+                assertEquals(REFERENCE, editor.getCaretPosition());
+                editor.replaceSelection("replacement");
+                assertSelectionReplaced(editor);
+
+                return null;
+            });
+        }
+    }
+
+    @Test
+    public void droppingSelectionOutsideItsRangeStillMovesTheText() throws Exception {
+        try (Fixture fixture = open((context, offset) -> target(context, 0))) {
+            onFx(() -> {
+                CodeEditorPane editor = fixture.editor;
+                editor.selectRange(REFERENCE, REFERENCE + 5);
+                dragSelection(editor, 0);
+                assertEquals("value" + SOURCE.substring(0, REFERENCE) + SOURCE.substring(REFERENCE + 5),
+                    editor.getText());
+                assertEquals("value", editor.getSelectedText());
+                return null;
+            });
+        }
+    }
+
+    private static void dragSelection(CodeEditorPane editor, int dropOffset) {
+        firePrimaryMouseEvent(editor, MouseEvent.MOUSE_PRESSED, REFERENCE + 1);
+        firePrimaryMouseEvent(editor, MouseEvent.DRAG_DETECTED, dropOffset);
+        firePrimaryMouseEvent(editor, MouseEvent.MOUSE_DRAGGED, dropOffset);
+        firePrimaryMouseEvent(editor, MouseEvent.MOUSE_RELEASED, dropOffset);
+    }
+
+    private static void firePrimaryMouseEvent(CodeEditorPane editor, EventType<MouseEvent> type, int offset) {
+        Point2D screen = leadingHalfOfCharacter(editor, offset);
+        Point2D local = editor.screenToLocal(screen);
+        editor.fireEvent(new MouseEvent(type, local.getX(), local.getY(), screen.getX(), screen.getY(),
+            MouseButton.PRIMARY, 1, false, false, false, false, type != MouseEvent.MOUSE_RELEASED, false,
+            false, false, false, type == MouseEvent.MOUSE_PRESSED, null));
+    }
+
+    private static void assertSelectionReplaced(CodeEditorPane editor) {
+        assertEquals(SOURCE.substring(0, REFERENCE) + "replacement" + SOURCE.substring(REFERENCE + 5),
+            editor.getText());
+        assertEquals(REFERENCE + "replacement".length(), editor.getCaretPosition());
+        assertEquals(0, editor.getSelection().getLength());
+        editor.undo();
+        assertEquals(SOURCE, editor.getText());
+    }
+
     private static void fireContextMenu(CodeEditorPane editor, int offset) {
+        Point2D screen = leadingHalfOfCharacter(editor, offset);
+        Point2D local = editor.screenToLocal(screen);
+        editor.fireEvent(new ContextMenuEvent(ContextMenuEvent.CONTEXT_MENU_REQUESTED, local.getX(), local.getY(),
+            screen.getX(), screen.getY(), false, null));
+    }
+
+    private static Point2D leadingHalfOfCharacter(CodeEditorPane editor, int offset) {
         editor.layout();
         Bounds bounds = editor.getCharacterBoundsOnScreen(offset, offset + 1).orElseThrow();
-        double screenX = bounds.getMinX() + bounds.getWidth() / 2;
-        double screenY = bounds.getMinY() + bounds.getHeight() / 2;
-        Point2D local = editor.screenToLocal(screenX, screenY);
-        editor.fireEvent(new ContextMenuEvent(ContextMenuEvent.CONTEXT_MENU_REQUESTED, local.getX(), local.getY(),
-            screenX, screenY, false, null));
+        return new Point2D(bounds.getMinX() + bounds.getWidth() / 4, bounds.getMinY() + bounds.getHeight() / 2);
     }
 
     private Fixture open(NavigationProvider provider) throws Exception {
@@ -401,9 +476,9 @@ public class CodeEditorNavigationRequestTest {
         Files.writeString(file, SOURCE);
         DocumentId id = DocumentId.create();
         var store = new DefaultDocumentStore("test", new WorkspaceConfigurationSnapshot(0, Set.of()));
-        BlockingQueue<Invocation> requests = new LinkedBlockingQueue<Invocation>();
+        BlockingQueue<Invocation> requests = new LinkedBlockingQueue<>();
         Fixture fixture = onFx(() -> {
-            BlockingQueue<Throwable> failures = new LinkedBlockingQueue<Throwable>();
+            BlockingQueue<Throwable> failures = new LinkedBlockingQueue<>();
             Thread.UncaughtExceptionHandler previous = Thread.currentThread().getUncaughtExceptionHandler();
             Thread.currentThread().setUncaughtExceptionHandler((_, failure) -> failures.add(failure));
             Project project = new RailroadProject(directory, "Navigation request", new WritableImage(1, 1));

@@ -19,6 +19,8 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import dev.railroadide.railroad.ide.WorkspaceModes;
 import dev.railroadide.railroad.ide.language.LanguageSupports;
+import dev.railroadide.railroad.ide.projectexplorer.FileCreateType;
+import dev.railroadide.railroad.ide.projectexplorer.dialog.CreateFileDialog;
 import dev.railroadide.railroad.ide.sst.document.api.*;
 import dev.railroadide.railroad.ide.sst.provider.api.NavigationProvider;
 import dev.railroadide.railroad.ide.sst.provider.api.UsageQuery;
@@ -45,7 +47,11 @@ import dev.railroadide.railroad.theme.ThemeManager;
 import javafx.application.Platform;
 import javafx.scene.Group;
 import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.control.TextField;
 import javafx.scene.image.WritableImage;
+import javafx.stage.Stage;
+import javafx.stage.Window;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -53,6 +59,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.stream.Stream;
 import dev.railroadide.railroad.ide.diagnostics.BuildProblems;
@@ -70,6 +78,7 @@ public class EditorDefinitionNavigationTest {
     private RailroadProject project;
     private IDEPane pane;
     private NavigationEditor sourceEditor;
+    private Stage stage;
 
     @BeforeAll
     public static void startFx() throws Exception {
@@ -125,10 +134,99 @@ public class EditorDefinitionNavigationTest {
                     pane.getScene().setRoot(new Group());
                     pane.close();
                 }
+
+                if (stage != null) {
+                    stage.close();
+                }
             } finally {
                 Railroad.EVENT_BUS.publish(new ProjectEvent(project, ProjectEvent.EventType.CLOSED));
             }
 
+            return null;
+        });
+    }
+
+    @Test
+    public void createsAndFocusesJavaClassUnderTheClosestConfiguredSourceRoot() throws Exception {
+        Path root = directory.resolve("module/sources");
+        Path nested = root.resolve("production");
+        Path destination = Files.createDirectories(nested.resolve("demo/tools"));
+        onFx(() -> {
+            DocumentStore store = Services.IDE_STATE.getDocumentStore().orElseThrow();
+            long revision = store.capture().configuration().revision() + 1;
+            store.publishConfiguration(new WorkspaceConfigurationSnapshot(revision, Set.of(":module"),
+                Map.of("module.:module.sources", root + ":generated=false\n" + nested + ":generated=false")));
+            createInDialog(destination, FileCreateType.JAVA_CLASS, "Created");
+            return null;
+        });
+
+        assertCreatedFileFocused(destination.resolve("Created.java"), "package demo.tools;\n\npublic class Created");
+    }
+
+    @Test
+    public void createsJavaClassesUnderConventionalRootsAndInTheDefaultPackage() throws Exception {
+        Path root = Files.createDirectories(directory.resolve("src/test/java"));
+        Path destination = Files.createDirectories(root.resolve("demo"));
+        onFx(() -> {
+            createInDialog(root, FileCreateType.JAVA_CLASS, "Unpackaged");
+            createInDialog(destination, FileCreateType.JAVA_CLASS, "Packaged");
+            return null;
+        });
+
+        assertTrue(Files.readString(root.resolve("Unpackaged.java")).startsWith("public class Unpackaged"));
+        assertCreatedFileFocused(destination.resolve("Packaged.java"), "package demo;\n\npublic class Packaged");
+    }
+
+    @Test
+    public void createsAndFocusesAnUntemplatedFile() throws Exception {
+        onFx(() -> {
+            createInDialog(directory, FileCreateType.FILE, "notes.txt");
+            return null;
+        });
+
+        Path file = directory.resolve("notes.txt");
+        assertEquals("", Files.readString(file));
+        assertCreatedFileFocused(file, "");
+    }
+
+    private void createInDialog(Path destination, FileCreateType type, String name) throws Exception {
+        if (stage == null) {
+            stage = new Stage();
+            stage.setScene(pane.getScene());
+            stage.show();
+        }
+
+        var submit = new FutureTask<Void>(() -> {
+            Stage dialog = Window.getWindows().stream().filter(Stage.class::isInstance).map(Stage.class::cast)
+                .filter(window -> window.getOwner() == stage).findFirst().orElseThrow();
+            try {
+                TextField input = (TextField) dialog.getScene().lookup(".text-field");
+                input.setText(name);
+                Button ok = (Button) dialog.getScene().lookup(".button");
+                ok.fire();
+                assertFalse(dialog.isShowing());
+            } finally {
+                dialog.hide();
+            }
+
+            return null;
+        });
+
+        Platform.runLater(submit);
+        CreateFileDialog.open(stage, destination, type);
+        submit.get(10, TimeUnit.SECONDS);
+    }
+
+    private void assertCreatedFileFocused(Path file, String expectedPrefix) throws Exception {
+        String text = Files.readString(file);
+        assertTrue(text.startsWith(expectedPrefix), () -> "Unexpected new file content: " + text);
+        onFx(() -> {
+            EditorTab tab = Services.EDITOR_TAB_MANAGER.activeTab().orElseThrow();
+            TextEditorPane editor = tab.view().activeEditor();
+            assertNotNull(editor);
+            assertEquals(file, editor.getFilePath());
+            assertEquals(text, editor.getText());
+            assertSame(editor, stage.getScene().getFocusOwner());
             return null;
         });
     }

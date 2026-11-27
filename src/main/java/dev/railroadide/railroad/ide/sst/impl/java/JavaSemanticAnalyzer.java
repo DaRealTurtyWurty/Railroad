@@ -29,6 +29,7 @@ import java.util.*;
 import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 import java.lang.reflect.Modifier;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import org.objectweb.asm.Opcodes;
 import dev.railroadide.railroad.ide.sst.project.BinaryStubPublication;
@@ -395,9 +396,21 @@ public final class JavaSemanticAnalyzer {
         @Nullable JavaSymbolIndex projectIndex,
         Runnable activityCheck
     ) {
+        return performAnalysis(syntaxTree, includeResolutionAndTypes, projectDeclarationsOnly, projectIndex,
+            activityCheck, null);
+    }
+
+    private static SemanticModel performAnalysis(
+        SyntaxTree syntaxTree,
+        boolean includeResolutionAndTypes,
+        boolean projectDeclarationsOnly,
+        @Nullable JavaSymbolIndex projectIndex,
+        Runnable activityCheck,
+        @Nullable Consumer<NameResolver> afterResolution
+    ) {
         try {
             return analyzeTree(syntaxTree, includeResolutionAndTypes, projectDeclarationsOnly, projectIndex,
-                activityCheck);
+                activityCheck, afterResolution);
         } catch (StackOverflowError error) {
             // Very deep trees, such as long string concatenations, outgrow the recursive analysis passes.
             Railroad.LOGGER.warn("Skipped semantic analysis of {}: its syntax tree is nested too deeply",
@@ -411,7 +424,8 @@ public final class JavaSemanticAnalyzer {
         boolean includeResolutionAndTypes,
         boolean projectDeclarationsOnly,
         @Nullable JavaSymbolIndex projectIndex,
-        Runnable activityCheck
+        Runnable activityCheck,
+        @Nullable Consumer<NameResolver> afterResolution
     ) {
         Runnable checkpoint = new ActivityCheckpoint(activityCheck);
         checkpoint.run();
@@ -427,7 +441,10 @@ public final class JavaSemanticAnalyzer {
         }
 
         if (includeResolutionAndTypes) {
-            resolveNamesAndTypes(context, syntaxTree.root());
+            NameResolver resolver = resolveNamesAndTypes(context, syntaxTree.root());
+            if (afterResolution != null) {
+                afterResolution.accept(resolver);
+            }
         }
 
         checkpoint.run();
@@ -445,6 +462,47 @@ public final class JavaSemanticAnalyzer {
         context.poll();
         resolver.resolveDeferredCallables(root);
         return resolver;
+    }
+
+    /**
+     * Captures semantic facts and the receiver's type-variable bounds for member completion.
+     *
+     * @param tree parsed Java source
+     * @param receiver expression preceding the completion dot
+     * @param index captured Java symbols, or {@code null} for the runtime library
+     * @param check cooperative request activity check
+     * @return semantic facts and the bounds that supply members for a type-variable receiver
+     */
+    public static MemberCompletionAnalysis analyzeMemberCompletion(
+        SyntaxTree tree,
+        SyntaxNode receiver,
+        @Nullable JavaSymbolIndex index,
+        Runnable check
+    ) {
+        List<String> bounds = new ArrayList<>();
+        SemanticModel model = performAnalysis(tree, true, false, index, check, resolver -> {
+            Type type = resolver.context.inferredType(receiver);
+            if (type == null || type.kind() != JavaTypes.Kind.TYPE_VARIABLE)
+                return;
+
+            bounds.addAll(resolver.qualifiedTypeVariableBounds(type.displayName(), receiver));
+            if (bounds.isEmpty()) {
+                bounds.addAll(resolver.qualifiedResolvedReceiverTypeVariableBounds(receiver, receiver));
+            }
+
+            if (bounds.isEmpty()) {
+                bounds.add("java.lang.Object");
+            }
+        });
+
+        return new MemberCompletionAnalysis(model, List.copyOf(bounds));
+    }
+
+    /**
+     * @param model semantic facts for the source being completed
+     * @param receiverBounds qualified bounds for a type-variable receiver, or empty for other receivers
+     */
+    public record MemberCompletionAnalysis(SemanticModel model, List<String> receiverBounds) {
     }
 
     /**

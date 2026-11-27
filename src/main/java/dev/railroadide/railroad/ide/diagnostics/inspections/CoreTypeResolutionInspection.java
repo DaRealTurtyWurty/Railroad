@@ -1,13 +1,12 @@
 package dev.railroadide.railroad.ide.diagnostics.inspections;
 
-import dev.railroadide.railroad.ide.sst.java.api.JavaTypes;
 import dev.railroadide.railroad.ide.diagnostics.RegisteredInspection;
 import dev.railroadide.railroad.ide.diagnostics.rules.java.JavaSemanticRules;
+import dev.railroadide.railroad.ide.sst.impl.java.JavaSemanticAnalyzer;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaSyntaxKinds;
 import dev.railroadide.railroad.ide.sst.impl.java.JavaTokenType;
 import dev.railroadide.railroad.ide.sst.java.api.JavaSymbolKind;
 import dev.railroadide.railroad.ide.sst.semantic.api.Symbol;
-import dev.railroadide.railroad.ide.sst.semantic.api.Type;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxNode;
 import dev.railroadide.railroad.ide.sst.syntax.api.SyntaxToken;
 import dev.railroadide.railroad.plugin.spi.inspection.JavaInspectionRule;
@@ -15,6 +14,7 @@ import dev.railroadide.railroad.plugin.spi.inspection.JavaInspectionRuleProvider
 import dev.railroadide.railroad.plugin.spi.inspection.JavaInspectionRuleReporter;
 import dev.railroadide.railroad.plugin.spi.inspection.JavaRuleContext;
 
+import javax.lang.model.SourceVersion;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -29,9 +29,6 @@ public final class CoreTypeResolutionInspection implements JavaInspectionRulePro
      * Stable identifier used to register this inspection provider.
      */
     public static final String ID = "railroad:core-type-resolution";
-    private static final String JAVA_TYPE_REFERENCE = "JAVA_TYPE_REFERENCE";
-    private static final String JAVA_INTERSECTION_TYPE_REFERENCE = "JAVA_INTERSECTION_TYPE_REFERENCE";
-    private static final String JAVA_UNION_TYPE_REFERENCE = "JAVA_UNION_TYPE_REFERENCE";
     private static final String VAR_KEYWORD = JavaSyntaxKinds.tokenKind(JavaTokenType.VAR_KEYWORD).id();
 
     private static final List<JavaInspectionRule> RULES = List.of(
@@ -49,26 +46,23 @@ public final class CoreTypeResolutionInspection implements JavaInspectionRulePro
             CoreTypeResolutionInspection::reportSelfReferencingInitializers));
 
     private static void reportUnresolvedTypeReferences(JavaRuleContext context, JavaInspectionRuleReporter reporter) {
-        Set<String> availableTypeNames = context.availableTypeNames();
         context.traverse(node -> {
-            String kindId = node.kind().id();
-            if (!JAVA_TYPE_REFERENCE.equals(kindId)
-                && !JAVA_INTERSECTION_TYPE_REFERENCE.equals(kindId)
-                && !JAVA_UNION_TYPE_REFERENCE.equals(kindId))
+            if (!JavaSyntaxKinds.TYPE_REFERENCE.equals(node.kind())
+                || context.directChild(node, JavaSyntaxKinds.TYPE_REFERENCE.id()) != null)
                 return;
 
-            Type type = context.inferredType(node).orElse(null);
-            if (type == null || type.kind() != JavaTypes.Kind.DECLARED)
+            String spelling = context.canonicalTypeText(node);
+            if (spelling == null)
                 return;
 
-            String simpleName = context.simpleTypeName(type.displayName());
-            if ("var".equals(simpleName))
-                return;
+            String name = JavaSemanticAnalyzer.eraseTypeArguments(spelling);
+            while (name.endsWith("[]")) {
+                name = name.substring(0, name.length() - 2);
+            }
 
-            if (availableTypeNames.contains(simpleName) || availableTypeNames.contains(type.displayName()))
-                return;
-
-            reporter.report(node, type.displayName());
+            if (SourceVersion.isName(name) && !"var".equals(name) && !context.isTypeNameInScope(name, node)) {
+                reporter.report(node, name);
+            }
         });
     }
 

@@ -1628,6 +1628,18 @@ public final class JavaRuleContext implements LanguageRuleContext {
     }
 
     /**
+     * Checks whether a type name can be used as written at a reference in this compilation unit.
+     *
+     * @param name type name without type arguments or array suffixes
+     * @param usageSite syntax node where the name is used
+     * @return whether the name denotes an in-scope type or type parameter
+     */
+    public boolean isTypeNameInScope(String name, SyntaxNode usageSite) {
+        return isTypeParameterNameInScope(name, usageSite)
+            || isResolvableType(resolveQualifiedTypeName(name, usageSite));
+    }
+
+    /**
      * Resolves a type spelling using known types, local declarations, imports, and the current package. Type arguments
      * and array suffixes are removed; unmatched spellings are retained.
      *
@@ -1696,7 +1708,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         }
 
         for (ImportEntry entry : importEntries()) {
-            if (entry.isStatic() || entry.isWildcard())
+            if (entry.isWildcard())
                 continue;
 
             if (simpleName.equals(entry.importedName())) {
@@ -1725,7 +1737,7 @@ public final class JavaRuleContext implements LanguageRuleContext {
         }
 
         for (ImportEntry entry : importEntries()) {
-            if (entry.isStatic() || !entry.isWildcard())
+            if (!entry.isWildcard())
                 continue;
 
             String imported = entry.ownerName() + "." + simpleName;

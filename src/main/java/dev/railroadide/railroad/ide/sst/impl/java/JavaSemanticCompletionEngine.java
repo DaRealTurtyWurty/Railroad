@@ -25,8 +25,7 @@ import java.util.*;
 import java.lang.reflect.Modifier;
 
 /**
- * SST-backed completion: dot completion for source/project/JDK members and override completion at
- * member-declaration positions.
+ * SST-backed completion for members, types and method overrides.
  */
 public final class JavaSemanticCompletionEngine {
     private final Runnable activityCheck;
@@ -38,14 +37,14 @@ public final class JavaSemanticCompletionEngine {
     }
 
     /**
-     * Computes accessible source, project, and standard-library members for a dot-completion trigger, or the
-     * overridable inherited methods when the trigger is not a dot and lies at a member-declaration position.
+     * Computes accessible members after a dot, class names for a typed prefix, and overridable methods at
+     * member-declaration positions.
      *
      * @param document the Java document text
      * @param triggerAt the zero-based offset of the triggering dot, of the first character of the typed member
      *            name, or of the character before the caret
      * @param projectIndex the project symbol index, or {@code null} to use the standard library
-     * @return sorted member completions, or {@code null} when the trigger or receiver yields no candidates
+     * @return sorted completions, or {@code null} when the trigger yields no candidates
      */
     public static @Nullable CompletionResult compute(
         String document,
@@ -85,30 +84,44 @@ public final class JavaSemanticCompletionEngine {
         if (document == null || document.isEmpty() || triggerAt < 0 || triggerAt >= document.length())
             return null;
 
-        if (document.charAt(triggerAt) != '.')
-            return new JavaMethodOverrides(document, projectIndex, activityCheck).complete(triggerAt);
+        if (document.charAt(triggerAt) != '.') {
+            CompletionResult overrides = new JavaMethodOverrides(document, projectIndex, activityCheck)
+                .complete(triggerAt);
+            CompletionResult types = JavaTypeCompletion.complete(document, triggerAt, projectIndex, activityCheck);
+            if (overrides == null)
+                return types;
 
-        SemanticModel model = JavaSemanticAnalyzer.analyzeFacts(document, projectIndex, activityCheck);
-        SyntaxTree tree = model.syntaxTree();
+            if (types == null || overrides.replacementStart() != types.replacementStart())
+                return overrides;
 
-        SyntaxNode targetNode = lookup.findDeepestNodeContaining(tree.root(), triggerAt);
-        if (targetNode == null)
+            List<CompletionItem> items = new ArrayList<>(overrides.items());
+            items.addAll(types.items());
+            return new CompletionResult(types.replacementStart(), items);
+        }
+
+        SyntaxTree tree = JavaSyntaxParser.parse(document, activityCheck);
+        SyntaxNode access = findMemberAccess(lookup.findDeepestNodeContaining(tree.root(), triggerAt));
+        SyntaxNode receiver = access == null ? null : JavaSemanticAnalyzer.explicitReceiver(access);
+        if (receiver == null)
             return null;
 
-        CompletionTarget target = resolveCompletionTarget(targetNode, model, projectIndex);
-        if (target == null || target.ownerQualifiedName() == null || target.ownerQualifiedName().isBlank())
-            return null;
-
+        var analysis = JavaSemanticAnalyzer.analyzeMemberCompletion(tree, receiver, projectIndex, activityCheck);
+        SemanticModel model = analysis.model();
         String currentPackage = lookup.currentPackageName(tree.root());
         Map<String, CompletionItem> itemsByKey = new LinkedHashMap<>();
-        collectMembersRecursive(
-            model,
-            projectIndex,
-            target.ownerQualifiedName(),
-            target.staticContext(),
-            currentPackage,
-            itemsByKey,
-            new LinkedHashSet<>());
+        Set<String> visited = new LinkedHashSet<>();
+        if (analysis.receiverBounds().isEmpty()) {
+            CompletionTarget target = completionTargetForReceiver(receiver, access, model, projectIndex);
+            if (target == null || target.ownerQualifiedName() == null || target.ownerQualifiedName().isBlank())
+                return null;
+
+            collectMembersRecursive(model, projectIndex, target.ownerQualifiedName(), target.staticContext(),
+                currentPackage, itemsByKey, visited);
+        } else {
+            for (String bound : analysis.receiverBounds()) {
+                collectMembersRecursive(model, projectIndex, bound, false, currentPackage, itemsByKey, visited);
+            }
+        }
 
         if (itemsByKey.isEmpty())
             return null;
@@ -119,16 +132,11 @@ public final class JavaSemanticCompletionEngine {
         return new CompletionResult(triggerAt + 1, items);
     }
 
-    private @Nullable CompletionTarget resolveCompletionTarget(
-        SyntaxNode node,
-        SemanticModel model,
-        @Nullable JavaSymbolIndex projectIndex
-    ) {
+    private @Nullable SyntaxNode findMemberAccess(@Nullable SyntaxNode node) {
         for (SyntaxNode current = node; current != null; current = current.parent().orElse(null)) {
             ActivityCheckpoint.poll(activityCheck);
-            SyntaxNode receiver = JavaSemanticAnalyzer.explicitReceiver(current);
-            if (receiver != null)
-                return completionTargetForReceiver(receiver, current, model, projectIndex);
+            if (JavaSemanticAnalyzer.explicitReceiver(current) != null)
+                return current;
         }
 
         return null;
@@ -292,11 +300,14 @@ public final class JavaSemanticCompletionEngine {
 
                 case JavaSymbolKind.METHOD -> {
                     if (symbol.isStatic() == staticContext) {
+                        TypeReference returnType = symbol.structuredSignature() == null
+                            ? null
+                            : symbol.structuredSignature().returnType();
                         addMethodItem(
                             out,
                             symbol.simpleName(),
                             parameterDisplaysFromSignature(symbol),
-                            "?",
+                            returnType == null ? "?" : returnType.displayName(),
                             symbol.isStatic());
                     }
                 }
