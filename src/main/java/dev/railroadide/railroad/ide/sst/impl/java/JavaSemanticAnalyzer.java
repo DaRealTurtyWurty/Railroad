@@ -644,6 +644,62 @@ public final class JavaSemanticAnalyzer {
         return List.copyOf(overloads.values());
     }
 
+    /**
+     * Finds lambda arities for the empty final slot of a partially entered constructor or method call.
+     *
+     * @param tree parsed Java source
+     * @param arguments argument list with an empty slot at the end
+     * @param index captured Java symbols
+     * @param check checks cancellation
+     * @return distinct arities of compatible functional interface parameters
+     */
+    public static List<Integer> lambdaArgumentArities(
+        SyntaxTree tree,
+        SyntaxNode arguments,
+        @Nullable JavaSymbolIndex index,
+        Runnable check
+    ) {
+        SyntaxNode call = arguments.parent().orElse(null);
+        if (call == null || !call.kind().equals(JavaSyntaxKinds.METHOD_INVOCATION_EXPRESSION)
+            && !call.kind().equals(JavaSyntaxKinds.CLASS_INSTANCE_CREATION_EXPRESSION))
+            return List.of();
+
+        int slot = (int) arguments.children().stream()
+            .filter(child -> child.kind().equals(JavaSyntaxKinds.tokenKind(JavaTokenType.COMMA))).count();
+        Set<Integer> arities = new TreeSet<>();
+        performAnalysis(tree, true, false, index, check, resolver -> {
+            List<Type> typed = resolver.inferArgumentTypes(arguments);
+            if (typed.size() != slot)
+                return;
+
+            for (NameResolver.MemberCandidate candidate : resolver.signatureCandidates(call)) {
+                resolver.context.poll();
+                List<Type> parameters = candidate.parameterTypes();
+                if (parameters.isEmpty() || slot >= parameters.size() && !candidate.variableArity())
+                    continue;
+
+                boolean expanded = candidate.variableArity() && slot >= parameters.size() - 1;
+                Type target = parameters.get(Math.min(slot, parameters.size() - 1));
+                if (expanded && target instanceof JavaTypes.ArrayType array) {
+                    target = array.componentType();
+                }
+
+                List<Integer> cost = slot >= parameters.size()
+                    ? resolver.applicabilityCost(parameters, typed, true)
+                    : resolver.applicabilityCost(parameters.subList(0, slot), typed, false);
+                if (cost == null)
+                    continue;
+
+                FunctionalShape shape = resolver.functionalShape(target, new HashSet<>());
+                if (shape != null) {
+                    arities.add(shape.arity());
+                }
+            }
+        });
+
+        return List.copyOf(arities);
+    }
+
     private static List<String> parameterTypes(SignatureHelp help) {
         return help.parameters().stream().map(SignatureHelp.ParameterInfo::type).toList();
     }
@@ -1505,7 +1561,7 @@ public final class JavaSemanticAnalyzer {
 
             ClassStub ownerStub = binaryClassStubsByQualifiedName.get(ownerQualifiedName);
             String ownerPackage = ownerStub == null ? packagePrefix(ownerQualifiedName) : ownerStub.packageName();
-            if (Objects.equals(context.currentPackageName, ownerPackage))
+            if (Objects.toString(context.currentPackageName, "").equals(ownerPackage))
                 return true;
 
             if (Modifier.isPrivate(modifiers)) {
@@ -4539,8 +4595,40 @@ public final class JavaSemanticAnalyzer {
             if (qualifiedTypeName == null || !visited.add(qualifiedTypeName))
                 return null;
 
+            if (localQualifiedTypeNames.contains(qualifiedTypeName)) {
+                boolean interfaceType = context.allTypeSymbols().stream()
+                    .anyMatch(symbol -> symbol.kind() == JavaSymbolKind.INTERFACE
+                        && qualifiedTypeName.equals(symbol.qualifiedName().orElse(null)));
+                if (!interfaceType)
+                    return null;
+
+                List<MemberCandidate> abstractMethods = localMethodsByOwner.getOrDefault(qualifiedTypeName, Map.of())
+                    .values().stream().flatMap(List::stream)
+                    .filter(method -> !method.staticMember()
+                        && !isObjectMethodSignature(method.symbol().simpleName(), method.parameterTypes().size()))
+                    .filter(method -> method.symbol().declaration()
+                        .filter(declaration -> directChild(declaration, JavaSyntaxKinds.BLOCK.id()) == null)
+                        .isPresent())
+                    .toList();
+                if (!abstractMethods.isEmpty()) {
+                    MemberCandidate method = abstractMethods.getFirst();
+                    return abstractMethods.size() == 1
+                        ? new FunctionalShape(method.parameterTypes().size(),
+                            "void".equals(method.valueType().displayName()))
+                        : null;
+                }
+
+                List<String> parents = directSuperTypeNames(qualifiedTypeName);
+                return parents.size() == 1
+                    ? functionalShape(new JavaTypes.DeclaredType(parents.getFirst(), List.of()), visited)
+                    : null;
+            }
+
             ClassStub stub = binaryClassStubsByQualifiedName.get(qualifiedTypeName);
             if (stub != null) {
+                if (!Modifier.isInterface(stub.modifiers()))
+                    return null;
+
                 Map<String, FunctionalShape> abstractMethods = new LinkedHashMap<>();
                 for (MethodStub method : stub.methods()) {
                     context.poll();
@@ -4596,7 +4684,10 @@ public final class JavaSemanticAnalyzer {
             Map<String, FunctionalShape> sourceMethods = new LinkedHashMap<>();
             for (JavaProjectSemanticIndex.SymbolDescriptor symbol : projectIndex.lookupMembers(qualifiedTypeName)) {
                 context.poll();
-                if (isProjectSourceSymbol(symbol) && symbol.kind() == JavaSymbolKind.METHOD && !symbol.isStatic()) {
+                if (isProjectSourceSymbol(symbol) && symbol.kind() == JavaSymbolKind.METHOD && !symbol.isStatic()
+                    && !isObjectMethodSignature(symbol.simpleName(), parameterTypesFromProjectSignature(symbol).size())
+                    && (symbol.descriptor() == null
+                        || symbol.descriptor().metadata().modifiers().contains("abstract"))) {
                     SymbolSignature signature = symbol.structuredSignature();
                     Boolean returnsVoid = signature == null || signature.returnType() == null
                         ? null

@@ -2183,7 +2183,11 @@ public class CodeEditorPane extends TextEditorPane {
         String inserted = change.getInserted();
         try {
             int end = change.getPosition() + inserted.length();
-            if (!inserted.isEmpty() && completionProvider.shouldTrigger(linePrefix(change.getPosition()), inserted)) {
+            if ("()".equals(inserted) && completionProvider.shouldTrigger(linePrefix(change.getPosition()), "(")) {
+                hideAutoComplete();
+                triggerCompletion(change.getPosition());
+            } else if (!inserted.isEmpty()
+                && completionProvider.shouldTrigger(linePrefix(change.getPosition()), inserted)) {
                 hideAutoComplete();
                 triggerCompletion(end - 1);
             } else if (completionTriggerOffset >= 0 && change.getPosition() > completionTriggerOffset

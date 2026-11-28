@@ -44,6 +44,10 @@ public class CompletionProviderTest {
     @Test
     public void triggersMethodReferencesOnTheSecondColonAndKeepsTheirPrefixInTheSameRequest() {
         CompletionProvider provider = provider();
+        assertTrue(provider.shouldTrigger("stream.map", "("));
+        assertTrue(provider.shouldTrigger("call(1", ","));
+        assertTrue(provider.shouldTrigger("call(1,", " "));
+        assertFalse(provider.shouldTrigger("call(1", " "));
         assertFalse(provider.shouldTrigger("this", ":"));
         assertTrue(provider.shouldTrigger("this:", ":"));
         assertTrue(provider.shouldTrigger("this", "::"));

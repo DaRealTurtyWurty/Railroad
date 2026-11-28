@@ -395,6 +395,36 @@ public class CodeEditorCompletionRequestTest {
     }
 
     @Test
+    public void pairedParenthesesOfferALambdaAndAcceptItInsideTheCall() throws Exception {
+        String prefix = "class Example { void use(Runnable action) {} void run() { use";
+        String suffix = "; } }";
+        try (Fixture fixture = open(context -> {
+            String text = ((TextDocumentSnapshot) context.documentSnapshot()).text();
+            return new FeatureResult<>(context,
+                JavaSemanticCompletionEngine.compute(text, prefix.length(), null, context::checkActive));
+        }, prefix + suffix, "("::equals)) {
+            TestEditor editor = fixture.editor;
+            onFx(() -> {
+                editor.insertText(prefix.length(), "()");
+                editor.moveTo(prefix.length() + 1);
+                return null;
+            });
+
+            assertNotNull(fixture.provider.requests.poll(10, TimeUnit.SECONDS));
+            awaitRequests(editor.featureRequests);
+            onFx(() -> {
+                RRListView<CompletionItem> list = editor.activeCompletionList.get();
+                assertNotNull(list);
+                assertEquals(List.of("() ->"), list.getItems().stream().map(CompletionItem::label).toList());
+                editor.press(KeyCode.ENTER, false);
+                assertEquals(prefix + "(() -> )" + suffix, editor.getText());
+                assertEquals(prefix.length() + "(() -> ".length(), editor.getCaretPosition());
+                return null;
+            });
+        }
+    }
+
+    @Test
     public void typingAndAcceptingAJavaKeywordReplacesThePrefix() throws Exception {
         String prefix = "class Example { int run() { ";
         String suffix = " } }";

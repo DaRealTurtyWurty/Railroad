@@ -35,7 +35,8 @@ public record JavaCompletionProvider(
 ) implements CompletionProvider {
     /**
      * Triggers member completion after a dot or method-reference separator, value and override completion when an
-     * identifier starts, and type completion once a second unqualified identifier character has been entered.
+     * identifier starts, type completion on a second unqualified identifier character, and lambda completion after
+     * an opening parenthesis or comma.
      *
      * @param linePrefix text on the same line before the inserted text
      * @param insertedText newly inserted text
@@ -44,8 +45,14 @@ public record JavaCompletionProvider(
     @Override
     public boolean shouldTrigger(String linePrefix, String insertedText) {
         if (insertedText.endsWith(".") || insertedText.endsWith("::")
-            || insertedText.equals(":") && linePrefix.endsWith(":"))
+            || insertedText.equals(":") && linePrefix.endsWith(":")
+            || insertedText.equals("(") || insertedText.equals(","))
             return true;
+
+        if (insertedText.equals(" ") || insertedText.equals("\t")) {
+            String beforeWhitespace = linePrefix.stripTrailing();
+            return beforeWhitespace.endsWith("(") || beforeWhitespace.endsWith(",");
+        }
 
         if (insertedText.length() != 1 || !Character.isJavaIdentifierPart(insertedText.charAt(0)))
             return false;

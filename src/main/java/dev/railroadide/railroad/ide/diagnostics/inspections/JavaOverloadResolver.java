@@ -22,9 +22,9 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
- * Chooses among the overloads of a method invocation as JLS 15.12.2 does. Candidates are the member methods of the
- * class to search, and they are tried by strict invocation, then loose invocation, then variable arity invocation.
- * The most specific method of the first phase with an applicable method wins.
+ * Chooses among the overloads of a method or constructor invocation. Candidates are tried by strict invocation,
+ * then loose invocation, then variable arity invocation. The most specific candidate in the first applicable phase
+ * wins.
  * <p>
  * Type inference, poly expressions and unknown types are not modelled. Whenever the outcome depends on one of them,
  * the resolution is {@link Outcome#UNDETERMINED} rather than a guess, so the other outcomes can be reported as errors.
@@ -78,6 +78,58 @@ public final class JavaOverloadResolver {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(invocation, "invocation");
         return new JavaOverloadResolver(context).resolveInvocation(invocation);
+    }
+
+    /**
+     * Resolves a class instance creation independently of the editor's recovery binding.
+     *
+     * @param context the rule context of the creation's file
+     * @param creation the class instance creation node
+     * @return whether the available constructor declarations can accept the arguments
+     */
+    public static Resolution resolveConstructor(JavaRuleContext context, SyntaxNode creation) {
+        return new JavaOverloadResolver(context).resolveCreation(creation);
+    }
+
+    private Resolution resolveCreation(SyntaxNode creation) {
+        SyntaxNode argumentList = context.directChild(creation, JavaSyntaxKinds.ARGUMENT_LIST.id());
+        if (argumentList == null || hasMissingSyntax(argumentList) || hasUnresolvedName(argumentList))
+            return ERRONEOUS;
+
+        long count = argumentList.children().stream().filter(context::isExpressionNode).count();
+        long commas = argumentList.children().stream()
+            .filter(child -> child.kind().equals(JavaSyntaxKinds.tokenKind(JavaTokenType.COMMA))).count();
+        if (commas != Math.max(0, count - 1))
+            return ERRONEOUS;
+
+        SyntaxNode type = context.directChild(creation, JavaSyntaxKinds.TYPE_REFERENCE.id());
+        String owner = type == null ? null : context.resolveQualifiedTypeName(type);
+        if (owner == null)
+            return UNDETERMINED;
+
+        List<MethodDescriptor> constructors = context.constructorDescriptorsForType(owner);
+        if (constructors.isEmpty())
+            return UNDETERMINED;
+
+        boolean hasMatchingArity = constructors.stream().anyMatch(ctor -> ctor.parameterTypes().size() == count
+            || context.isVariableArityMethod(ctor) && count >= ctor.parameterTypes().size() - 1);
+        if (!hasMatchingArity)
+            return new Resolution(Outcome.INAPPLICABLE, constructors);
+
+        List<Argument> types = arguments(argumentList);
+        return types == null ? UNDETERMINED : choose(constructors, types);
+    }
+
+    private boolean hasMissingSyntax(SyntaxNode node) {
+        context.checkActive();
+        if (node.width() == 0)
+            return true;
+
+        if (node.kind().equals(JavaSyntaxKinds.LAMBDA_BODY)
+            || node.kind().equals(JavaSyntaxKinds.ANONYMOUS_CLASS_BODY))
+            return false;
+
+        return node.children().stream().anyMatch(this::hasMissingSyntax);
     }
 
     private Resolution resolveInvocation(SyntaxNode invocation) {

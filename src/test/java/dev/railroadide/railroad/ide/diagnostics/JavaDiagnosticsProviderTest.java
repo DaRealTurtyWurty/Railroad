@@ -48,12 +48,53 @@ import dev.railroadide.railroad.ide.sst.document.api.WorkspaceConfigurationSnaps
 import java.util.Set;
 import dev.railroadide.railroad.ide.language.LanguageSupports;
 import dev.railroadide.railroad.ide.language.index.ProjectLanguageIndexService;
+import dev.railroadide.railroad.ide.sst.document.api.TextRange;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class JavaDiagnosticsProviderTest {
     private static final String PLUGIN_RULE_PROVIDER_ID = "test:plugin-rule-provider";
     private static final String PLUGIN_RULE_ID = "PLUGIN_RULE_WARNING";
+
+    @Test
+    public void reportsConstructorMismatchesEvenWhenTheEditorRecoversAConstructorBinding() {
+        String source = """
+            class Example {
+                static class Count { Count(int count) {} }
+                static class Action { Action(Runnable action) {} }
+                static class Default {}
+                record Entry(int row, String... labels) {
+                    Entry {}
+                    Entry(boolean enabled) { this(0); }
+                }
+
+                void use() {
+                    new Count(new Object());
+                    new Action(() -> {}, 1);
+                    new Default(new Object());
+                    new Entry("wrong");
+                    new Count(Integer.valueOf(2));
+                    new Action(() -> {});
+                    new Default();
+                    new Entry(1, "one", "two");
+                    new Entry(true);
+                    new Count(missing);
+                    new Entry(1, );
+                }
+            }
+            """;
+        var snapshot = new TextDocumentSnapshot(DocumentId.create(),
+            DocumentUri.virtual("test", "/Example.java"), DocumentVersion.initial(),
+            JavaLanguageSupport.LANGUAGE_ID, source, StandardCharsets.UTF_8);
+        List<TextEditorDiagnostic> errors = new JavaDiagnosticsProvider().compute(snapshot).stream()
+            .filter(diagnostic -> "SEM_UNRESOLVED_CALL".equals(diagnostic.code()))
+            .toList();
+        assertTrue(errors.stream().allMatch(diagnostic -> diagnostic.kind() == DiagnosticSeverity.ERROR));
+        assertEquals(List.of("Count", "Action", "Default", "Entry"), errors.stream().map(diagnostic -> {
+            TextRange range = diagnostic.location().range();
+            return source.substring(range.start, range.end).strip();
+        }).toList());
+    }
 
     @Test
     public void coreSemanticInspectionIsRegisteredAndProducesDiagnostics() {

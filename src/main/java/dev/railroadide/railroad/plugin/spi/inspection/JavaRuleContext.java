@@ -3502,7 +3502,13 @@ public final class JavaRuleContext implements LanguageRuleContext {
             .toList();
     }
 
-    private List<MethodDescriptor> constructorDescriptorsForType(String ownerQualifiedTypeName) {
+    /**
+     * Returns the known constructor declarations of a type, including implicit source constructors.
+     *
+     * @param ownerQualifiedTypeName qualified name of the type to construct
+     * @return constructor descriptors, or an empty list when unavailable
+     */
+    public List<MethodDescriptor> constructorDescriptorsForType(String ownerQualifiedTypeName) {
         List<MethodDescriptor> constructors = new ArrayList<>();
 
         Symbol localType = localTypeSymbol(ownerQualifiedTypeName).orElse(null);
@@ -3516,14 +3522,22 @@ public final class JavaRuleContext implements LanguageRuleContext {
                     return;
 
                 SyntaxNode ctorDeclaration = symbol.declaration().orElse(null);
-                if (ctorDeclaration == null || !JAVA_CONSTRUCTOR_DECLARATION.equals(ctorDeclaration.kind().id()))
+                if (ctorDeclaration == null || !JAVA_CONSTRUCTOR_DECLARATION.equals(ctorDeclaration.kind().id())
+                    && !JAVA_RECORD_COMPACT_CONSTRUCTOR.equals(ctorDeclaration.kind().id()))
                     return;
 
                 constructors.add(sourceConstructorDescriptor(ownerQualifiedTypeName, symbol, ctorDeclaration));
             }));
 
-            if (constructors.isEmpty() && localType.kind() == JavaSymbolKind.RECORD) {
-                constructors.add(implicitRecordConstructorDescriptor(ownerQualifiedTypeName, declaration));
+            if (localType.kind() == JavaSymbolKind.RECORD) {
+                MethodDescriptor canonical = implicitRecordConstructorDescriptor(ownerQualifiedTypeName, declaration);
+                if (constructors.stream().noneMatch(ctor -> ctor.parameterTypes().equals(canonical.parameterTypes()))) {
+                    constructors.add(canonical);
+                }
+            } else if (constructors.isEmpty() && localType.kind() == JavaSymbolKind.CLASS) {
+                constructors.add(new MethodDescriptor(ownerQualifiedTypeName, "<init>", List.of(), List.of(),
+                    new DeclaredType(ownerQualifiedTypeName, List.of()), List.of(),
+                    sourceSymbolModifiers(localType, declaration), null, null));
             }
 
             return List.copyOf(constructors);
@@ -3565,10 +3579,10 @@ public final class JavaRuleContext implements LanguageRuleContext {
         SyntaxNode declaration
     ) {
         List<Type> parameterTypes = new ArrayList<>();
-        SyntaxNode parameterList = directChild(declaration, JAVA_PARAMETER_LIST);
+        SyntaxNode parameterList = JavaSourceSymbolIds.parameterList(declaration);
         if (parameterList != null) {
             for (SyntaxNode child : parameterList.children()) {
-                if (!JAVA_PARAMETER.equals(child.kind().id()))
+                if (!JAVA_PARAMETER.equals(child.kind().id()) && !JAVA_RECORD_COMPONENT.equals(child.kind().id()))
                     continue;
 
                 SyntaxNode typeRef = directChild(child, JAVA_TYPE_REFERENCE);
@@ -3602,7 +3616,8 @@ public final class JavaRuleContext implements LanguageRuleContext {
                     continue;
 
                 SyntaxNode typeRef = directChild(child, JAVA_TYPE_REFERENCE);
-                parameterTypes.add(semanticTypeFromTypeReference(typeRef));
+                Type type = semanticTypeFromTypeReference(typeRef);
+                parameterTypes.add(hasTokenKind(child, JavaTokenType.ELLIPSIS) ? new JavaTypes.ArrayType(type) : type);
             }
         }
 
@@ -3894,7 +3909,11 @@ public final class JavaRuleContext implements LanguageRuleContext {
     public boolean isVariableArityMethod(MethodDescriptor method) {
         SyntaxNode declaration = method.declaration();
         if (declaration != null) {
-            SyntaxNode parameters = directChild(declaration, JAVA_PARAMETER_LIST);
+            SyntaxNode parameters = JavaSourceSymbolIds.parameterList(declaration);
+            if (parameters == null && "<init>".equals(method.name())) {
+                parameters = directChild(declaration, JAVA_RECORD_HEADER);
+            }
+
             return parameters != null && hasTokenKind(parameters, JavaTokenType.ELLIPSIS);
         }
 

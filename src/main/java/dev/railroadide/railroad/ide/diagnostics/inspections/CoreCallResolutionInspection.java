@@ -82,10 +82,12 @@ public final class CoreCallResolutionInspection implements JavaInspectionRulePro
             if (!"JAVA_CLASS_INSTANCE_CREATION_EXPRESSION".equals(kindId))
                 return;
 
-            if (context.resolvedSymbol(node).isPresent())
+            Outcome overload = JavaOverloadResolver.resolveConstructor(context, node).outcome();
+            if (overload == Outcome.RESOLVED || overload == Outcome.AMBIGUOUS
+                || overload == Outcome.ERRONEOUS_ARGUMENTS)
                 return;
 
-            if (context.canResolveClassInstanceCreation(node))
+            if (overload == Outcome.UNDETERMINED && context.canResolveClassInstanceCreation(node))
                 return;
 
             SyntaxNode typeRef = context.directChild(node, "JAVA_TYPE_REFERENCE");

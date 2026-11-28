@@ -99,6 +99,13 @@ public final class JavaSemanticCompletionEngine {
         if (document.charAt(triggerAt) == ':' && triggerAt > 0 && document.charAt(triggerAt - 1) == ':')
             return null;
 
+        char trigger = document.charAt(triggerAt);
+        if (trigger == '(' || trigger == ',' || Character.isWhitespace(trigger)) {
+            CompletionResult lambda = completeLambdaArgument(tree, triggerAt, projectIndex);
+            if (lambda != null)
+                return lambda;
+        }
+
         if (document.charAt(triggerAt) != '.') {
             CompletionResult overrides = new JavaMethodOverrides(document, projectIndex, activityCheck)
                 .complete(tree, triggerAt);
@@ -149,6 +156,57 @@ public final class JavaSemanticCompletionEngine {
             .sorted(Comparator.comparing(CompletionItem::displayText, String.CASE_INSENSITIVE_ORDER))
             .toList();
         return new CompletionResult(triggerAt + 1, items);
+    }
+
+    private @Nullable CompletionResult completeLambdaArgument(
+        SyntaxTree tree,
+        int triggerAt,
+        @Nullable JavaSymbolIndex projectIndex
+    ) {
+        String text = tree.documentSnapshot().text();
+        int separatorOffset = triggerAt;
+        while (separatorOffset >= 0 && Character.isWhitespace(text.charAt(separatorOffset))) {
+            separatorOffset--;
+        }
+
+        if (separatorOffset < 0 || text.charAt(separatorOffset) != '(' && text.charAt(separatorOffset) != ',')
+            return null;
+
+        SyntaxNode separator = lookup.findDeepestNodeContaining(tree.root(), separatorOffset);
+        SyntaxNode arguments = separator == null ? null : separator.parent().orElse(null);
+        if (!(separator instanceof SyntaxToken token) || arguments == null
+            || !arguments.kind().equals(JavaSyntaxKinds.ARGUMENT_LIST)
+            || !token.kind().equals(JavaSyntaxKinds.tokenKind(JavaTokenType.OPEN_PAREN))
+                && !token.kind().equals(JavaSyntaxKinds.tokenKind(JavaTokenType.COMMA)))
+            return null;
+
+        for (SyntaxNode child : arguments.children()) {
+            if (child.start() >= separator.end() && child.width() > 0
+                && !(child instanceof SyntaxToken following && (JavaSemanticAnalyzer.isTriviaToken(following)
+                    || following.kind().equals(JavaSyntaxKinds.tokenKind(JavaTokenType.CLOSE_PAREN)))))
+                return null;
+        }
+
+        List<CompletionItem> items = JavaSemanticAnalyzer.lambdaArgumentArities(tree, arguments, projectIndex,
+            activityCheck).stream().map(arity -> {
+                String parameters;
+                if (arity == 1) {
+                    parameters = "value";
+                } else {
+                    var names = new StringJoiner(", ", "(", ")");
+                    for (int index = 1; index <= arity; index++) {
+                        names.add("value" + index);
+                    }
+
+                    parameters = names.toString();
+                }
+
+                String label = parameters + " ->";
+                String insertion = label + " ";
+                return new CompletionItem(label, label, "", "", CompletionItem.Kind.TEXT, false,
+                    new CompletionItem.Template(insertion, insertion.length()));
+            }).toList();
+        return items.isEmpty() ? null : new CompletionResult(triggerAt + 1, items);
     }
 
     private @Nullable CompletionResult completeUnqualified(
